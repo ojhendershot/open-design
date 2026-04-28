@@ -82,6 +82,9 @@ export const zhCN: Dict = {
   'settings.noAgentSelected': '尚未选择代理',
   'settings.language': '界面语言',
   'settings.languageHint': '切换界面语言，设置仅保存在当前浏览器。',
+  'settings.modelPicker': '模型',
+  'settings.reasoningPicker': '推理强度',
+  'settings.modelPickerHint': '按 CLI 单独保存。选择「默认」则沿用 CLI 自身的配置。',
 
   'entry.tabDesigns': '我的设计',
   'entry.tabExamples': '示例',
@@ -208,6 +211,9 @@ export const zhCN: Dict = {
   'avatar.metaOffline': '未运行',
   'avatar.metaSelected': '已选',
   'avatar.noAgentSelected': '尚未选择代理',
+  'avatar.modelSection': '模型',
+  'avatar.modelLabel': '模型',
+  'avatar.reasoningLabel': '推理',
 
   'project.backToProjects': '返回项目列表',
   'project.metaFreeform': '自由设计',

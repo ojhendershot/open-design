@@ -183,6 +183,79 @@ export function SettingsDialog({
                 })}
               </div>
             )}
+            {(() => {
+              const selected = agents.find(
+                (a) => a.id === cfg.agentId && a.available,
+              );
+              if (!selected) return null;
+              const hasModels =
+                Array.isArray(selected.models) && selected.models.length > 0;
+              const hasReasoning =
+                Array.isArray(selected.reasoningOptions) &&
+                selected.reasoningOptions.length > 0;
+              if (!hasModels && !hasReasoning) return null;
+              const choice = cfg.agentModels?.[selected.id] ?? {};
+              const setChoice = (
+                next: { model?: string; reasoning?: string },
+              ) => {
+                setCfg((c) => {
+                  const prev = c.agentModels?.[selected.id] ?? {};
+                  return {
+                    ...c,
+                    agentModels: {
+                      ...(c.agentModels ?? {}),
+                      [selected.id]: { ...prev, ...next },
+                    },
+                  };
+                });
+              };
+              const modelValue =
+                choice.model ?? selected.models?.[0]?.id ?? '';
+              const reasoningValue =
+                choice.reasoning ??
+                selected.reasoningOptions?.[0]?.id ?? '';
+              return (
+                <div className="agent-model-row">
+                  {hasModels ? (
+                    <label className="field">
+                      <span className="field-label">
+                        {t('settings.modelPicker')}
+                      </span>
+                      <select
+                        value={modelValue}
+                        onChange={(e) => setChoice({ model: e.target.value })}
+                      >
+                        {selected.models!.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                  {hasReasoning ? (
+                    <label className="field">
+                      <span className="field-label">
+                        {t('settings.reasoningPicker')}
+                      </span>
+                      <select
+                        value={reasoningValue}
+                        onChange={(e) =>
+                          setChoice({ reasoning: e.target.value })
+                        }
+                      >
+                        {selected.reasoningOptions!.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                  <p className="hint">{t('settings.modelPickerHint')}</p>
+                </div>
+              );
+            })()}
           </section>
         ) : (
           <section className="settings-section">

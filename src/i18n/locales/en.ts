@@ -83,6 +83,10 @@ export const en: Dict = {
   'settings.noAgentSelected': 'no agent selected',
   'settings.language': 'Language',
   'settings.languageHint': 'Switch the interface language. Saved to this browser.',
+  'settings.modelPicker': 'Model',
+  'settings.reasoningPicker': 'Reasoning effort',
+  'settings.modelPickerHint':
+    'Picked per CLI. "Default" leaves the choice to the CLI’s own config.',
 
   'entry.tabDesigns': 'Designs',
   'entry.tabExamples': 'Examples',
@@ -211,6 +215,9 @@ export const en: Dict = {
   'avatar.metaOffline': 'offline',
   'avatar.metaSelected': 'selected',
   'avatar.noAgentSelected': 'no agent selected',
+  'avatar.modelSection': 'Model',
+  'avatar.modelLabel': 'Model',
+  'avatar.reasoningLabel': 'Reasoning',
 
   'project.backToProjects': 'Back to projects',
   'project.metaFreeform': 'freeform',

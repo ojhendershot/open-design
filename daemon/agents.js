@@ -6,13 +6,27 @@ import path from 'node:path';
 
 const execFileP = promisify(execFile);
 
-// Each entry defines how to invoke the agent in non-interactive "one-shot" mode.
-// `buildArgs(prompt, imagePaths, extraAllowedDirs)` returns argv for the child
-// process. `extraAllowedDirs` is a list of absolute directories the agent must
-// be permitted to read files from (skill seeds, design-system specs) that live
+// Per-agent model picker:
+//
+//   - `models`             : selectable model presets shown in the UI. The
+//                            first entry is treated as the default. `id`
+//                            of `'default'` means "let the CLI pick" — the
+//                            agent runs with no `--model` flag, so the
+//                            user's local CLI config wins.
+//   - `reasoningOptions`   : optional reasoning-effort presets (currently
+//                            only Codex exposes this knob). Same `default`
+//                            convention as models.
+//   - `buildArgs(prompt, imagePaths, extraAllowedDirs, options)` returns
+//     argv for the child process. `options = { model, reasoning }` carries
+//     whatever the user picked in the model menu — agents that don't take a
+//     model flag ignore them.
+//
+// `extraAllowedDirs` is a list of absolute directories the agent must be
+// permitted to read files from (skill seeds, design-system specs) that live
 // outside the project cwd. Currently only Claude Code wires this through
 // (`--add-dir`); other agents either inherit broader access or run with cwd
 // boundaries we can't widen via flags.
+//
 // `streamFormat` hints to the daemon how to interpret stdout:
 //   - 'claude-stream-json' : line-delimited JSON emitted by Claude Code's
 //     `--output-format stream-json`. Daemon parses it into typed events
@@ -24,7 +38,13 @@ export const AGENT_DEFS = [
     name: 'Claude Code',
     bin: 'claude',
     versionArgs: ['--version'],
-    buildArgs: (prompt, _imagePaths, extraAllowedDirs = []) => {
+    models: [
+      { id: 'default', label: 'Default (CLI config)' },
+      { id: 'claude-opus-4-5', label: 'Opus 4.5' },
+      { id: 'claude-sonnet-4-5', label: 'Sonnet 4.5' },
+      { id: 'claude-haiku-4-5', label: 'Haiku 4.5' },
+    ],
+    buildArgs: (prompt, _imagePaths, extraAllowedDirs = [], options = {}) => {
       const args = [
         '-p',
         prompt,
@@ -33,6 +53,9 @@ export const AGENT_DEFS = [
         '--verbose',
         '--include-partial-messages',
       ];
+      if (options.model && options.model !== 'default') {
+        args.push('--model', options.model);
+      }
       const dirs = (extraAllowedDirs || []).filter(
         (d) => typeof d === 'string' && d.length > 0,
       );
@@ -48,7 +71,33 @@ export const AGENT_DEFS = [
     name: 'Codex CLI',
     bin: 'codex',
     versionArgs: ['--version'],
-    buildArgs: (prompt) => ['exec', prompt],
+    models: [
+      { id: 'default', label: 'Default (CLI config)' },
+      { id: 'gpt-5-codex', label: 'gpt-5-codex' },
+      { id: 'gpt-5', label: 'gpt-5' },
+      { id: 'o3', label: 'o3' },
+      { id: 'o4-mini', label: 'o4-mini' },
+    ],
+    reasoningOptions: [
+      { id: 'default', label: 'Default' },
+      { id: 'minimal', label: 'Minimal' },
+      { id: 'low', label: 'Low' },
+      { id: 'medium', label: 'Medium' },
+      { id: 'high', label: 'High' },
+    ],
+    buildArgs: (prompt, _imagePaths, _extra, options = {}) => {
+      const args = ['exec'];
+      if (options.model && options.model !== 'default') {
+        args.push('--model', options.model);
+      }
+      if (options.reasoning && options.reasoning !== 'default') {
+        // Codex accepts `-c key=value` config overrides; reasoning effort
+        // is exposed as `model_reasoning_effort`.
+        args.push('-c', `model_reasoning_effort="${options.reasoning}"`);
+      }
+      args.push(prompt);
+      return args;
+    },
     streamFormat: 'plain',
   },
   {
@@ -56,7 +105,19 @@ export const AGENT_DEFS = [
     name: 'Gemini CLI',
     bin: 'gemini',
     versionArgs: ['--version'],
-    buildArgs: (prompt) => ['-p', prompt],
+    models: [
+      { id: 'default', label: 'Default (CLI config)' },
+      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+    ],
+    buildArgs: (prompt, _imagePaths, _extra, options = {}) => {
+      const args = [];
+      if (options.model && options.model !== 'default') {
+        args.push('--model', options.model);
+      }
+      args.push('-p', prompt);
+      return args;
+    },
     streamFormat: 'plain',
   },
   {
@@ -64,7 +125,22 @@ export const AGENT_DEFS = [
     name: 'OpenCode',
     bin: 'opencode',
     versionArgs: ['--version'],
-    buildArgs: (prompt) => ['run', prompt],
+    models: [
+      { id: 'default', label: 'Default (CLI config)' },
+      { id: 'anthropic/claude-sonnet-4-5', label: 'Anthropic · Sonnet 4.5' },
+      { id: 'anthropic/claude-opus-4-5', label: 'Anthropic · Opus 4.5' },
+      { id: 'anthropic/claude-haiku-4-5', label: 'Anthropic · Haiku 4.5' },
+      { id: 'openai/gpt-5', label: 'OpenAI · gpt-5' },
+      { id: 'google/gemini-2.5-pro', label: 'Google · Gemini 2.5 Pro' },
+    ],
+    buildArgs: (prompt, _imagePaths, _extra, options = {}) => {
+      const args = ['run'];
+      if (options.model && options.model !== 'default') {
+        args.push('--model', options.model);
+      }
+      args.push(prompt);
+      return args;
+    },
     streamFormat: 'plain',
   },
   {
@@ -72,7 +148,21 @@ export const AGENT_DEFS = [
     name: 'Cursor Agent',
     bin: 'cursor-agent',
     versionArgs: ['--version'],
-    buildArgs: (prompt) => ['-p', prompt],
+    models: [
+      { id: 'default', label: 'Default (CLI config)' },
+      { id: 'auto', label: 'Auto' },
+      { id: 'claude-4-sonnet', label: 'Claude 4 Sonnet' },
+      { id: 'claude-4.5-sonnet', label: 'Claude 4.5 Sonnet' },
+      { id: 'gpt-5', label: 'gpt-5' },
+    ],
+    buildArgs: (prompt, _imagePaths, _extra, options = {}) => {
+      const args = [];
+      if (options.model && options.model !== 'default') {
+        args.push('--model', options.model);
+      }
+      args.push('-p', prompt);
+      return args;
+    },
     streamFormat: 'plain',
   },
   {
@@ -80,7 +170,19 @@ export const AGENT_DEFS = [
     name: 'Qwen Code',
     bin: 'qwen',
     versionArgs: ['--version'],
-    buildArgs: (prompt) => ['-p', prompt],
+    models: [
+      { id: 'default', label: 'Default (CLI config)' },
+      { id: 'qwen3-coder-plus', label: 'qwen3-coder-plus' },
+      { id: 'qwen3-coder-flash', label: 'qwen3-coder-flash' },
+    ],
+    buildArgs: (prompt, _imagePaths, _extra, options = {}) => {
+      const args = [];
+      if (options.model && options.model !== 'default') {
+        args.push('--model', options.model);
+      }
+      args.push('-p', prompt);
+      return args;
+    },
     streamFormat: 'plain',
   },
 ];
@@ -114,6 +216,9 @@ async function probe(def) {
 }
 
 function stripFns(def) {
+  // Drop the buildArgs closure but keep declarative metadata (models,
+  // reasoningOptions, streamFormat) so the frontend can render the picker
+  // without a second round-trip.
   const { buildArgs, ...rest } = def;
   return rest;
 }

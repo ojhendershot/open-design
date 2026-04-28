@@ -690,6 +690,8 @@ export async function startServer({ port = 7456 } = {}) {
       imagePaths = [],
       projectId,
       attachments = [],
+      model,
+      reasoning,
     } = req.body || {};
     const def = getAgentDef(agentId);
     if (!def) return res.status(400).json({ error: `unknown agent: ${agentId}` });
@@ -779,7 +781,19 @@ export async function startServer({ port = 7456 } = {}) {
     const extraAllowedDirs = [SKILLS_DIR, DESIGN_SYSTEMS_DIR].filter(
       (d) => fs.existsSync(d),
     );
-    const args = def.buildArgs(composed, safeImages, extraAllowedDirs);
+    // Per-agent model + reasoning the user picked in the model menu.
+    // Validated against the agent's declared options so a stale or hostile
+    // value can't smuggle arbitrary flags into the spawned argv.
+    const safeModel =
+      typeof model === 'string' && Array.isArray(def.models)
+        ? def.models.find((m) => m.id === model)?.id ?? null
+        : null;
+    const safeReasoning =
+      typeof reasoning === 'string' && Array.isArray(def.reasoningOptions)
+        ? def.reasoningOptions.find((r) => r.id === reasoning)?.id ?? null
+        : null;
+    const agentOptions = { model: safeModel, reasoning: safeReasoning };
+    const args = def.buildArgs(composed, safeImages, extraAllowedDirs, agentOptions);
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -798,6 +812,8 @@ export async function startServer({ port = 7456 } = {}) {
       streamFormat: def.streamFormat ?? 'plain',
       projectId: typeof projectId === 'string' ? projectId : null,
       cwd,
+      model: safeModel,
+      reasoning: safeReasoning,
     });
 
     let child;
