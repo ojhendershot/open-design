@@ -1140,6 +1140,12 @@ code {
   font-size: 13px;
   border-radius: var(--radius-sm);
 }
+.newproj-import {
+  width: 100%;
+  padding: 10px;
+  font-size: 12.5px;
+  border-radius: var(--radius-sm);
+}
 .newproj-footer {
   padding: 0 18px 16px;
   font-size: 11px;
@@ -4523,5 +4529,4 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   background: var(--bg-panel);
   outline: none;
 }
-
 

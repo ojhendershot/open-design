@@ -31,6 +31,7 @@ interface Props {
   agents: AgentInfo[];
   loading?: boolean;
   onCreateProject: (input: CreateInput & { pendingPrompt?: string }) => void;
+  onImportClaudeDesign: (file: File) => Promise<void> | void;
   onOpenProject: (id: string) => void;
   onDeleteProject: (id: string) => void;
   onChangeDefaultDesignSystem: (id: string) => void;
@@ -64,6 +65,7 @@ export function EntryView({
   agents,
   loading = false,
   onCreateProject,
+  onImportClaudeDesign,
   onOpenProject,
   onDeleteProject,
   onChangeDefaultDesignSystem,
@@ -177,6 +179,7 @@ export function EntryView({
           defaultDesignSystemId={defaultDesignSystemId}
           templates={templates}
           onCreate={handleCreate}
+          onImportClaudeDesign={onImportClaudeDesign}
           loading={loading}
         />
         <div className="entry-side-foot">

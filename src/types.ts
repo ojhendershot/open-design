@@ -196,6 +196,10 @@ export interface ProjectMetadata {
   // generated artifact should *also* draw from. Empty / undefined when the
   // user stayed in single-select mode.
   inspirationDesignSystemIds?: string[];
+  // Imported static-site projects, currently used for Claude Design ZIPs.
+  importedFrom?: 'claude-design' | string;
+  entryFile?: string;
+  sourceFileName?: string;
 }
 
 export interface Project {

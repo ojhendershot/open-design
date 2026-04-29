@@ -127,6 +127,9 @@ export const en: Dict = {
   'newproj.createFromTemplate': 'Create from template',
   'newproj.createDisabledTitle':
     'Save a project as a template first (Share menu inside any project).',
+  'newproj.importClaudeZip': 'Import Claude Design ZIP',
+  'newproj.importClaudeZipTitle': 'Import a Claude Design .zip export',
+  'newproj.importingClaudeZip': 'Importing…',
   'newproj.privacyFooter': 'Only you can see your project by default.',
   'newproj.designSystem': 'Design system',
   'newproj.dsNoneFreeform': 'None — freeform',

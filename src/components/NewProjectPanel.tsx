@@ -28,6 +28,7 @@ interface Props {
   defaultDesignSystemId: string | null;
   templates: ProjectTemplate[];
   onCreate: (input: CreateInput) => void;
+  onImportClaudeDesign?: (file: File) => Promise<void> | void;
   loading?: boolean;
 }
 
@@ -44,9 +45,12 @@ export function NewProjectPanel({
   defaultDesignSystemId,
   templates,
   onCreate,
+  onImportClaudeDesign,
   loading = false,
 }: Props) {
   const t = useT();
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+  const [importing, setImporting] = useState(false);
   const [tab, setTab] = useState<CreateTab>('prototype');
   const [name, setName] = useState('');
   // Design-system selection is now an *array* internally so the same
@@ -121,6 +125,18 @@ export function NewProjectPanel({
       designSystemId: primaryDs,
       metadata,
     });
+  }
+
+  async function handleImportPicked(ev: React.ChangeEvent<HTMLInputElement>) {
+    const file = ev.target.files?.[0];
+    ev.target.value = '';
+    if (!file || !onImportClaudeDesign) return;
+    setImporting(true);
+    try {
+      await onImportClaudeDesign(file);
+    } finally {
+      setImporting(false);
+    }
   }
 
   return (
@@ -204,6 +220,31 @@ export function NewProjectPanel({
               : t('newproj.create')}
           </span>
         </button>
+        {onImportClaudeDesign ? (
+          <>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".zip,application/zip"
+              hidden
+              onChange={handleImportPicked}
+            />
+            <button
+              type="button"
+              className="ghost newproj-import"
+              disabled={loading || importing}
+              title={t('newproj.importClaudeZipTitle')}
+              onClick={() => importInputRef.current?.click()}
+            >
+              <Icon name="import" size={13} />
+              <span>
+                {importing
+                  ? t('newproj.importingClaudeZip')
+                  : t('newproj.importClaudeZip')}
+              </span>
+            </button>
+          </>
+        ) : null}
       </div>
       <div className="newproj-footer">{t('newproj.privacyFooter')}</div>
     </div>

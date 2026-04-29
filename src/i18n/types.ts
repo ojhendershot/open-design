@@ -135,6 +135,9 @@ export interface Dict {
   'newproj.create': string;
   'newproj.createFromTemplate': string;
   'newproj.createDisabledTitle': string;
+  'newproj.importClaudeZip': string;
+  'newproj.importClaudeZipTitle': string;
+  'newproj.importingClaudeZip': string;
   'newproj.privacyFooter': string;
   'newproj.designSystem': string;
   'newproj.dsNoneFreeform': string;

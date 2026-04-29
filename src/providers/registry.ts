@@ -94,7 +94,7 @@ export async function fetchProjectFiles(projectId: string): Promise<ProjectFile[
 }
 
 export function projectFileUrl(projectId: string, name: string): string {
-  return `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(name)}`;
+  return projectRawUrl(projectId, name);
 }
 
 export async function fetchProjectFileText(
@@ -210,7 +210,7 @@ export function projectRawUrl(projectId: string, filePath: string): string {
     .split('/')
     .map((seg) => encodeURIComponent(seg))
     .join('/');
-  return `/api/projects/${encodeURIComponent(projectId)}/files/${safePath}`;
+  return `/api/projects/${encodeURIComponent(projectId)}/raw/${safePath}`;
 }
 
 function looksLikeImage(name: string): boolean {
@@ -223,7 +223,7 @@ export async function deleteProjectFile(
 ): Promise<boolean> {
   try {
     const resp = await fetch(
-      `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(name)}`,
+      projectRawUrl(projectId, name),
       { method: 'DELETE' },
     );
     return resp.ok;

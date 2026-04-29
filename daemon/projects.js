@@ -9,7 +9,7 @@
 import { mkdir, readdir, readFile, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const FORBIDDEN_NAME = /[\\/]|^\.\.?$/;
+const FORBIDDEN_SEGMENT = /^$|^\.\.?$/;
 
 export function projectDir(projectsRoot, projectId) {
   if (!isSafeId(projectId)) throw new Error('invalid project id');
@@ -24,35 +24,41 @@ export async function ensureProject(projectsRoot, projectId) {
 
 export async function listFiles(projectsRoot, projectId) {
   const dir = projectDir(projectsRoot, projectId);
+  const out = [];
+  await collectFiles(dir, '', out);
+  // Newest first — matches the visual order users expect after generating.
+  out.sort((a, b) => b.mtime - a.mtime);
+  return out;
+}
+
+async function collectFiles(dir, relDir, out) {
   let entries = [];
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch (err) {
-    if (err && err.code === 'ENOENT') return [];
+    if (err && err.code === 'ENOENT') return;
     throw err;
   }
-  const out = [];
   for (const e of entries) {
-    if (!e.isFile()) continue;
     if (e.name.startsWith('.')) continue;
+    const rel = relDir ? `${relDir}/${e.name}` : e.name;
     const full = path.join(dir, e.name);
+    if (e.isDirectory()) {
+      await collectFiles(full, rel, out);
+      continue;
+    }
+    if (!e.isFile()) continue;
     const st = await stat(full);
     out.push({
-      name: e.name,
-      // The project folder is flat today so `path` equals `name`. We emit
-      // both so frontend code that thinks in path terms (the @-mention
-      // picker, attachment chips) can stay path-shaped without a remap.
-      path: e.name,
+      name: rel,
+      path: rel,
       type: 'file',
       size: st.size,
       mtime: st.mtimeMs,
-      kind: kindFor(e.name),
-      mime: mimeFor(e.name),
+      kind: kindFor(rel),
+      mime: mimeFor(rel),
     });
   }
-  // Newest first — matches the visual order users expect after generating.
-  out.sort((a, b) => b.mtime - a.mtime);
-  return out;
 }
 
 export async function readProjectFile(projectsRoot, projectId, name) {
@@ -60,13 +66,15 @@ export async function readProjectFile(projectsRoot, projectId, name) {
   const file = resolveSafe(dir, name);
   const buf = await readFile(file);
   const st = await stat(file);
+  const rel = toProjectPath(path.relative(dir, file));
   return {
     buffer: buf,
-    name: path.basename(file),
+    name: rel,
+    path: rel,
     size: st.size,
     mtime: st.mtimeMs,
-    mime: mimeFor(file),
-    kind: kindFor(file),
+    mime: mimeFor(rel),
+    kind: kindFor(rel),
   };
 }
 
@@ -78,8 +86,8 @@ export async function writeProjectFile(
   { overwrite = true } = {},
 ) {
   const dir = await ensureProject(projectsRoot, projectId);
-  const safeName = sanitizeName(name);
-  const target = path.join(dir, safeName);
+  const safeName = sanitizePath(name);
+  const target = resolveSafe(dir, safeName);
   if (!overwrite) {
     try {
       await stat(target);
@@ -88,10 +96,12 @@ export async function writeProjectFile(
       if (!err || err.code !== 'ENOENT') throw err;
     }
   }
+  await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, body);
   const st = await stat(target);
   return {
     name: safeName,
+    path: safeName,
     size: st.size,
     mtime: st.mtimeMs,
     kind: kindFor(safeName),
@@ -111,14 +121,32 @@ export async function removeProjectDir(projectsRoot, projectId) {
 }
 
 function resolveSafe(dir, name) {
-  if (typeof name !== 'string' || !name || FORBIDDEN_NAME.test(name)) {
-    throw new Error('invalid file name');
-  }
-  const target = path.resolve(dir, name);
+  const safePath = validateProjectPath(name);
+  const target = path.resolve(dir, safePath);
   if (!target.startsWith(dir + path.sep) && target !== dir) {
     throw new Error('path escapes project dir');
   }
   return target;
+}
+
+export function sanitizePath(raw) {
+  const normalized = validateProjectPath(raw);
+  return normalized.split('/').map(sanitizeName).join('/');
+}
+
+export function validateProjectPath(raw) {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    throw new Error('invalid file name');
+  }
+  if (raw.includes('\0') || /^[A-Za-z]:/.test(raw) || raw.startsWith('/')) {
+    throw new Error('invalid file name');
+  }
+  const normalized = raw.replace(/\\/g, '/');
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts.length === 0 || parts.some((p) => FORBIDDEN_SEGMENT.test(p))) {
+    throw new Error('invalid file name');
+  }
+  return parts.join('/');
 }
 
 // Replace anything outside [A-Za-z0-9._-] with underscore. Spaces collapse
@@ -131,6 +159,10 @@ export function sanitizeName(raw) {
     .replace(/^\.+/, '_')
     .trim();
   return cleaned || `file-${Date.now()}`;
+}
+
+function toProjectPath(raw) {
+  return raw.split(path.sep).join('/');
 }
 
 function isSafeId(id) {

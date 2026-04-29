@@ -14,6 +14,7 @@ import { loadConfig, saveConfig } from './state/config';
 import {
   createProject,
   deleteProject as deleteProjectApi,
+  importClaudeDesignZip,
   listProjects,
   listTemplates,
   patchProject,
@@ -183,6 +184,17 @@ export function App() {
     [],
   );
 
+  const handleImportClaudeDesign = useCallback(async (file: File) => {
+    const result = await importClaudeDesignZip(file);
+    if (!result) return;
+    setProjects((curr) => [result.project, ...curr.filter((p) => p.id !== result.project.id)]);
+    navigate({
+      kind: 'project',
+      projectId: result.project.id,
+      fileName: result.entryFile,
+    });
+  }, []);
+
   const handleOpenProject = useCallback((id: string) => {
     navigate({ kind: 'project', projectId: id, fileName: null });
   }, []);
@@ -304,6 +316,7 @@ export function App() {
           agents={agents}
           loading={bootstrapping}
           onCreateProject={handleCreateProject}
+          onImportClaudeDesign={handleImportClaudeDesign}
           onOpenProject={handleOpenProject}
           onDeleteProject={handleDeleteProject}
           onChangeDefaultDesignSystem={handleChangeDefaultDesignSystem}

@@ -17,11 +17,13 @@ import { listDesignSystems, readDesignSystem } from './design-systems.js';
 import { createClaudeStreamHandler } from './claude-stream.js';
 import { renderDesignSystemPreview } from './design-system-preview.js';
 import { renderDesignSystemShowcase } from './design-system-showcase.js';
+import { importClaudeDesignZip } from './claude-design-import.js';
 import { lintArtifact, renderFindingsForAgent } from './lint-artifact.js';
 import {
   deleteProjectFile,
   ensureProject,
   listFiles,
+  projectDir,
   readProjectFile,
   removeProjectDir,
   sanitizeName,
@@ -72,6 +74,17 @@ const upload = multer({
     },
   }),
   limits: { fileSize: 20 * 1024 * 1024 },
+});
+
+const importUpload = multer({
+  storage: multer.diskStorage({
+    destination: UPLOAD_DIR,
+    filename: (_req, file, cb) => {
+      const safe = file.originalname.replace(/[^\w.\-]/g, '_');
+      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safe}`);
+    },
+  }),
+  limits: { fileSize: 100 * 1024 * 1024 },
 });
 
 // Project-scoped multi-file upload. Lands files directly in the project
@@ -185,6 +198,56 @@ export async function startServer({ port = 7456 } = {}) {
       }
       res.json({ project, conversationId: cid });
     } catch (err) {
+      res.status(400).json({ error: String(err) });
+    }
+  });
+
+  app.post('/api/import/claude-design', importUpload.single('file'), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: 'zip file required' });
+      const originalName = req.file.originalname || 'Claude Design export.zip';
+      if (!/\.zip$/i.test(originalName)) {
+        fs.promises.unlink(req.file.path).catch(() => {});
+        return res.status(400).json({ error: 'expected a .zip file' });
+      }
+      const id = randomId();
+      const now = Date.now();
+      const baseName = originalName.replace(/\.zip$/i, '').trim() || 'Claude Design import';
+      const imported = await importClaudeDesignZip(req.file.path, projectDir(PROJECTS_DIR, id));
+      fs.promises.unlink(req.file.path).catch(() => {});
+
+      const project = insertProject(db, {
+        id,
+        name: baseName,
+        skillId: null,
+        designSystemId: null,
+        pendingPrompt: `Imported from Claude Design ZIP: ${originalName}. Continue editing ${imported.entryFile}.`,
+        metadata: {
+          kind: 'prototype',
+          importedFrom: 'claude-design',
+          entryFile: imported.entryFile,
+          sourceFileName: originalName,
+        },
+        createdAt: now,
+        updatedAt: now,
+      });
+      const cid = randomId();
+      insertConversation(db, {
+        id: cid,
+        projectId: id,
+        title: 'Imported Claude Design project',
+        createdAt: now,
+        updatedAt: now,
+      });
+      setTabs(db, id, [imported.entryFile], imported.entryFile);
+      res.json({
+        project,
+        conversationId: cid,
+        entryFile: imported.entryFile,
+        files: imported.files,
+      });
+    } catch (err) {
+      if (req.file?.path) fs.promises.unlink(req.file.path).catch(() => {});
       res.status(400).json({ error: String(err) });
     }
   });
@@ -595,6 +658,27 @@ export async function startServer({ port = 7456 } = {}) {
       res.json({ files });
     } catch (err) {
       res.status(400).json({ error: String(err) });
+    }
+  });
+
+  app.get('/api/projects/:id/raw/*', async (req, res) => {
+    try {
+      const relPath = req.params[0];
+      const file = await readProjectFile(PROJECTS_DIR, req.params.id, relPath);
+      res.type(file.mime).send(file.buffer);
+    } catch (err) {
+      const code = err && err.code === 'ENOENT' ? 404 : 400;
+      res.status(code).json({ error: String(err) });
+    }
+  });
+
+  app.delete('/api/projects/:id/raw/*', async (req, res) => {
+    try {
+      await deleteProjectFile(PROJECTS_DIR, req.params.id, req.params[0]);
+      res.json({ ok: true });
+    } catch (err) {
+      const code = err && err.code === 'ENOENT' ? 404 : 400;
+      res.status(code).json({ error: String(err) });
     }
   });
 
