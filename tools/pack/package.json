@@ -1,0 +1,12 @@
+{
+  "name": "@open-design/tools-pack",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "tools-pack": "./bin/tools-pack.mjs"
+  },
+  "engines": {
+    "node": "~24"
+  }
+}

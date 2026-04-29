@@ -2,40 +2,24 @@
   "name": "open-design",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@9.15.9",
+  "packageManager": "pnpm@10.33.2",
   "type": "module",
   "description": "Local-first design product: detects your installed code-agent CLI, runs design skills + design systems, streams artifacts into a sandboxed preview.",
   "license": "Apache-2.0",
   "bin": {
-    "od": "./daemon/cli.js"
+    "od": "./apps/daemon/cli.js"
   },
   "scripts": {
-    "daemon": "node daemon/cli.js --no-open",
-    "dev": "vite",
-    "dev:all": "node scripts/dev-all.mjs",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit",
-    "start": "npm run build && node daemon/cli.js"
-  },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.1",
-    "better-sqlite3": "^11.10.0",
-    "express": "^4.19.2",
-    "multer": "^1.4.5-lts.1",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "tools-dev": "pnpm exec tools-dev",
+    "tools-pack": "pnpm exec tools-pack"
   },
   "devDependencies": {
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.4",
-    "concurrently": "^9.0.1",
-    "typescript": "^5.6.3",
-    "vite": "^5.4.11"
+    "@open-design/tools-dev": "workspace:*",
+    "@open-design/tools-pack": "workspace:*"
   },
   "engines": {
-    "node": ">=20 <23"
+    "node": "~24",
+    "pnpm": ">=10.33.2 <11"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

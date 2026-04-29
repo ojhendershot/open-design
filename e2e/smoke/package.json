@@ -1,0 +1,9 @@
+{
+  "name": "@open-design/e2e-smoke",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "~24"
+  }
+}

@@ -4,7 +4,7 @@
 // Usage:
 //   1) curl -sL $(npm view getdesign dist.tarball) -o /tmp/getdesign.tgz
 //      tar -xzf /tmp/getdesign.tgz -C /tmp
-//   2) node scripts/sync-design-systems.mjs [/tmp/package/templates]
+//   2) node tools/dev/sync-design-systems.mjs [/tmp/package/templates]
 //
 // The script re-creates each brand's design-systems/<slug>/DESIGN.md with a
 // `> Category: <name>` line inserted after the H1, mapped from the
@@ -16,7 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, '..');
+const ROOT = path.resolve(__dirname, '../..');
 const SRC = process.argv[2] || '/tmp/package/templates';
 
 const CATEGORY = {
@@ -70,7 +70,7 @@ function main() {
     manifest = JSON.parse(readFileSync(path.join(SRC, 'manifest.json'), 'utf8'));
   } catch (err) {
     console.error(`Could not read manifest.json under ${SRC}: ${err.message}`);
-    console.error('Did you extract the getdesign tarball? See scripts/sync-design-systems.mjs header.');
+    console.error('Did you extract the getdesign tarball? See tools/dev/sync-design-systems.mjs header.');
     process.exit(1);
   }
 

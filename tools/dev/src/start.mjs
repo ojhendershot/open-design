@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Launcher for `npm run dev:all`.
+// Launcher for `pnpm exec tools-dev start`.
 //
 // Probes for free ports for the daemon (OD_PORT, default 7456) and the Vite
 // dev server (VITE_PORT, default 5173) before spawning `concurrently`, so a
@@ -15,6 +15,11 @@
 
 import { spawn } from 'node:child_process';
 import net from 'node:net';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const WORKSPACE_ROOT = path.resolve(__dirname, '../../..');
 
 const HOST = '127.0.0.1';
 const PORT_SEARCH_RANGE = 50;
@@ -62,14 +67,24 @@ const env = {
   VITE_PORT: String(vitePort),
 };
 
-// We spawn the local `concurrently` bin via shell so Windows .cmd shims
-// resolve correctly. The `npm:daemon` / `npm:dev` shorthand runs the
-// matching package.json scripts, so any future tweak to those scripts is
-// picked up automatically.
+const PNPM = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+
+// Delegate to workspace package scripts explicitly. Use `pnpm exec` with an
+// argument array so commands containing spaces stay intact for concurrently.
 const child = spawn(
-  'concurrently',
-  ['-k', '-n', 'daemon,web', '-c', 'cyan,magenta', 'npm:daemon', 'npm:dev'],
-  { env, stdio: 'inherit', shell: true },
+  PNPM,
+  [
+    'exec',
+    'concurrently',
+    '-k',
+    '-n',
+    'daemon,web',
+    '-c',
+    'cyan,magenta',
+    'pnpm --filter @open-design/daemon dev',
+    'pnpm --filter @open-design/web vite:dev',
+  ],
+  { cwd: WORKSPACE_ROOT, env, stdio: 'inherit' },
 );
 
 child.on('exit', (code, signal) => {

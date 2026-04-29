@@ -51,8 +51,10 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const PROJECT_ROOT = path.resolve(__dirname, '..');
-const STATIC_DIR = path.join(PROJECT_ROOT, 'dist');
+const PROJECT_ROOT = path.resolve(__dirname, '../..');
+const STATIC_DIR = process.env.OD_WEB_DIST_DIR
+  ? path.resolve(process.env.OD_WEB_DIST_DIR)
+  : path.join(PROJECT_ROOT, 'apps', 'web', 'dist');
 const SKILLS_DIR = path.join(PROJECT_ROOT, 'skills');
 const DESIGN_SYSTEMS_DIR = path.join(PROJECT_ROOT, 'design-systems');
 const ARTIFACTS_DIR = path.join(PROJECT_ROOT, '.od', 'artifacts');

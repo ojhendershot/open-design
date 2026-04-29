@@ -1,3 +1,5 @@
+import type { ReactElement } from 'react';
+
 interface Props {
   id: string;
   size?: number;
@@ -7,7 +9,7 @@ interface Props {
 interface Visual {
   bg: string;
   fg: string;
-  glyph: (size: number) => JSX.Element;
+  glyph: (size: number) => ReactElement;
 }
 
 function star4(size: number, color: string) {

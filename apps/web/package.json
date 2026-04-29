@@ -1,0 +1,29 @@
+{
+  "name": "@open-design/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm run vite:typecheck && pnpm run vite:build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "vite:build": "vite build --config vite.config.ts",
+    "vite:dev": "vite --config vite.config.ts",
+    "vite:typecheck": "tsc -p tsconfig.json --noEmit",
+    "preview": "vite preview --config vite.config.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.91.1",
+    "react": "19.2.5",
+    "react-dom": "19.2.5"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.1",
+    "typescript": "6.0.3",
+    "vite": "8.0.10"
+  },
+  "engines": {
+    "node": "~24"
+  }
+}
