@@ -1134,6 +1134,10 @@ code {
   font-style: italic; padding: 8px 0;
 }
 .newproj-create {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   width: 100%;
   padding: 11px;
   margin-top: 4px;
@@ -1141,10 +1145,19 @@ code {
   border-radius: var(--radius-sm);
 }
 .newproj-import {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   width: 100%;
   padding: 10px;
   font-size: 12.5px;
   border-radius: var(--radius-sm);
+}
+.newproj-create svg,
+.newproj-import svg {
+  display: block;
+  flex: 0 0 auto;
 }
 .newproj-footer {
   padding: 0 18px 16px;
@@ -4529,4 +4542,3 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   background: var(--bg-panel);
   outline: none;
 }
-
