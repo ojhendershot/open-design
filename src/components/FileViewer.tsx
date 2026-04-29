@@ -154,9 +154,9 @@ function HtmlViewer({
   const srcDoc = useMemo(
     () => (source ? buildSrcdoc(source, {
       deck: effectiveDeck,
-      baseHref: projectRawUrl(projectId, ''),
+      baseHref: projectRawUrl(projectId, baseDirFor(file.name)),
     }) : ''),
-    [source, effectiveDeck, projectId],
+    [source, effectiveDeck, projectId, file.name],
   );
 
   useEffect(() => {
@@ -636,6 +636,11 @@ function HtmlViewer({
       ) : null}
     </div>
   );
+}
+
+function baseDirFor(fileName: string): string {
+  const idx = fileName.lastIndexOf('/');
+  return idx >= 0 ? fileName.slice(0, idx + 1) : '';
 }
 
 function ImageViewer({

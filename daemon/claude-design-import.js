@@ -112,7 +112,7 @@ function readEntryBody(zip, entry) {
   if (bodyEnd > zip.length) throw new Error(`zip entry exceeds archive: ${entry.name}`);
   const compressed = zip.slice(bodyStart, bodyEnd);
   if (entry.method === 0) return Buffer.from(compressed);
-  return inflateRawSync(compressed);
+  return inflateRawSync(compressed, { maxOutputLength: entry.uncompressedSize });
 }
 
 function sanitizeZipPath(name) {
