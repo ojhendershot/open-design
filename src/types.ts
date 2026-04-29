@@ -42,6 +42,8 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  agentId?: string;
+  agentName?: string;
   events?: AgentEvent[];
   startedAt?: number;
   endedAt?: number;

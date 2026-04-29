@@ -1,5 +1,7 @@
 node_modules/
 dist/
+out/
+.next/
 .DS_Store
 *.log
 .vite
