@@ -3766,6 +3766,11 @@ code {
 }
 .qf-chip input { width: auto; margin: 0; display: none; }
 .qf-chip:hover { border-color: var(--border-strong); }
+.qf-chip-disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+.qf-chip-disabled:hover { border-color: var(--border); }
 .qf-chip-on {
   border-color: var(--accent);
   background: var(--accent-soft);
