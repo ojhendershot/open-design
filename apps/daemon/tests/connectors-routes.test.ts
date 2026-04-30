@@ -42,7 +42,7 @@ describe('connector routes', () => {
     const response = await jsonFetch(`${baseUrl}/api/connectors`);
 
     expect(response.status).toBe(200);
-    expect(response.body.connectors.map((connector) => connector.id)).toEqual(['project_files', 'git']);
+    expect(response.body.connectors.map((connector) => connector.id)).toEqual(['project_files', 'git', 'github_public']);
   });
 
   it('returns connector detail and 404 for unknown connectors', async () => {
@@ -94,7 +94,7 @@ describe('connector routes', () => {
     });
 
     expect(response.status).toBe(200);
-    expect(response.body.connectors.map((connector) => connector.id)).toEqual(['project_files', 'git']);
+    expect(response.body.connectors.map((connector) => connector.id)).toEqual(['project_files', 'git', 'github_public']);
     expect(response.body.connectors[0]).toMatchObject({
       id: 'project_files',
       status: 'connected',

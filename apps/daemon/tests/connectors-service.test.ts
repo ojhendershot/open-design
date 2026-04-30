@@ -93,6 +93,17 @@ describe('connector status service', () => {
       status: 'connected',
       accountLabel: 'Current repository',
     });
+    expect(service.getConnector('github_public')).toMatchObject({
+      status: 'connected',
+      accountLabel: 'GitHub public API',
+      tools: [
+        expect.objectContaining({
+          name: 'github.public_repo_summary',
+          safety: expect.objectContaining({ sideEffect: 'read', approval: 'auto' }),
+          refreshEligible: true,
+        }),
+      ],
+    });
   });
 
   it('supports available, connected, error, and disabled states', () => {

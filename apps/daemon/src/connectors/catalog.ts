@@ -48,6 +48,8 @@ export interface ConnectorCatalogDefinition {
   tools: ConnectorCatalogToolDefinition[];
   /** The complete allowlist of callable tool names for this connector. */
   allowedToolNames: string[];
+  /** How the connector is made available. `none` and `local` connectors require no user OAuth state. */
+  authentication?: 'local' | 'none' | 'oauth';
   featuredToolNames?: string[];
   minimumApproval?: ConnectorToolApproval;
   disabled?: boolean;
@@ -155,6 +157,31 @@ const gitSummaryOutputSchema = {
   },
 } satisfies BoundedJsonObject;
 
+const githubPublicRepoSummaryInputSchema = {
+  type: 'object',
+  properties: {
+    owner: { type: 'string', maxLength: 100 },
+    repo: { type: 'string', maxLength: 100 },
+  },
+  required: ['owner', 'repo'],
+  additionalProperties: false,
+} satisfies BoundedJsonObject;
+
+const githubPublicRepoSummaryOutputSchema = {
+  type: 'object',
+  properties: {
+    toolName: { type: 'string' },
+    fullName: { type: 'string' },
+    description: { type: 'string' },
+    stars: { type: 'number' },
+    forks: { type: 'number' },
+    openIssues: { type: 'number' },
+    defaultBranch: { type: 'string' },
+    url: { type: 'string' },
+    updatedAt: { type: 'string' },
+  },
+} satisfies BoundedJsonObject;
+
 function defineConnectorTool(
   tool: Omit<ConnectorCatalogToolDefinition, 'safety' | 'refreshEligible'> & {
     safety?: ConnectorToolSafety;
@@ -195,6 +222,7 @@ export const CONNECTOR_CATALOG: readonly ConnectorCatalogDefinition[] = [
       }),
     ],
     allowedToolNames: ['project_files.search', 'project_files.read_json'],
+    authentication: 'local',
     featuredToolNames: ['project_files.search', 'project_files.read_json'],
     minimumApproval: 'auto',
   },
@@ -215,7 +243,29 @@ export const CONNECTOR_CATALOG: readonly ConnectorCatalogDefinition[] = [
       }),
     ],
     allowedToolNames: ['git.summary'],
+    authentication: 'local',
     featuredToolNames: ['git.summary'],
+    minimumApproval: 'auto',
+  },
+  {
+    id: 'github_public',
+    name: 'GitHub public repository',
+    provider: 'github',
+    category: 'public',
+    description: 'Read compact summaries for public GitHub repositories without OAuth credentials.',
+    tools: [
+      defineConnectorTool({
+        name: 'github.public_repo_summary',
+        title: 'Public repository summary',
+        description: 'Fetch a compact read-only summary for a public GitHub repository via the unauthenticated API.',
+        inputSchemaJson: githubPublicRepoSummaryInputSchema,
+        outputSchemaJson: githubPublicRepoSummaryOutputSchema,
+        requiredScopes: [],
+      }),
+    ],
+    allowedToolNames: ['github.public_repo_summary'],
+    authentication: 'none',
+    featuredToolNames: ['github.public_repo_summary'],
     minimumApproval: 'auto',
   },
 ];
@@ -254,6 +304,7 @@ function cloneCatalogDefinition(definition: ConnectorCatalogDefinition): Connect
     ...(definition.description === undefined ? {} : { description: definition.description }),
     tools: definition.tools.map((tool) => cloneToolDefinition(tool)),
     allowedToolNames: [...definition.allowedToolNames],
+    ...(definition.authentication === undefined ? {} : { authentication: definition.authentication }),
     ...(definition.featuredToolNames === undefined ? {} : { featuredToolNames: [...definition.featuredToolNames] }),
     ...(definition.minimumApproval === undefined ? {} : { minimumApproval: definition.minimumApproval }),
     ...(definition.disabled === undefined ? {} : { disabled: definition.disabled }),

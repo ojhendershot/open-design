@@ -93,6 +93,7 @@ export interface ConnectorStatusServiceOptions {
 const LOCAL_CONNECTOR_ACCOUNT_LABELS: Record<string, string> = {
   project_files: 'Local project',
   git: 'Current repository',
+  github_public: 'GitHub public API',
 };
 
 function nowIso(): string {
@@ -187,8 +188,9 @@ function cloneStatus(status: ConnectorConnectionStatus): ConnectorConnectionStat
   };
 }
 
-function isLocalAutoConnected(definition: ConnectorCatalogDefinition): boolean {
-  return definition.provider === 'open-design' && definition.tools.every((tool) => tool.requiredScopes.length === 0);
+function isAutoConnectedConnector(definition: ConnectorCatalogDefinition): boolean {
+  const authentication = definition.authentication ?? (definition.provider === 'open-design' ? 'local' : 'oauth');
+  return (authentication === 'local' || authentication === 'none') && definition.tools.every((tool) => tool.requiredScopes.length === 0);
 }
 
 function approvalRank(approval: ConnectorCatalogDefinition['minimumApproval']): number {
@@ -291,7 +293,7 @@ export class ConnectorStatusService {
       return { status: 'connected', accountLabel: credentialRecord.accountLabel };
     }
 
-    if (isLocalAutoConnected(definition)) {
+    if (isAutoConnectedConnector(definition)) {
       return { status: 'connected', accountLabel: defaultConnectedAccountLabel(definition) };
     }
 
@@ -325,7 +327,7 @@ export class ConnectorStatusService {
 
     this.credentialStore?.delete(definition.id);
 
-    if (isLocalAutoConnected(definition)) {
+    if (isAutoConnectedConnector(definition)) {
       this.statuses.delete(definition.id);
       return this.getStatus(definition);
     }
@@ -598,6 +600,10 @@ export class ConnectorService {
   }
 
   protected async executeConnectorProviderTool(request: ConnectorExecuteRequest, context: ConnectorExecutionContext): Promise<BoundedJsonObject> {
+    if (request.connectorId === 'github_public' && request.toolName === 'github.public_repo_summary') {
+      return executeGithubPublicRepoSummary(request.input, context.signal);
+    }
+
     return await executeLocalDaemonRefreshSource({
       projectsRoot: context.projectsRoot,
       projectId: context.projectId,
@@ -656,6 +662,53 @@ export const connectorService = new ConnectorService();
 
 export function configureConnectorCredentialStore(credentialStore: ConnectorCredentialStore): void {
   connectorService.setCredentialStore(credentialStore);
+}
+
+function requiredStringInput(input: BoundedJsonObject, key: string): string {
+  const value = input[key];
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new ConnectorServiceError('CONNECTOR_INPUT_SCHEMA_MISMATCH', `input.${key} must be a non-empty string`, 400, { key });
+  }
+  return value.trim();
+}
+
+function validateGithubPathSegment(value: string, key: string): string {
+  if (!/^[A-Za-z0-9_.-]+$/.test(value)) {
+    throw new ConnectorServiceError('CONNECTOR_INPUT_SCHEMA_MISMATCH', `input.${key} contains unsupported characters`, 400, { key });
+  }
+  return value;
+}
+
+async function executeGithubPublicRepoSummary(input: BoundedJsonObject, signal?: AbortSignal): Promise<BoundedJsonObject> {
+  const owner = validateGithubPathSegment(requiredStringInput(input, 'owner'), 'owner');
+  const repo = validateGithubPathSegment(requiredStringInput(input, 'repo'), 'repo');
+  const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'open-design-local-daemon',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    signal,
+  });
+  if (!response.ok) {
+    throw new ConnectorServiceError('CONNECTOR_EXECUTION_FAILED', `GitHub public repository summary failed with HTTP ${response.status}`, response.status === 404 ? 404 : 502, {
+      connectorId: 'github_public',
+      toolName: 'github.public_repo_summary',
+      httpStatus: response.status,
+    });
+  }
+  const json = await response.json() as Record<string, unknown>;
+  return {
+    toolName: 'github.public_repo_summary',
+    fullName: typeof json.full_name === 'string' ? json.full_name : `${owner}/${repo}`,
+    description: typeof json.description === 'string' ? json.description : '',
+    stars: typeof json.stargazers_count === 'number' ? json.stargazers_count : 0,
+    forks: typeof json.forks_count === 'number' ? json.forks_count : 0,
+    openIssues: typeof json.open_issues_count === 'number' ? json.open_issues_count : 0,
+    defaultBranch: typeof json.default_branch === 'string' ? json.default_branch : '',
+    url: typeof json.html_url === 'string' ? json.html_url : `https://github.com/${owner}/${repo}`,
+    updatedAt: typeof json.updated_at === 'string' ? json.updated_at : '',
+  };
 }
 
 function summarizeConnectorOutput(output: BoundedJsonValue): string | undefined {

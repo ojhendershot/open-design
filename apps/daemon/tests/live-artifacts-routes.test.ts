@@ -297,6 +297,103 @@ describe('live artifact tool routes', () => {
     expect(uiRefresh.body.artifact.tiles[0].renderJson).toMatchObject({ type: 'metric', label: 'Open bugs', value: 8 });
   });
 
+  it('refreshes live artifacts end-to-end through a read-only connector source', async () => {
+    const projectId = uniqueProjectId();
+    const token = mintToolToken(projectId, 'run-route-test-connector-refresh');
+    await writeProjectJson(projectId, 'connector-metrics.json', { label: 'Connector bugs', value: 13 });
+
+    const create = await jsonFetch(`${baseUrl}/api/tools/live-artifacts/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        input: {
+          ...validCreateInput('Connector Refresh Artifact'),
+          tiles: [
+            {
+              id: 'connector-bugs',
+              kind: 'metric',
+              title: 'Connector bugs',
+              renderJson: { type: 'metric', label: 'Connector bugs', value: 0 },
+              sourceJson: {
+                type: 'connector_tool',
+                toolName: 'project_files.read_json',
+                connector: {
+                  connectorId: 'project_files',
+                  accountLabel: 'Local project',
+                  toolName: 'project_files.read_json',
+                  approvalPolicy: 'manual_refresh_granted_for_read_only',
+                },
+                input: { path: 'connector-metrics.json' },
+                outputMapping: {
+                  dataPaths: [
+                    { from: '$.json.label', to: 'label' },
+                    { from: '$.json.value', to: 'value' },
+                  ],
+                  transform: 'identity',
+                },
+                refreshPermission: 'manual_refresh_granted_for_read_only',
+              },
+              provenanceJson: {
+                generatedAt: '2026-04-30T00:00:00.000Z',
+                generatedBy: 'agent',
+                sources: [{ label: 'Project files connector', type: 'connector', ref: 'project_files.read_json' }],
+              },
+              refreshStatus: 'idle',
+            },
+          ],
+        },
+      }),
+    });
+    expect(create.status).toBe(200);
+    expect(create.body.artifact.tiles[0].sourceJson).toMatchObject({
+      type: 'connector_tool',
+      refreshPermission: 'none',
+      connector: {
+        connectorId: 'project_files',
+        accountLabel: 'Local project',
+        toolName: 'project_files.read_json',
+        approvalPolicy: 'manual_refresh_granted_for_read_only',
+      },
+    });
+
+    const approvedInput = {
+      title: create.body.artifact.title,
+      slug: create.body.artifact.slug,
+      status: create.body.artifact.status,
+      pinned: create.body.artifact.pinned,
+      preview: create.body.artifact.preview,
+      document: create.body.artifact.document,
+      tiles: [
+        {
+          ...create.body.artifact.tiles[0],
+          sourceJson: {
+            ...create.body.artifact.tiles[0].sourceJson,
+            refreshPermission: 'manual_refresh_granted_for_read_only',
+          },
+        },
+      ],
+    };
+    const approve = await jsonFetch(`${baseUrl}/api/live-artifacts/${create.body.artifact.id}?projectId=${encodeURIComponent(projectId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(approvedInput),
+    });
+    expect(approve.status).toBe(200);
+
+    const refresh = await jsonFetch(`${baseUrl}/api/tools/live-artifacts/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ artifactId: create.body.artifact.id }),
+    });
+    expect(refresh.status).toBe(200);
+    expect(refresh.body.refresh).toMatchObject({ id: 'refresh-000001', status: 'succeeded', refreshedTileCount: 1 });
+    expect(refresh.body.artifact.tiles[0].renderJson).toMatchObject({ type: 'metric', label: 'Connector bugs', value: 13 });
+
+    const history = await jsonFetch(`${baseUrl}/api/live-artifacts/${create.body.artifact.id}?projectId=${encodeURIComponent(projectId)}`);
+    expect(JSON.stringify(history.body.artifact)).not.toContain('headers');
+    expect(JSON.stringify(history.body.artifact)).not.toContain('token');
+  });
+
   it('serves live artifact previews with restrictive iframe headers', async () => {
     const projectId = uniqueProjectId();
     const token = mintToolToken(projectId, 'run-route-test-preview');
