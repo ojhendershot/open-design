@@ -16,6 +16,7 @@ import {
   type ConnectorToolSafety,
   type ConnectorStatus,
 } from './catalog.js';
+import { composioConnectorProvider, type ComposioConnectionStart } from './composio.js';
 
 export interface ConnectorExecuteRequest {
   connectorId: string;
@@ -34,6 +35,22 @@ export interface ConnectorExecuteResponse {
   output: BoundedJsonValue;
   outputSummary?: string;
   metadata?: BoundedJsonObject;
+}
+
+export interface ConnectorConnectResult {
+  connector: ConnectorDetail;
+  auth?: Pick<ComposioConnectionStart, 'kind' | 'redirectUrl' | 'providerConnectionId' | 'expiresAt'>;
+}
+
+type PublicComposioConnectionStart = Pick<ComposioConnectionStart, 'kind' | 'redirectUrl' | 'providerConnectionId' | 'expiresAt'>;
+
+function publicComposioAuthStart(auth: ComposioConnectionStart): PublicComposioConnectionStart {
+  return {
+    kind: auth.kind,
+    ...(auth.redirectUrl === undefined ? {} : { redirectUrl: auth.redirectUrl }),
+    ...(auth.providerConnectionId === undefined ? {} : { providerConnectionId: auth.providerConnectionId }),
+    ...(auth.expiresAt === undefined ? {} : { expiresAt: auth.expiresAt }),
+  };
 }
 
 export type ConnectorServiceErrorCode =
@@ -288,7 +305,7 @@ export class ConnectorStatusService {
     const stored = this.statuses.get(definition.id);
     if (stored) return cloneStatus(stored);
 
-    const credentialRecord = this.credentialStore?.get(definition.id);
+    const credentialRecord = this.getCredential(definition.id);
     if (credentialRecord !== undefined) {
       return { status: 'connected', accountLabel: credentialRecord.accountLabel };
     }
@@ -320,6 +337,10 @@ export class ConnectorStatusService {
     };
     this.statuses.set(definition.id, next);
     return cloneStatus(next);
+  }
+
+  getCredential(connectorId: string): ConnectorCredentialRecord | undefined {
+    return this.credentialStore?.get(connectorId);
   }
 
   disconnect(definition: ConnectorCatalogDefinition): ConnectorConnectionStatus {
@@ -470,6 +491,10 @@ export class ConnectorService {
     return this.statusService.getStatus(definition);
   }
 
+  getCredential(connectorId: string): ConnectorCredentialRecord | undefined {
+    return this.statusService.getCredential(connectorId);
+  }
+
   listConnectors(): ConnectorDetail[] {
     return this.listDefinitions().map((definition) => this.toDetail(definition));
   }
@@ -482,16 +507,31 @@ export class ConnectorService {
     return this.toDetail(definition);
   }
 
-  async connect(connectorId: string, options: { accountLabel?: string; credentials?: ConnectorCredentialMaterial } = {}): Promise<ConnectorDetail> {
+  async connect(connectorId: string, options: { accountLabel?: string; credentials?: ConnectorCredentialMaterial; callbackUrl?: string; signal?: AbortSignal } = {}): Promise<ConnectorConnectResult> {
     const definition = this.getDefinition(connectorId);
     if (!definition) {
       throw new ConnectorServiceError('CONNECTOR_NOT_FOUND', 'connector not found', 404);
     }
+
+    let auth: ComposioConnectionStart | undefined;
+    if (definition.authentication === 'composio' && options.credentials === undefined) {
+      if (!options.callbackUrl) {
+        throw new ConnectorServiceError('CONNECTOR_EXECUTION_FAILED', 'callbackUrl is required for Composio connectors', 400, { connectorId });
+      }
+      auth = await composioConnectorProvider.connect(definition, options.callbackUrl, options.signal);
+      if (auth.kind === 'redirect_required' || auth.kind === 'pending') {
+        return { connector: this.toDetail(definition), auth: publicComposioAuthStart(auth) };
+      }
+      if (auth.credentials !== undefined) {
+        options = { ...options, ...(auth.accountLabel === undefined ? {} : { accountLabel: auth.accountLabel }), credentials: auth.credentials };
+      }
+    }
+
     const status = this.statusService.connect(definition, options.accountLabel, options.credentials);
     if (status.status === 'disabled') {
       throw new ConnectorServiceError('CONNECTOR_DISABLED', 'connector is disabled', 403);
     }
-    return this.toDetail(definition);
+    return { connector: this.toDetail(definition), ...(auth === undefined ? {} : { auth: publicComposioAuthStart(auth) }) };
   }
 
   async disconnect(connectorId: string): Promise<ConnectorDetail> {
@@ -499,7 +539,23 @@ export class ConnectorService {
     if (!definition) {
       throw new ConnectorServiceError('CONNECTOR_NOT_FOUND', 'connector not found', 404);
     }
+    if (definition.authentication === 'composio') {
+      await composioConnectorProvider.disconnect(this.getCredential(connectorId)?.credentials);
+    }
     this.statusService.disconnect(definition);
+    return this.toDetail(definition);
+  }
+
+  async completeComposioConnection(input: { connectorId: string; state: string; providerConnectionId?: string; status?: string; signal?: AbortSignal }): Promise<ConnectorDetail> {
+    const definition = this.getDefinition(input.connectorId);
+    if (!definition) {
+      throw new ConnectorServiceError('CONNECTOR_NOT_FOUND', 'connector not found', 404);
+    }
+    if (definition.authentication !== 'composio') {
+      throw new ConnectorServiceError('CONNECTOR_EXECUTION_FAILED', 'connector is not backed by Composio', 400, { connectorId: input.connectorId });
+    }
+    const completed = await composioConnectorProvider.completeConnection({ definition, state: input.state, ...(input.providerConnectionId === undefined ? {} : { providerConnectionId: input.providerConnectionId }), ...(input.status === undefined ? {} : { status: input.status }), ...(input.signal === undefined ? {} : { signal: input.signal }) });
+    this.statusService.connect(definition, completed.accountLabel, completed.credentials);
     return this.toDetail(definition);
   }
 
@@ -600,6 +656,12 @@ export class ConnectorService {
   }
 
   protected async executeConnectorProviderTool(request: ConnectorExecuteRequest, context: ConnectorExecutionContext): Promise<BoundedJsonObject> {
+    const definition = this.getDefinition(request.connectorId);
+    const tool = definition?.tools.find((candidate) => candidate.name === request.toolName);
+    if (definition?.authentication === 'composio' && tool) {
+      return composioConnectorProvider.execute(definition, tool, request.input, this.getCredential(request.connectorId)?.credentials, context.signal);
+    }
+
     if (request.connectorId === 'github_public' && request.toolName === 'github.public_repo_summary') {
       return executeGithubPublicRepoSummary(request.input, context.signal);
     }
@@ -654,6 +716,12 @@ export class ConnectorService {
       status: status.status,
       ...(status.accountLabel === undefined ? {} : { accountLabel: status.accountLabel }),
       ...(status.lastError === undefined ? {} : { lastError: status.lastError }),
+      ...(detail.auth === undefined ? {} : {
+        auth: {
+          ...detail.auth,
+          configured: detail.auth.configured || (definition.authentication === 'composio' && composioConnectorProvider.isConfigured(definition)),
+        },
+      }),
     };
   }
 }

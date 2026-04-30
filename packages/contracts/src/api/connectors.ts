@@ -34,6 +34,12 @@ export interface ConnectorDetail {
   featuredToolNames?: string[];
   minimumApproval?: ConnectorToolApproval;
   lastError?: string;
+  auth?: ConnectorAuthDetail;
+}
+
+export interface ConnectorAuthDetail {
+  provider: 'local' | 'none' | 'oauth' | 'composio';
+  configured: boolean;
 }
 
 export interface ConnectorListResponse {
@@ -42,6 +48,15 @@ export interface ConnectorListResponse {
 
 export interface ConnectorDetailResponse {
   connector: ConnectorDetail;
+}
+
+export interface ConnectorConnectResponse extends ConnectorDetailResponse {
+  auth?: {
+    kind: 'redirect_required' | 'pending' | 'connected';
+    redirectUrl?: string;
+    providerConnectionId?: string;
+    expiresAt?: string;
+  };
 }
 
 export interface ConnectorExecuteRequest {

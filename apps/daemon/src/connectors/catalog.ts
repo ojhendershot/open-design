@@ -23,6 +23,8 @@ export interface ConnectorToolDetail {
 export interface ConnectorCatalogToolDefinition extends ConnectorToolDetail {
   /** Provider scopes required for this tool. Empty for local/read-only providers. */
   requiredScopes: string[];
+  /** Provider-native tool identifier, when different from the Open Design tool name. */
+  providerToolId?: string;
 }
 
 export interface ConnectorDetail {
@@ -37,6 +39,12 @@ export interface ConnectorDetail {
   featuredToolNames?: string[];
   minimumApproval?: ConnectorToolApproval;
   lastError?: string;
+  auth?: ConnectorAuthDetail;
+}
+
+export interface ConnectorAuthDetail {
+  provider: 'local' | 'none' | 'oauth' | 'composio';
+  configured: boolean;
 }
 
 export interface ConnectorCatalogDefinition {
@@ -49,7 +57,9 @@ export interface ConnectorCatalogDefinition {
   /** The complete allowlist of callable tool names for this connector. */
   allowedToolNames: string[];
   /** How the connector is made available. `none` and `local` connectors require no user OAuth state. */
-  authentication?: 'local' | 'none' | 'oauth';
+  authentication?: 'local' | 'none' | 'oauth' | 'composio';
+  /** Provider toolkit slug used by external connector providers such as Composio. */
+  providerConnectorId?: string;
   featuredToolNames?: string[];
   minimumApproval?: ConnectorToolApproval;
   disabled?: boolean;
@@ -182,6 +192,16 @@ const githubPublicRepoSummaryOutputSchema = {
   },
 } satisfies BoundedJsonObject;
 
+const composioGenericInputSchema = {
+  type: 'object',
+  additionalProperties: true,
+} satisfies BoundedJsonObject;
+
+const composioGenericOutputSchema = {
+  type: 'object',
+  additionalProperties: true,
+} satisfies BoundedJsonObject;
+
 function defineConnectorTool(
   tool: Omit<ConnectorCatalogToolDefinition, 'safety' | 'refreshEligible'> & {
     safety?: ConnectorToolSafety;
@@ -192,7 +212,7 @@ function defineConnectorTool(
   return {
     ...tool,
     safety,
-    refreshEligible: tool.refreshEligible ?? isRefreshEligibleConnectorToolSafety(safety),
+    refreshEligible: tool.refreshEligible ?? (tool.providerToolId === undefined && isRefreshEligibleConnectorToolSafety(safety)),
   };
 }
 
@@ -268,6 +288,129 @@ export const CONNECTOR_CATALOG: readonly ConnectorCatalogDefinition[] = [
     featuredToolNames: ['github.public_repo_summary'],
     minimumApproval: 'auto',
   },
+  {
+    id: 'github',
+    name: 'GitHub',
+    provider: 'composio',
+    providerConnectorId: 'GITHUB',
+    category: 'developer',
+    description: 'Search repositories, issues, pull requests, commits, and releases from a connected GitHub account via Composio.',
+    tools: [
+      defineConnectorTool({
+        name: 'github.search_issues_and_pull_requests',
+        providerToolId: 'GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS',
+        title: 'Search issues and pull requests',
+        description: 'Search issues and pull requests across repositories visible to the connected account.',
+        inputSchemaJson: composioGenericInputSchema,
+        outputSchemaJson: composioGenericOutputSchema,
+        requiredScopes: ['readOnlyHint'],
+      }),
+      defineConnectorTool({
+        name: 'github.list_pull_requests',
+        providerToolId: 'GITHUB_LIST_PULL_REQUESTS',
+        title: 'List pull requests',
+        description: 'List pull requests for a selected repository.',
+        inputSchemaJson: composioGenericInputSchema,
+        outputSchemaJson: composioGenericOutputSchema,
+        requiredScopes: ['readOnlyHint'],
+      }),
+      defineConnectorTool({
+        name: 'github.list_commits',
+        providerToolId: 'GITHUB_LIST_COMMITS',
+        title: 'List commits',
+        description: 'List commits for a selected repository or branch.',
+        inputSchemaJson: composioGenericInputSchema,
+        outputSchemaJson: composioGenericOutputSchema,
+        requiredScopes: ['readOnlyHint'],
+      }),
+    ],
+    allowedToolNames: ['github.search_issues_and_pull_requests', 'github.list_pull_requests', 'github.list_commits'],
+    authentication: 'composio',
+    featuredToolNames: ['github.search_issues_and_pull_requests', 'github.list_pull_requests', 'github.list_commits'],
+    minimumApproval: 'auto',
+  },
+  {
+    id: 'notion',
+    name: 'Notion',
+    provider: 'composio',
+    providerConnectorId: 'NOTION',
+    category: 'productivity',
+    description: 'Find and read connected Notion pages, databases, blocks, and database query results via Composio.',
+    tools: [
+      defineConnectorTool({
+        name: 'notion.search_page',
+        providerToolId: 'NOTION_SEARCH_NOTION_PAGE',
+        title: 'Search pages',
+        description: 'Search for Notion pages by query.',
+        inputSchemaJson: composioGenericInputSchema,
+        outputSchemaJson: composioGenericOutputSchema,
+        requiredScopes: ['readOnlyHint'],
+      }),
+      defineConnectorTool({
+        name: 'notion.query_database',
+        providerToolId: 'NOTION_QUERY_DATABASE',
+        title: 'Query database',
+        description: 'Read rows from a selected Notion database.',
+        inputSchemaJson: composioGenericInputSchema,
+        outputSchemaJson: composioGenericOutputSchema,
+        requiredScopes: ['readOnlyHint'],
+      }),
+      defineConnectorTool({
+        name: 'notion.fetch_page',
+        providerToolId: 'NOTION_FETCH_PAGE',
+        title: 'Fetch page',
+        description: 'Fetch content and metadata for a selected Notion page.',
+        inputSchemaJson: composioGenericInputSchema,
+        outputSchemaJson: composioGenericOutputSchema,
+        requiredScopes: ['readOnlyHint'],
+      }),
+    ],
+    allowedToolNames: ['notion.search_page', 'notion.query_database', 'notion.fetch_page'],
+    authentication: 'composio',
+    featuredToolNames: ['notion.search_page', 'notion.query_database', 'notion.fetch_page'],
+    minimumApproval: 'auto',
+  },
+  {
+    id: 'google_drive',
+    name: 'Google Drive',
+    provider: 'composio',
+    providerConnectorId: 'GOOGLEDRIVE',
+    category: 'files',
+    description: 'Find and inspect files, folders, permissions, comments, changes, and labels in connected Google Drive accounts via Composio.',
+    tools: [
+      defineConnectorTool({
+        name: 'google_drive.find_file',
+        providerToolId: 'GOOGLEDRIVE_FIND_FILE',
+        title: 'Find file',
+        description: 'Find Google Drive files by query or metadata.',
+        inputSchemaJson: composioGenericInputSchema,
+        outputSchemaJson: composioGenericOutputSchema,
+        requiredScopes: ['readOnlyHint'],
+      }),
+      defineConnectorTool({
+        name: 'google_drive.list_files_and_folders',
+        providerToolId: 'GOOGLEDRIVE_LIST_FILES_AND_FOLDERS',
+        title: 'List files and folders',
+        description: 'List files and folders visible to the connected account.',
+        inputSchemaJson: composioGenericInputSchema,
+        outputSchemaJson: composioGenericOutputSchema,
+        requiredScopes: ['readOnlyHint'],
+      }),
+      defineConnectorTool({
+        name: 'google_drive.get_file',
+        providerToolId: 'GOOGLEDRIVE_GET_FILE',
+        title: 'Get file',
+        description: 'Fetch metadata or content reference for a selected file.',
+        inputSchemaJson: composioGenericInputSchema,
+        outputSchemaJson: composioGenericOutputSchema,
+        requiredScopes: ['readOnlyHint'],
+      }),
+    ],
+    allowedToolNames: ['google_drive.find_file', 'google_drive.list_files_and_folders', 'google_drive.get_file'],
+    authentication: 'composio',
+    featuredToolNames: ['google_drive.find_file', 'google_drive.list_files_and_folders', 'google_drive.get_file'],
+    minimumApproval: 'auto',
+  },
 ];
 
 function cloneBoundedJsonValue(value: BoundedJsonValue): BoundedJsonValue {
@@ -292,6 +435,7 @@ function cloneToolDefinition(tool: ConnectorCatalogToolDefinition): ConnectorCat
     safety: { ...tool.safety },
     refreshEligible: tool.refreshEligible,
     requiredScopes: [...tool.requiredScopes],
+    ...(tool.providerToolId === undefined ? {} : { providerToolId: tool.providerToolId }),
   };
 }
 
@@ -300,6 +444,7 @@ function cloneCatalogDefinition(definition: ConnectorCatalogDefinition): Connect
     id: definition.id,
     name: definition.name,
     provider: definition.provider,
+    ...(definition.providerConnectorId === undefined ? {} : { providerConnectorId: definition.providerConnectorId }),
     category: definition.category,
     ...(definition.description === undefined ? {} : { description: definition.description }),
     tools: definition.tools.map((tool) => cloneToolDefinition(tool)),
@@ -344,5 +489,9 @@ export function connectorDefinitionToDetail(definition: ConnectorCatalogDefiniti
     tools: definition.tools.map((tool) => toolDefinitionToDetail(tool)),
     ...(definition.featuredToolNames === undefined ? {} : { featuredToolNames: [...definition.featuredToolNames] }),
     ...(definition.minimumApproval === undefined ? {} : { minimumApproval: definition.minimumApproval }),
+    auth: {
+      provider: definition.authentication ?? (definition.provider === 'open-design' ? 'local' : 'oauth'),
+      configured: definition.authentication === 'local' || definition.authentication === 'none',
+    },
   };
 }

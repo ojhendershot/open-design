@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ConnectorDetail } from '@open-design/contracts';
 import { useT } from '../i18n';
 import type {
@@ -161,6 +161,13 @@ export function EntryView({
     }
   }, [sidebarWidth]);
 
+  const reloadConnectors = useCallback(async (options: { showLoading?: boolean } = {}) => {
+    if (options.showLoading ?? true) setConnectorsLoading(true);
+    const next = await fetchConnectors();
+    setConnectors(next);
+    setConnectorsLoading(false);
+  }, []);
+
   useEffect(() => {
     if (topTab !== 'connectors') return;
     let cancelled = false;
@@ -175,6 +182,17 @@ export function EntryView({
       cancelled = true;
     };
   }, [topTab]);
+
+  useEffect(() => {
+    function onMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data;
+      if (!data || typeof data !== 'object' || (data as { type?: unknown }).type !== 'open-design:connector-connected') return;
+      void reloadConnectors({ showLoading: false });
+    }
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [reloadConnectors]);
 
   function updateConnector(next: ConnectorDetail | null) {
     if (!next) return;

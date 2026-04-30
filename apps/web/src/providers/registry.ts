@@ -1,5 +1,6 @@
 import type {
   ConnectorDetail,
+  ConnectorConnectResponse,
   ConnectorDetailResponse,
   ConnectorListResponse,
 } from '@open-design/contracts';
@@ -90,14 +91,29 @@ export async function fetchConnectors(): Promise<ConnectorDetail[]> {
 }
 
 export async function connectConnector(connectorId: string): Promise<ConnectorDetail | null> {
+  let authWindow: Window | null = null;
   try {
+    authWindow = window.open('about:blank', '_blank');
     const resp = await fetch(`/api/connectors/${encodeURIComponent(connectorId)}/connect`, {
       method: 'POST',
     });
-    if (!resp.ok) return null;
-    const json = (await resp.json()) as ConnectorDetailResponse;
+    if (!resp.ok) {
+      authWindow?.close();
+      return null;
+    }
+    const json = (await resp.json()) as ConnectorConnectResponse;
+    if (json.auth?.kind === 'redirect_required' && json.auth.redirectUrl) {
+      if (authWindow) {
+        authWindow.location.href = json.auth.redirectUrl;
+      } else {
+        window.open(json.auth.redirectUrl, '_blank');
+      }
+    } else {
+      authWindow?.close();
+    }
     return json.connector ?? null;
   } catch {
+    authWindow?.close();
     return null;
   }
 }

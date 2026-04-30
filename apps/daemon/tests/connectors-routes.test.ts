@@ -42,7 +42,7 @@ describe('connector routes', () => {
     const response = await jsonFetch(`${baseUrl}/api/connectors`);
 
     expect(response.status).toBe(200);
-    expect(response.body.connectors.map((connector) => connector.id)).toEqual(['project_files', 'git', 'github_public']);
+    expect(response.body.connectors.map((connector) => connector.id)).toEqual(['project_files', 'git', 'github_public', 'github', 'notion', 'google_drive']);
   });
 
   it('returns connector detail and 404 for unknown connectors', async () => {

@@ -136,9 +136,11 @@ describe('connector status service', () => {
       accountLabel: 'docs@example.com',
       credentials: { access_token: 'oauth-secret-token', refresh_token: 'oauth-refresh-token' },
     })).resolves.toMatchObject({
-      id: 'external_docs',
-      status: 'connected',
-      accountLabel: 'docs@example.com',
+      connector: {
+        id: 'external_docs',
+        status: 'connected',
+        accountLabel: 'docs@example.com',
+      },
     });
 
     const serializedDetail = JSON.stringify(service.getConnector('external_docs'));

@@ -45,6 +45,21 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function connectorCallbackUrl(req: Request): string {
+  const host = req.get('host') ?? 'localhost';
+  let hostname = 'localhost';
+  try {
+    hostname = new URL(`http://${host}`).hostname;
+  } catch {
+    throw new ConnectorServiceError('CONNECTOR_EXECUTION_FAILED', 'connector OAuth callback host is invalid', 400, { host });
+  }
+  const allowed = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  if (!allowed) {
+    throw new ConnectorServiceError('CONNECTOR_EXECUTION_FAILED', 'connector OAuth callback host must be loopback', 400, { host });
+  }
+  return `${req.protocol}://${host}/api/connectors/oauth/callback`;
+}
+
 export function registerConnectorRoutes(app: Express, options: RegisterConnectorRoutesOptions): void {
   const service = options.service ?? connectorService;
 
@@ -77,12 +92,39 @@ export function registerConnectorRoutes(app: Express, options: RegisterConnector
         options.sendApiError(res, 400, 'VALIDATION_FAILED', 'credentials must be an object');
         return;
       }
+      const definition = service.getDefinition(connectorId);
+      if (definition?.authentication === 'composio' && credentials !== undefined) {
+        options.sendApiError(res, 400, 'VALIDATION_FAILED', 'Composio connector credentials can only be stored through OAuth callback completion');
+        return;
+      }
       res.json({
-        connector: await service.connect(connectorId, {
+        ...(await service.connect(connectorId, {
           ...(accountLabel === undefined ? {} : { accountLabel }),
           ...(credentials === undefined ? {} : { credentials }),
-        }),
+          callbackUrl: `${connectorCallbackUrl(req)}/${encodeURIComponent(connectorId)}`,
+        })),
       });
+    } catch (err) {
+      sendConnectorRouteError(res, err, options.sendApiError);
+    }
+  });
+
+  app.get('/api/connectors/oauth/callback/:connectorId', async (req: Request, res: Response) => {
+    try {
+      const connectorId = req.params.connectorId;
+      if (!connectorId) return options.sendApiError(res, 400, 'CONNECTOR_NOT_FOUND', 'connectorId is required');
+      const state = typeof req.query.state === 'string' ? req.query.state : undefined;
+      if (!state) return options.sendApiError(res, 400, 'BAD_REQUEST', 'state is required');
+      const providerConnectionId = typeof req.query.connected_account_id === 'string'
+        ? req.query.connected_account_id
+        : typeof req.query.connection_id === 'string'
+          ? req.query.connection_id
+          : typeof req.query.account_id === 'string'
+            ? req.query.account_id
+            : undefined;
+      const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+      await service.completeComposioConnection({ connectorId, state, ...(providerConnectionId === undefined ? {} : { providerConnectionId }), ...(status === undefined ? {} : { status }) });
+      res.type('html').send(`<!doctype html><title>Connector connected</title><p>Connector connected. You can close this window.</p><script>try{window.opener&&window.opener.postMessage({type:'open-design:connector-connected',connectorId:${JSON.stringify(connectorId)}},'*');window.close();}catch{}</script>`);
     } catch (err) {
       sendConnectorRouteError(res, err, options.sendApiError);
     }
