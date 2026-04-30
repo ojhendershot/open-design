@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { deleteProjectFile, listFiles, readProjectFile, writeProjectFile } from '../src/projects.js';
 import {
+  createLiveArtifact,
   ensureLiveArtifactStoreLayout,
   generateLiveArtifactId,
   generateLiveArtifactSlug,
@@ -20,6 +21,49 @@ async function makeProjectsRoot() {
   const root = await mkdtemp(path.join(tmpdir(), 'od-live-artifacts-'));
   tempRoots.push(root);
   return path.join(root, 'projects');
+}
+
+function validCreateInput() {
+  return {
+    title: 'Launch Metrics: Q2!',
+    slug: 'launch-metrics-q2',
+    sessionId: 'session-123',
+    pinned: true,
+    status: 'archived' as const,
+    preview: {
+      type: 'html' as const,
+      entry: 'index.html',
+    },
+    tiles: [
+      {
+        id: 'tile-1',
+        kind: 'metric' as const,
+        title: 'Revenue',
+        renderJson: {
+          type: 'metric' as const,
+          label: 'Revenue',
+          value: '<script>alert("x")</script>',
+        },
+        provenanceJson: {
+          generatedAt: '2026-04-29T12:00:00.000Z',
+          generatedBy: 'agent' as const,
+          sources: [{ label: 'Prompt', type: 'user_input' as const }],
+        },
+        refreshStatus: 'not_refreshable' as const,
+      },
+    ],
+    document: {
+      format: 'html_template_v1' as const,
+      templatePath: 'template.html' as const,
+      generatedPreviewPath: 'index.html' as const,
+      dataPath: 'data.json' as const,
+      dataJson: {
+        title: 'Launch <Metrics>',
+        owner: 'R&D & Ops',
+        note: 'Use "quotes" and <tags> and \'apostrophes\'',
+      },
+    },
+  };
 }
 
 afterEach(async () => {
@@ -143,5 +187,109 @@ describe('live artifact store layout', () => {
     const files = await listFiles(projectsRoot, 'project-1');
     expect(files.map((file) => file.path)).toEqual(['public.txt']);
     await expect(readdir(paths.rootDir)).resolves.toEqual(['artifact-1']);
+  });
+
+  it('creates a live artifact by assigning daemon-owned fields and persisting artifact files', async () => {
+    const projectsRoot = await makeProjectsRoot();
+    const now = new Date('2026-04-30T10:11:12.345Z');
+    const input = validCreateInput();
+    const templateHtml = [
+      '<!doctype html>',
+      '<html>',
+      '  <body>',
+      '    <h1>{{data.title}}</h1>',
+      '    <p>{{data.owner}}</p>',
+      '    <div>{{data.note}}</div>',
+      '  </body>',
+      '</html>',
+      '',
+    ].join('\n');
+    const provenanceJson = {
+      generatedAt: '2026-04-30T10:11:12.345Z',
+      generatedBy: 'agent' as const,
+      notes: 'Explicit provenance',
+      sources: [{ label: 'User prompt', type: 'user_input' as const }],
+    };
+
+    const record = await createLiveArtifact({
+      projectsRoot,
+      projectId: 'project-1',
+      input,
+      templateHtml,
+      provenanceJson,
+      createdByRunId: 'run-123',
+      now,
+    });
+
+    expect(record.artifact).toMatchObject({
+      schemaVersion: 1,
+      projectId: 'project-1',
+      sessionId: 'session-123',
+      createdByRunId: 'run-123',
+      title: input.title,
+      slug: 'launch-metrics-q2',
+      status: 'archived',
+      pinned: true,
+      preview: input.preview,
+      refreshStatus: 'never',
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      tiles: input.tiles,
+      document: input.document,
+    });
+    expect(record.artifact.id).toMatch(/^la-launch-metrics-q2-[a-f0-9]{12}$/);
+
+    expect(await readFile(record.paths.artifactJsonPath, 'utf8')).toBe(`${JSON.stringify(record.artifact, null, 2)}\n`);
+    expect(await readFile(record.paths.templateHtmlPath, 'utf8')).toBe(templateHtml);
+    expect(await readFile(record.paths.dataJsonPath, 'utf8')).toBe(`${JSON.stringify(input.document.dataJson, null, 2)}\n`);
+    expect(await readFile(record.paths.provenanceJsonPath, 'utf8')).toBe(`${JSON.stringify(provenanceJson, null, 2)}\n`);
+    expect(await readFile(liveArtifactTilePath(record.paths, 'tile-1'), 'utf8')).toBe(
+      `${JSON.stringify(input.tiles[0], null, 2)}\n`,
+    );
+    expect(await readFile(record.paths.refreshesJsonlPath, 'utf8')).toBe('');
+    await expect(stat(record.paths.snapshotsDir)).resolves.toMatchObject({});
+    await expect(readdir(record.paths.tilesDir)).resolves.toEqual(['tile-1.json']);
+
+    expect(await readFile(record.paths.generatedPreviewHtmlPath, 'utf8')).toContain(
+      '<h1>Launch &lt;Metrics&gt;</h1>',
+    );
+    expect(await readFile(record.paths.generatedPreviewHtmlPath, 'utf8')).toContain('<p>R&amp;D &amp; Ops</p>');
+    expect(await readFile(record.paths.generatedPreviewHtmlPath, 'utf8')).toContain(
+      '<div>Use &quot;quotes&quot; and &lt;tags&gt; and &#39;apostrophes&#39;</div>',
+    );
+  });
+
+  it('rejects daemon-owned fields in create input', async () => {
+    const projectsRoot = await makeProjectsRoot();
+
+    await expect(
+      createLiveArtifact({
+        projectsRoot,
+        projectId: 'project-1',
+        input: {
+          ...validCreateInput(),
+          id: 'artifact-1',
+          projectId: 'other-project',
+          createdAt: '2026-04-30T10:11:12.345Z',
+          updatedAt: '2026-04-30T10:11:12.345Z',
+          createdByRunId: 'run-123',
+          schemaVersion: 99,
+          refreshStatus: 'running',
+          lastRefreshedAt: '2026-04-30T10:11:12.345Z',
+        },
+      }),
+    ).rejects.toMatchObject({
+      name: 'LiveArtifactStoreValidationError',
+      issues: expect.arrayContaining([
+        expect.objectContaining({ path: 'id' }),
+        expect.objectContaining({ path: 'projectId' }),
+        expect.objectContaining({ path: 'createdAt' }),
+        expect.objectContaining({ path: 'updatedAt' }),
+        expect.objectContaining({ path: 'createdByRunId' }),
+        expect.objectContaining({ path: 'schemaVersion' }),
+        expect.objectContaining({ path: 'refreshStatus' }),
+        expect.objectContaining({ path: 'lastRefreshedAt' }),
+      ]),
+    });
   });
 });

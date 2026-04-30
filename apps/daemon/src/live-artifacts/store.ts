@@ -1,9 +1,11 @@
 import { randomBytes } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { ensureProject, projectDir } from '../projects.js';
-import type { LiveArtifact } from './schema.js';
+import { renderHtmlTemplateV1 } from './render.js';
+import type { LiveArtifact, LiveArtifactCreateInput, LiveArtifactProvenance, LiveArtifactValidationIssue } from './schema.js';
+import { validateLiveArtifactCreateInput, validatePersistedLiveArtifact } from './schema.js';
 
 export type LiveArtifactSummary = Omit<LiveArtifact, 'document' | 'tiles'> & {
   tileCount: number;
@@ -72,6 +74,26 @@ export interface GenerateLiveArtifactIdOptions {
   title: string;
   slug?: string;
   randomSuffix?: string;
+}
+
+export interface CreateLiveArtifactOptions {
+  projectsRoot: string;
+  projectId: string;
+  input: unknown;
+  templateHtml?: string;
+  provenanceJson?: LiveArtifactProvenance;
+  createdByRunId?: string;
+  now?: Date;
+}
+
+export class LiveArtifactStoreValidationError extends Error {
+  readonly issues: LiveArtifactValidationIssue[];
+
+  constructor(message: string, issues: LiveArtifactValidationIssue[]) {
+    super(message);
+    this.name = 'LiveArtifactStoreValidationError';
+    this.issues = issues;
+  }
 }
 
 function truncateSlugAtSegmentBoundary(slug: string, maxLength: number): string {
@@ -164,4 +186,121 @@ export async function ensureLiveArtifactStoreLayout(
   await mkdir(paths.snapshotsDir, { recursive: true });
   await writeFile(paths.refreshesJsonlPath, '', { flag: 'a' });
   return paths;
+}
+
+function stableJson(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+function defaultTemplateHtml(title: string): string {
+  return [
+    '<!doctype html>',
+    '<html lang="en">',
+    '  <head>',
+    '    <meta charset="utf-8" />',
+    '    <meta name="viewport" content="width=device-width, initial-scale=1" />',
+    '    <title>{{data.title}}</title>',
+    '  </head>',
+    '  <body>',
+    '    <main>',
+    `      <h1>{{data.title}}</h1>`,
+    `      <p>${title}</p>`,
+    '    </main>',
+    '  </body>',
+    '</html>',
+    '',
+  ].join('\n');
+}
+
+function defaultProvenance(nowIso: string): LiveArtifactProvenance {
+  return {
+    generatedAt: nowIso,
+    generatedBy: 'agent',
+    notes: 'Created through the live artifact registration service.',
+    sources: [{ label: 'Agent-authored live artifact input', type: 'user_input' }],
+  };
+}
+
+function toSummary(artifact: LiveArtifact): LiveArtifactSummary {
+  const { document: _document, tiles, ...summary } = artifact;
+  return {
+    ...summary,
+    tileCount: tiles.length,
+    hasDocument: _document !== undefined,
+  };
+}
+
+async function writeLiveArtifactFiles(paths: LiveArtifactStorePaths, artifact: LiveArtifact, templateHtml: string, provenanceJson: LiveArtifactProvenance): Promise<void> {
+  const dataJson = artifact.document?.dataJson ?? {};
+  const previewHtml = artifact.document?.format === 'html_template_v1'
+    ? renderHtmlTemplateV1({ templateHtml, dataJson }).html
+    : templateHtml;
+
+  await mkdir(paths.tilesDir, { recursive: true });
+  await mkdir(paths.snapshotsDir, { recursive: true });
+  await Promise.all([
+    writeFile(paths.artifactJsonPath, stableJson(artifact), 'utf8'),
+    writeFile(paths.templateHtmlPath, templateHtml, 'utf8'),
+    writeFile(paths.generatedPreviewHtmlPath, previewHtml, 'utf8'),
+    writeFile(paths.dataJsonPath, stableJson(dataJson), 'utf8'),
+    writeFile(paths.provenanceJsonPath, stableJson(provenanceJson), 'utf8'),
+    writeFile(paths.refreshesJsonlPath, '', { flag: 'a' }),
+    ...artifact.tiles.map((tile) => writeFile(liveArtifactTilePath(paths, tile.id), stableJson(tile), 'utf8')),
+  ]);
+}
+
+export async function createLiveArtifact(options: CreateLiveArtifactOptions): Promise<LiveArtifactStoreRecord> {
+  const result = validateLiveArtifactCreateInput(options.input);
+  if (!result.ok) throw new LiveArtifactStoreValidationError(result.error, result.issues);
+
+  const input: LiveArtifactCreateInput = result.value;
+  const nowIso = (options.now ?? new Date()).toISOString();
+  const artifactId = generateLiveArtifactId(input.slug === undefined ? { title: input.title } : { title: input.title, slug: input.slug });
+  const slug = generateLiveArtifactSlug(input.slug ?? input.title);
+  const artifact: LiveArtifact = {
+    schemaVersion: 1,
+    id: artifactId,
+    projectId: options.projectId,
+    title: input.title,
+    slug,
+    status: input.status ?? 'active',
+    pinned: input.pinned ?? false,
+    preview: input.preview,
+    refreshStatus: 'never',
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    tiles: input.tiles ?? [],
+  };
+  if (input.sessionId !== undefined) artifact.sessionId = input.sessionId;
+  if (options.createdByRunId !== undefined) artifact.createdByRunId = options.createdByRunId;
+  if (input.document !== undefined) artifact.document = input.document;
+
+  const persisted = validatePersistedLiveArtifact(artifact);
+  if (!persisted.ok) throw new LiveArtifactStoreValidationError(persisted.error, persisted.issues);
+
+  await ensureProject(options.projectsRoot, options.projectId);
+  const finalPaths = liveArtifactStorePaths(options.projectsRoot, options.projectId, artifactId);
+  await mkdir(finalPaths.rootDir, { recursive: true });
+
+  const tempArtifactId = validateLiveArtifactStorageId(`tmp-${randomBytes(12).toString('hex')}`);
+  const tempPaths = liveArtifactStorePaths(options.projectsRoot, options.projectId, tempArtifactId);
+  const templateHtml = options.templateHtml ?? defaultTemplateHtml(input.title);
+  const provenanceJson = options.provenanceJson ?? defaultProvenance(nowIso);
+
+  await rm(tempPaths.artifactDir, { recursive: true, force: true });
+  await mkdir(tempPaths.artifactDir, { recursive: false });
+
+  try {
+    await writeLiveArtifactFiles(tempPaths, persisted.value, templateHtml, provenanceJson);
+    await rename(tempPaths.artifactDir, finalPaths.artifactDir);
+  } catch (error) {
+    await rm(tempPaths.artifactDir, { recursive: true, force: true });
+    throw error;
+  }
+
+  return { artifact: persisted.value, paths: finalPaths };
+}
+
+export function summarizeLiveArtifactRecord(record: LiveArtifactStoreRecord): LiveArtifactStoreSummary {
+  return { artifact: toSummary(record.artifact), paths: record.paths };
 }
