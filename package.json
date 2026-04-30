@@ -15,25 +15,14 @@
     "dev:all": "node scripts/dev-all.mjs",
     "build": "pnpm --filter @open-design/web build",
     "preview": "pnpm run build && pnpm --filter @open-design/daemon daemon",
-    "test:e2e:live": "node --test scripts/runtime-adapter.e2e.live.test.mjs",
-    "test": "vitest run",
-    "test:ui:clean": "node scripts/reset-e2e-artifacts.mjs",
-    "test:ui": "pnpm run test:ui:clean && playwright test -c e2e/playwright.config.ts",
-    "test:ui:headed": "pnpm run test:ui:clean && playwright test -c e2e/playwright.config.ts --headed",
+    "test:e2e:live": "pnpm --filter @open-design/e2e test:e2e:live",
+    "test": "pnpm --filter @open-design/web test && pnpm --filter @open-design/daemon test && pnpm --filter @open-design/e2e test",
+    "test:ui:clean": "pnpm --filter @open-design/e2e test:ui:clean",
+    "test:ui": "pnpm --filter @open-design/e2e test:ui",
+    "test:ui:headed": "pnpm --filter @open-design/e2e test:ui:headed",
     "typecheck": "pnpm --filter @open-design/web typecheck",
     "start": "pnpm run build && pnpm --filter @open-design/daemon start",
-    "test:run": "vitest run"
-  },
-  "devDependencies": {
-    "@playwright/test": "^1.59.1",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.2",
-    "@types/node": "^20.17.10",
-    "jsdom": "^29.1.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "typescript": "^5.6.3",
-    "vitest": "^2.1.8"
+    "test:run": "pnpm run test"
   },
   "engines": {
     "node": "~24",

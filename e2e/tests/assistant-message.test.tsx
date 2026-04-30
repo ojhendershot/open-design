@@ -1,8 +1,7 @@
-import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AssistantMessage } from '../apps/web/src/components/AssistantMessage';
-import type { AgentEvent, ChatMessage } from '../apps/web/src/types';
+import { AssistantMessage } from '../../apps/web/src/components/AssistantMessage';
+import type { AgentEvent, ChatMessage } from '../../apps/web/src/types';
 
 function messageWithEvents(events: AgentEvent[]): ChatMessage {
   return {
@@ -35,8 +34,8 @@ describe('AssistantMessage unfinished todo state', () => {
       />,
     );
 
-    expect(screen.getByText('Done')).toBeInTheDocument();
-    expect(screen.queryByText('Stopped with unfinished work')).not.toBeInTheDocument();
+    expect(screen.getByText('Done')).toBeTruthy();
+    expect(screen.queryByText('Stopped with unfinished work')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Continue remaining tasks' })).toBeNull();
   });
 
@@ -69,12 +68,12 @@ describe('AssistantMessage unfinished todo state', () => {
       />,
     );
 
-    expect(screen.getByText('Stopped with unfinished work')).toBeInTheDocument();
-    expect(screen.getByText('2 task(s) remain')).toBeInTheDocument();
+    expect(screen.getByText('Stopped with unfinished work')).toBeTruthy();
+    expect(screen.getByText('2 task(s) remain')).toBeTruthy();
     const remainingList = screen.getByText('2 task(s) remain').closest('.unfinished-todos');
     expect(remainingList).not.toBeNull();
-    expect(within(remainingList as HTMLElement).getByText('Building components')).toBeInTheDocument();
-    expect(within(remainingList as HTMLElement).getByText('Run QA')).toBeInTheDocument();
+    expect(within(remainingList as HTMLElement).getByText('Building components')).toBeTruthy();
+    expect(within(remainingList as HTMLElement).getByText('Run QA')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue remaining tasks' }));
 
@@ -106,8 +105,8 @@ describe('AssistantMessage unfinished todo state', () => {
       />,
     );
 
-    expect(screen.getByText('Stopped with unfinished work')).toBeInTheDocument();
-    expect(screen.getByText('1 task(s) remain')).toBeInTheDocument();
+    expect(screen.getByText('Stopped with unfinished work')).toBeTruthy();
+    expect(screen.getByText('1 task(s) remain')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Continue remaining tasks' })).toBeNull();
   });
 });

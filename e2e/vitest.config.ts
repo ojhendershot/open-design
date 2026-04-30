@@ -7,10 +7,6 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    include: [
-      'apps/web/src/**/*.test.{ts,tsx,js,mjs,cjs}',
-      'apps/daemon/**/*.test.{ts,tsx,js,mjs,cjs}',
-      'tests/**/*.test.{ts,tsx}',
-    ],
+    include: ['tests/**/*.test.{ts,tsx}'],
   },
 });

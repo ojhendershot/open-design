@@ -22,8 +22,8 @@ let dataDir;
 test.before(async () => {
   dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'od-runtime-adapter-live-'));
   process.env.OD_DATA_DIR = dataDir;
-  ({ startServer } = await import('../apps/daemon/server.js'));
-  ({ closeDatabase } = await import('../apps/daemon/db.js'));
+  ({ startServer } = await import('../../apps/daemon/server.js'));
+  ({ closeDatabase } = await import('../../apps/daemon/db.js'));
   const started = await startServer({ port: 0, returnServer: true });
   baseUrl = started.url;
   server = started.server;
