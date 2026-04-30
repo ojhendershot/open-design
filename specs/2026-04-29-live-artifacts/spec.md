@@ -845,6 +845,7 @@ Exit criteria:
 
 ### Phase 4 — Optional MCP wrapper
 
+- Confirmation after the skill + wrapper path: MCP is not needed for MVP correctness because all supported agents can use `SKILL.md` plus `od tools ...` wrappers, and Phase 1C/Phase 3 command surfaces cover live artifact creation, listing, update, refresh, connector listing, and read-only connector execution. MCP is only worth adding as an additive compatibility layer for agents with mature MCP support and must not replace, weaken, or fork the daemon-owned service/policy path.
 - Wrap the daemon's existing live artifact and connector services as an MCP server for agents that support MCP well.
 - Do not make MCP required.
 - Do not mutate global user MCP config automatically.

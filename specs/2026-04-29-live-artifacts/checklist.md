@@ -331,7 +331,7 @@
 
 ## Phase 4 — Optional MCP wrapper
 
-- [ ] Confirm need for MCP after skill + wrapper path works.
+- [x] Confirm need for MCP after skill + wrapper path works.
 - [ ] Design MCP server as wrapper over existing daemon services.
 - [ ] Do not make MCP required.
 - [ ] Do not mutate user global MCP config automatically.
