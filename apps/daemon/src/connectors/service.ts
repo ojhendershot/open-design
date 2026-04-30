@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { executeLocalDaemonRefreshSource } from '../live-artifacts/refresh.js';
 import type { BoundedJsonObject, BoundedJsonValue } from '../live-artifacts/schema.js';
 
@@ -66,8 +69,25 @@ export interface ConnectorConnectionRecord extends ConnectorConnectionStatus {
   updatedAt: string;
 }
 
+export type ConnectorCredentialMaterial = Record<string, unknown>;
+
+export interface ConnectorCredentialRecord {
+  schemaVersion: 1;
+  connectorId: string;
+  accountLabel: string;
+  credentials: ConnectorCredentialMaterial;
+  updatedAt: string;
+}
+
+export interface ConnectorCredentialStore {
+  get(connectorId: string): ConnectorCredentialRecord | undefined;
+  set(record: ConnectorCredentialRecord): void;
+  delete(connectorId: string): void;
+}
+
 export interface ConnectorStatusServiceOptions {
   initialStatuses?: Record<string, ConnectorConnectionStatus>;
+  credentialStore?: ConnectorCredentialStore;
 }
 
 const LOCAL_CONNECTOR_ACCOUNT_LABELS: Record<string, string> = {
@@ -77,6 +97,86 @@ const LOCAL_CONNECTOR_ACCOUNT_LABELS: Record<string, string> = {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function cloneCredentialMaterial(credentials: ConnectorCredentialMaterial): ConnectorCredentialMaterial {
+  return JSON.parse(JSON.stringify(credentials)) as ConnectorCredentialMaterial;
+}
+
+export class InMemoryConnectorCredentialStore implements ConnectorCredentialStore {
+  private readonly records = new Map<string, ConnectorCredentialRecord>();
+
+  get(connectorId: string): ConnectorCredentialRecord | undefined {
+    const record = this.records.get(connectorId);
+    return record === undefined ? undefined : { ...record, credentials: cloneCredentialMaterial(record.credentials) };
+  }
+
+  set(record: ConnectorCredentialRecord): void {
+    this.records.set(record.connectorId, { ...record, credentials: cloneCredentialMaterial(record.credentials) });
+  }
+
+  delete(connectorId: string): void {
+    this.records.delete(connectorId);
+  }
+}
+
+export class FileConnectorCredentialStore implements ConnectorCredentialStore {
+  private readonly filePath: string;
+
+  constructor(dataDir: string) {
+    this.filePath = path.join(dataDir, 'connectors', 'credentials.json');
+  }
+
+  get(connectorId: string): ConnectorCredentialRecord | undefined {
+    return this.readRecords()[connectorId];
+  }
+
+  set(record: ConnectorCredentialRecord): void {
+    const records = this.readRecords();
+    records[record.connectorId] = { ...record, credentials: cloneCredentialMaterial(record.credentials) };
+    this.writeRecords(records);
+  }
+
+  delete(connectorId: string): void {
+    const records = this.readRecords();
+    if (records[connectorId] === undefined) return;
+    delete records[connectorId];
+    this.writeRecords(records);
+  }
+
+  private readRecords(): Record<string, ConnectorCredentialRecord> {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8')) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+      const records: Record<string, ConnectorCredentialRecord> = {};
+      for (const [connectorId, value] of Object.entries(parsed as Record<string, unknown>)) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+        const raw = value as Record<string, unknown>;
+        if (raw.schemaVersion !== 1 || raw.connectorId !== connectorId || typeof raw.accountLabel !== 'string' || typeof raw.updatedAt !== 'string') continue;
+        if (!raw.credentials || typeof raw.credentials !== 'object' || Array.isArray(raw.credentials)) continue;
+        records[connectorId] = {
+          schemaVersion: 1,
+          connectorId,
+          accountLabel: raw.accountLabel,
+          credentials: cloneCredentialMaterial(raw.credentials as ConnectorCredentialMaterial),
+          updatedAt: raw.updatedAt,
+        };
+      }
+      return records;
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return {};
+      throw error;
+    }
+  }
+
+  private writeRecords(records: Record<string, ConnectorCredentialRecord>): void {
+    const dir = path.dirname(this.filePath);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(tempPath, `${JSON.stringify(records, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(tempPath, this.filePath);
+    fs.chmodSync(this.filePath, 0o600);
+  }
 }
 
 function cloneStatus(status: ConnectorConnectionStatus): ConnectorConnectionStatus {
@@ -167,11 +267,17 @@ function defaultConnectedAccountLabel(definition: ConnectorCatalogDefinition): s
 
 export class ConnectorStatusService {
   private readonly statuses = new Map<string, ConnectorConnectionRecord>();
+  private credentialStore: ConnectorCredentialStore | undefined;
 
   constructor(options: ConnectorStatusServiceOptions = {}) {
+    this.credentialStore = options.credentialStore;
     for (const [connectorId, status] of Object.entries(options.initialStatuses ?? {})) {
       this.statuses.set(connectorId, { ...cloneStatus(status), updatedAt: nowIso() });
     }
+  }
+
+  setCredentialStore(credentialStore: ConnectorCredentialStore): void {
+    this.credentialStore = credentialStore;
   }
 
   getStatus(definition: ConnectorCatalogDefinition): ConnectorConnectionStatus {
@@ -180,6 +286,11 @@ export class ConnectorStatusService {
     const stored = this.statuses.get(definition.id);
     if (stored) return cloneStatus(stored);
 
+    const credentialRecord = this.credentialStore?.get(definition.id);
+    if (credentialRecord !== undefined) {
+      return { status: 'connected', accountLabel: credentialRecord.accountLabel };
+    }
+
     if (isLocalAutoConnected(definition)) {
       return { status: 'connected', accountLabel: defaultConnectedAccountLabel(definition) };
     }
@@ -187,8 +298,18 @@ export class ConnectorStatusService {
     return { status: 'available' };
   }
 
-  connect(definition: ConnectorCatalogDefinition, accountLabel?: string): ConnectorConnectionStatus {
+  connect(definition: ConnectorCatalogDefinition, accountLabel?: string, credentials?: ConnectorCredentialMaterial): ConnectorConnectionStatus {
     if (definition.disabled) return { status: 'disabled' };
+
+    if (credentials !== undefined) {
+      this.credentialStore?.set({
+        schemaVersion: 1,
+        connectorId: definition.id,
+        accountLabel: accountLabel ?? defaultConnectedAccountLabel(definition),
+        credentials,
+        updatedAt: nowIso(),
+      });
+    }
 
     const next: ConnectorConnectionRecord = {
       status: 'connected',
@@ -201,6 +322,8 @@ export class ConnectorStatusService {
 
   disconnect(definition: ConnectorCatalogDefinition): ConnectorConnectionStatus {
     if (definition.disabled) return { status: 'disabled' };
+
+    this.credentialStore?.delete(definition.id);
 
     if (isLocalAutoConnected(definition)) {
       this.statuses.delete(definition.id);
@@ -329,6 +452,10 @@ export class ConnectorService {
 
   constructor(private readonly statusService = new ConnectorStatusService()) {}
 
+  setCredentialStore(credentialStore: ConnectorCredentialStore): void {
+    this.statusService.setCredentialStore(credentialStore);
+  }
+
   listDefinitions(): ConnectorCatalogDefinition[] {
     return listConnectorCatalogDefinitions();
   }
@@ -353,12 +480,12 @@ export class ConnectorService {
     return this.toDetail(definition);
   }
 
-  async connect(connectorId: string): Promise<ConnectorDetail> {
+  async connect(connectorId: string, options: { accountLabel?: string; credentials?: ConnectorCredentialMaterial } = {}): Promise<ConnectorDetail> {
     const definition = this.getDefinition(connectorId);
     if (!definition) {
       throw new ConnectorServiceError('CONNECTOR_NOT_FOUND', 'connector not found', 404);
     }
-    const status = this.statusService.connect(definition);
+    const status = this.statusService.connect(definition, options.accountLabel, options.credentials);
     if (status.status === 'disabled') {
       throw new ConnectorServiceError('CONNECTOR_DISABLED', 'connector is disabled', 403);
     }
@@ -526,6 +653,10 @@ export class ConnectorService {
 }
 
 export const connectorService = new ConnectorService();
+
+export function configureConnectorCredentialStore(credentialStore: ConnectorCredentialStore): void {
+  connectorService.setCredentialStore(credentialStore);
+}
 
 function summarizeConnectorOutput(output: BoundedJsonValue): string | undefined {
   if (output === null || typeof output !== 'object' || Array.isArray(output)) return undefined;

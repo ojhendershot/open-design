@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtemp, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
 
 import {
   CONNECTOR_RUN_RATE_LIMIT_CALLS,
@@ -6,6 +9,7 @@ import {
   ConnectorService,
   ConnectorServiceError,
   ConnectorStatusService,
+  FileConnectorCredentialStore,
   type ConnectorExecuteRequest,
   type ConnectorExecutionContext,
 } from '../src/connectors/service.js';
@@ -108,6 +112,34 @@ describe('connector status service', () => {
     });
     expect(statusService.disconnect(available)).toEqual({ status: 'available' });
     expect(statusService.getStatus(disabled)).toEqual({ status: 'disabled' });
+  });
+
+  it('stores OAuth credential material in the daemon global store without exposing it in connector details', async () => {
+    const dataDir = await mkdtemp(path.join(tmpdir(), 'od-connector-credentials-'));
+    const credentialStore = new FileConnectorCredentialStore(dataDir);
+    const statusService = new ConnectorStatusService({ credentialStore });
+    const definition = externalConnector();
+    const service = new TestConnectorService(definition, statusService);
+
+    await expect(service.connect('external_docs', {
+      accountLabel: 'docs@example.com',
+      credentials: { access_token: 'oauth-secret-token', refresh_token: 'oauth-refresh-token' },
+    })).resolves.toMatchObject({
+      id: 'external_docs',
+      status: 'connected',
+      accountLabel: 'docs@example.com',
+    });
+
+    const serializedDetail = JSON.stringify(service.getConnector('external_docs'));
+    expect(serializedDetail).not.toContain('oauth-secret-token');
+    expect(serializedDetail).not.toContain('oauth-refresh-token');
+
+    const credentialFile = await readFile(path.join(dataDir, 'connectors', 'credentials.json'), 'utf8');
+    expect(credentialFile).toContain('oauth-secret-token');
+    expect(credentialFile).toContain('oauth-refresh-token');
+
+    await service.disconnect('external_docs');
+    expect(service.getConnector('external_docs')).toMatchObject({ status: 'available' });
   });
 });
 

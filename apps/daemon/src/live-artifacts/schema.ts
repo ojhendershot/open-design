@@ -293,6 +293,10 @@ const REFRESH_SOURCE_TYPES = new Set<LiveArtifactRefreshSourceType>([
   'tile',
   'artifact',
 ]);
+const SOURCE_KEYS = new Set(['type', 'toolName', 'input', 'connector', 'outputMapping', 'refreshPermission']);
+const CONNECTOR_REFERENCE_KEYS = new Set(['connectorId', 'accountLabel', 'toolName', 'approvalPolicy']);
+const OUTPUT_MAPPING_KEYS = new Set(['dataPaths', 'transform']);
+const REFRESH_SOURCE_METADATA_KEYS = new Set(['sourceType', 'tileId', 'toolName', 'connector']);
 const EXECUTABLE_RENDER_JSON_PATTERNS: Array<{ pattern: RegExp; message: string }> = [
   { pattern: /<\s*script\b/i, message: 'script elements are not supported in live artifact render JSON' },
   { pattern: /<\s*iframe\b/i, message: 'iframe elements are not supported in live artifact render JSON' },
@@ -427,6 +431,14 @@ function validateNoDaemonOwnedFields(raw: Record<string, unknown>, issues: LiveA
   }
 }
 
+function validateOnlyAllowedKeys(raw: Record<string, unknown>, allowed: ReadonlySet<string>, path: string, issues: LiveArtifactValidationIssue[]): void {
+  for (const key of Object.keys(raw)) {
+    if (!allowed.has(key)) {
+      issues.push({ path: `${path}.${key}`, message: `${path}.${key} is not allowed` });
+    }
+  }
+}
+
 function validateBoundedJsonInternal(value: unknown, path: string, issues: LiveArtifactValidationIssue[], depth: number): value is BoundedJsonValue {
   if (value === null || typeof value === 'boolean' || typeof value === 'number') {
     if (typeof value === 'number' && !Number.isFinite(value)) {
@@ -547,6 +559,7 @@ function validateSource(value: unknown, path: string, issues: LiveArtifactValida
     issues.push({ path, message: `${path} must be an object` });
     return undefined;
   }
+  validateOnlyAllowedKeys(value, SOURCE_KEYS, path, issues);
   const type = validateEnum(value.type, SOURCE_TYPES, `${path}.type`, issues);
   const toolName = asOptionalString(value.toolName, `${path}.toolName`, issues, MAX_ID_LENGTH);
   const inputResult = validateBoundedJsonObject(value.input, `${path}.input`);
@@ -558,6 +571,7 @@ function validateSource(value: unknown, path: string, issues: LiveArtifactValida
     if (!isPlainObject(value.connector)) {
       issues.push({ path: `${path}.connector`, message: `${path}.connector must be an object` });
     } else {
+      validateOnlyAllowedKeys(value.connector, CONNECTOR_REFERENCE_KEYS, `${path}.connector`, issues);
       const connectorId = asString(value.connector.connectorId, `${path}.connector.connectorId`, issues, MAX_ID_LENGTH);
       const accountLabel = asOptionalString(value.connector.accountLabel, `${path}.connector.accountLabel`, issues, MAX_SHORT_TEXT_LENGTH);
       const connectorToolName = asString(value.connector.toolName, `${path}.connector.toolName`, issues, MAX_ID_LENGTH);
@@ -575,6 +589,7 @@ function validateSource(value: unknown, path: string, issues: LiveArtifactValida
     if (!isPlainObject(value.outputMapping)) {
       issues.push({ path: `${path}.outputMapping`, message: `${path}.outputMapping must be an object` });
     } else {
+      validateOnlyAllowedKeys(value.outputMapping, OUTPUT_MAPPING_KEYS, `${path}.outputMapping`, issues);
       const mapping: NonNullable<LiveArtifactTileSource['outputMapping']> = {};
       if (value.outputMapping.dataPaths !== undefined) {
         if (!Array.isArray(value.outputMapping.dataPaths) || value.outputMapping.dataPaths.length > MAX_MAPPING_PATHS) {
@@ -615,6 +630,7 @@ function validateRefreshSourceMetadata(value: unknown, path: string, issues: Liv
     issues.push({ path, message: `${path} must be an object` });
     return undefined;
   }
+  validateOnlyAllowedKeys(value, REFRESH_SOURCE_METADATA_KEYS, path, issues);
   const sourceType = validateEnum(value.sourceType, REFRESH_SOURCE_TYPES, `${path}.sourceType`, issues);
   const tileId = asOptionalString(value.tileId, `${path}.tileId`, issues, MAX_ID_LENGTH);
   const toolName = asOptionalString(value.toolName, `${path}.toolName`, issues, MAX_ID_LENGTH);
@@ -623,6 +639,7 @@ function validateRefreshSourceMetadata(value: unknown, path: string, issues: Liv
     if (!isPlainObject(value.connector)) {
       issues.push({ path: `${path}.connector`, message: `${path}.connector must be an object` });
     } else {
+      validateOnlyAllowedKeys(value.connector, CONNECTOR_REFERENCE_KEYS, `${path}.connector`, issues);
       const connectorId = asString(value.connector.connectorId, `${path}.connector.connectorId`, issues, MAX_ID_LENGTH);
       const accountLabel = asOptionalString(value.connector.accountLabel, `${path}.connector.accountLabel`, issues, MAX_SHORT_TEXT_LENGTH);
       const connectorToolName = asString(value.connector.toolName, `${path}.connector.toolName`, issues, MAX_ID_LENGTH);

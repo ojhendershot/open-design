@@ -178,6 +178,39 @@ describe('live artifact schema validation', () => {
     }
   });
 
+  it('persists only connector references and rejects credential material in connector metadata', () => {
+    const result = validateLiveArtifactCreateInput({
+      ...validCreateInput(),
+      document: {
+        ...validCreateInput().document,
+        sourceJson: {
+          type: 'connector_tool',
+          toolName: 'docs.search',
+          input: { query: 'launch' },
+          connector: {
+            connectorId: 'docs',
+            accountLabel: 'docs@example.com',
+            toolName: 'docs.search',
+            approvalPolicy: 'manual_refresh_granted_for_read_only',
+            accessToken: 'oauth-secret-token',
+            headers: { authorization: 'Bearer oauth-secret-token' },
+          },
+          oauthState: 'state-that-must-not-persist',
+          refreshPermission: 'manual_refresh_granted_for_read_only',
+        },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.issues.map((issue) => issue.path)).toEqual(expect.arrayContaining([
+        'input.document.sourceJson.connector.accessToken',
+        'input.document.sourceJson.connector.headers',
+        'input.document.sourceJson.oauthState',
+      ]));
+    }
+  });
+
   it('rejects oversized bounded JSON payloads', () => {
     const oversized = Object.fromEntries(Array.from({ length: 100 }, (_, index) => [`field${index}`, 'x'.repeat(3_000)]));
     const result = validateBoundedJsonObject(oversized, 'data');

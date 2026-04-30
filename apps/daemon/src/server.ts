@@ -70,6 +70,7 @@ import {
 } from './live-artifacts/store.js';
 import { refreshLiveArtifact } from './live-artifacts/refresh-service.js';
 import { registerConnectorRoutes } from './connectors/routes.js';
+import { configureConnectorCredentialStore, FileConnectorCredentialStore } from './connectors/service.js';
 import { CHAT_TOOL_ENDPOINTS, CHAT_TOOL_OPERATIONS, toolTokenRegistry } from './tool-tokens.js';
 
 /** @typedef {import('@open-design/contracts').ApiErrorCode} ApiErrorCode */
@@ -519,6 +520,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
   const app = express();
   app.use(express.json({ limit: '4mb' }));
   const db = openDatabase(PROJECT_ROOT, { dataDir: RUNTIME_DATA_DIR });
+  configureConnectorCredentialStore(new FileConnectorCredentialStore(RUNTIME_DATA_DIR));
   let daemonUrl = `http://127.0.0.1:${port}`;
 
   if (process.env.OD_CODEX_DISABLE_PLUGINS === '1') {

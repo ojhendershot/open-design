@@ -508,7 +508,7 @@ describe('live artifact store layout', () => {
       artifactId: created.artifact.id,
     });
 
-    expect(secondLock.metadata.token).not.toBe(firstLock.metadata.token);
+    expect(secondLock.metadata.lockId).not.toBe(firstLock.metadata.lockId);
     await releaseLiveArtifactRefreshLock(secondLock);
   });
 

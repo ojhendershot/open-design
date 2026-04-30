@@ -41,6 +41,10 @@ function sendConnectorRouteError(res: Response, err: unknown, sendApiError: Conn
   return sendApiError(res, 500, 'CONNECTOR_EXECUTION_FAILED', err instanceof Error ? err.message : String(err));
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 export function registerConnectorRoutes(app: Express, options: RegisterConnectorRoutesOptions): void {
   const service = options.service ?? connectorService;
 
@@ -66,7 +70,19 @@ export function registerConnectorRoutes(app: Express, options: RegisterConnector
     try {
       const connectorId = req.params.connectorId;
       if (!connectorId) return options.sendApiError(res, 400, 'CONNECTOR_NOT_FOUND', 'connectorId is required');
-      res.json({ connector: await service.connect(connectorId) });
+      const body = isPlainObject(req.body) ? req.body : {};
+      const accountLabel = typeof body.accountLabel === 'string' ? body.accountLabel : undefined;
+      const credentials = body.credentials === undefined ? undefined : body.credentials;
+      if (credentials !== undefined && !isPlainObject(credentials)) {
+        options.sendApiError(res, 400, 'VALIDATION_FAILED', 'credentials must be an object');
+        return;
+      }
+      res.json({
+        connector: await service.connect(connectorId, {
+          ...(accountLabel === undefined ? {} : { accountLabel }),
+          ...(credentials === undefined ? {} : { credentials }),
+        }),
+      });
     } catch (err) {
       sendConnectorRouteError(res, err, options.sendApiError);
     }

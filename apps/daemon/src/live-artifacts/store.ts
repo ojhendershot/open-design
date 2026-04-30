@@ -188,7 +188,7 @@ export interface LiveArtifactRefreshLockMetadata {
   refreshId: string;
   refreshOrdinal: number;
   acquiredAt: string;
-  token: string;
+  lockId: string;
 }
 
 export interface LiveArtifactRefreshState {
@@ -511,7 +511,7 @@ function normalizeRefreshLockMetadata(value: unknown, lockPath: string): LiveArt
   if (typeof raw.refreshId !== 'string' || raw.refreshId.length === 0) throw validationError(`${lockPath}.refreshId`, 'live artifact refresh lock refreshId must be a string');
   if (!Number.isSafeInteger(raw.refreshOrdinal) || (raw.refreshOrdinal as number) < 1) throw validationError(`${lockPath}.refreshOrdinal`, 'live artifact refresh lock refreshOrdinal must be a positive safe integer');
   if (typeof raw.acquiredAt !== 'string' || Number.isNaN(Date.parse(raw.acquiredAt))) throw validationError(`${lockPath}.acquiredAt`, 'live artifact refresh lock acquiredAt must be an ISO date string');
-  if (typeof raw.token !== 'string' || raw.token.length === 0) throw validationError(`${lockPath}.token`, 'live artifact refresh lock token must be a string');
+  if (typeof raw.lockId !== 'string' || raw.lockId.length === 0) throw validationError(`${lockPath}.lockId`, 'live artifact refresh lock id must be a string');
   return {
     schemaVersion: 1,
     projectId: raw.projectId,
@@ -519,7 +519,7 @@ function normalizeRefreshLockMetadata(value: unknown, lockPath: string): LiveArt
     refreshId: raw.refreshId,
     refreshOrdinal: raw.refreshOrdinal as number,
     acquiredAt: raw.acquiredAt,
-    token: raw.token,
+    lockId: raw.lockId,
   };
 }
 
@@ -818,7 +818,7 @@ export async function acquireLiveArtifactRefreshLock(
     refreshId,
     refreshOrdinal,
     acquiredAt: (options.now ?? new Date()).toISOString(),
-    token: randomBytes(12).toString('hex'),
+    lockId: randomBytes(12).toString('hex'),
   };
 
   try {
@@ -1007,7 +1007,7 @@ export async function releaseLiveArtifactRefreshLock(lock: LiveArtifactRefreshLo
   if (
     current.projectId !== lock.metadata.projectId
     || current.artifactId !== lock.metadata.artifactId
-    || current.token !== lock.metadata.token
+    || current.lockId !== lock.metadata.lockId
   ) {
     throw new LiveArtifactRefreshLockError('live artifact refresh lock ownership mismatch', {
       projectId: lock.metadata.projectId,
