@@ -12,7 +12,10 @@
   - [ ] Max array length.
   - [ ] Max string length.
   - [ ] Max serialized payload size.
-- [ ] Implement or draft schemas for core types.
+- [ ] Define shared contract DTOs for core types.
+  - [ ] Add shared DTOs under `packages/contracts/src/api/live-artifacts.ts`.
+  - [ ] Add connector DTOs under `packages/contracts/src/api/connectors.ts`.
+  - [ ] Export new contract modules from `packages/contracts/src/index.ts`.
   - [ ] `BoundedJsonValue` / `BoundedJsonObject`.
   - [ ] `LiveArtifact`.
   - [ ] `LiveArtifactDocument`.
@@ -22,15 +25,17 @@
   - [ ] `LiveArtifactProvenance`.
   - [ ] `ConnectorDetail`.
   - [ ] `ConnectorToolSafety`.
+- [ ] Implement daemon runtime validation schemas in `apps/daemon/src/live-artifacts/schema.ts`.
+  - [ ] Consume or mirror shared contract DTOs without adding daemon internals to `packages/contracts`.
+  - [ ] Validate persisted artifact files and create/update inputs.
 - [ ] Define create/update input schemas.
   - [ ] `LiveArtifactCreateInput`.
   - [ ] `LiveArtifactUpdateInput`.
   - [ ] Reject daemon-owned fields from agent input: `id`, `projectId`, `createdAt`, `createdByRunId`, `schemaVersion`, `refreshStatus`.
-- [ ] Define compact agent-facing error format.
-  - [ ] `code`.
-  - [ ] `message`.
-  - [ ] `fieldErrors`.
-  - [ ] `retryable`.
+- [ ] Extend the shared API error envelope for live artifact and connector failures.
+  - [ ] Add live artifact / connector `ApiErrorCode` values in `packages/contracts/src/errors.ts`.
+  - [ ] Use `ApiErrorResponse` for agent-facing tool endpoint failures.
+  - [ ] Put validation field details in the existing error `details` field.
 - [ ] Add fixture artifacts under `specs/2026-04-29-live-artifacts/examples/`.
   - [ ] Minimal static `html_template_v1` artifact.
   - [ ] Artifact with one metric tile.
@@ -47,17 +52,18 @@
 ## Phase 1A — Static live artifact registration
 
 - [ ] Create daemon live artifact module structure.
-  - [ ] `daemon/live-artifacts/schema.js`.
-  - [ ] `daemon/live-artifacts/store.js`.
-  - [ ] `daemon/live-artifacts/render.js`.
+  - [ ] `apps/daemon/src/live-artifacts/schema.ts`.
+  - [ ] `apps/daemon/src/live-artifacts/store.ts`.
+  - [ ] `apps/daemon/src/live-artifacts/render.ts`.
 - [ ] Implement project-scoped storage layout.
-  - [ ] `.od/projects/<projectId>/live-artifacts/<artifactId>/artifact.json`.
-  - [ ] `.od/projects/<projectId>/live-artifacts/<artifactId>/template.html`.
-  - [ ] `.od/projects/<projectId>/live-artifacts/<artifactId>/data.json`.
-  - [ ] `.od/projects/<projectId>/live-artifacts/<artifactId>/provenance.json`.
-  - [ ] `.od/projects/<projectId>/live-artifacts/<artifactId>/tiles/*.json`.
-  - [ ] `.od/projects/<projectId>/live-artifacts/<artifactId>/refreshes.jsonl`.
-  - [ ] `.od/projects/<projectId>/live-artifacts/<artifactId>/snapshots/`.
+  - [ ] `<RUNTIME_DATA_DIR>/projects/<projectId>/.live-artifacts/<artifactId>/artifact.json`.
+  - [ ] `<RUNTIME_DATA_DIR>/projects/<projectId>/.live-artifacts/<artifactId>/template.html`.
+  - [ ] `<RUNTIME_DATA_DIR>/projects/<projectId>/.live-artifacts/<artifactId>/data.json`.
+  - [ ] `<RUNTIME_DATA_DIR>/projects/<projectId>/.live-artifacts/<artifactId>/provenance.json`.
+  - [ ] `<RUNTIME_DATA_DIR>/projects/<projectId>/.live-artifacts/<artifactId>/tiles/*.json`.
+  - [ ] `<RUNTIME_DATA_DIR>/projects/<projectId>/.live-artifacts/<artifactId>/refreshes.jsonl`.
+  - [ ] `<RUNTIME_DATA_DIR>/projects/<projectId>/.live-artifacts/<artifactId>/snapshots/`.
+  - [ ] Support `OD_DATA_DIR` override through existing daemon runtime data-dir conventions.
 - [ ] Implement artifact ID and slug generation.
 - [ ] Implement safe path resolution.
   - [ ] Ensure all reads/writes stay inside project workspace.
@@ -90,7 +96,6 @@
 - [ ] Inject runtime tool environment into agent session.
   - [ ] `OD_DAEMON_URL`.
   - [ ] `OD_TOOL_TOKEN`.
-  - [ ] `OD_TOOL_ROOT`.
 - [ ] Enforce `/api/tools/*` auth.
   - [ ] Require bearer token.
   - [ ] Derive project scope from token.
@@ -118,14 +123,31 @@
   - [ ] CSRF protection where relevant.
   - [ ] DNS rebinding protection.
 - [ ] Add live artifact type definitions to frontend.
+- [ ] Keep live artifacts distinct from the static artifact model.
+  - [ ] Do not add live artifacts as a static `ArtifactKind`.
+  - [ ] Model workspace items as a discriminated `kind: 'live-artifact'` entry.
+  - [ ] Use namespaced tab IDs such as `live:<artifactId>`.
 - [ ] Extend frontend provider/registry methods.
   - [ ] List live artifacts.
   - [ ] Fetch live artifact detail.
   - [ ] Build preview URL.
+- [ ] Add entry-header connector surface.
+  - [ ] Add `Connectors` tab in `apps/web/src/components/EntryView.tsx`.
+  - [ ] In Phase 1B, show stubbed or local-only connector cards until Phase 3 connector APIs are implemented.
+  - [ ] Display connector name, category/provider, status, account label, and connect/configure actions as available.
+- [ ] Add new project live artifact entry.
+  - [ ] Add `New live artifact` to new project tabs in `apps/web/src/components/NewProjectPanel.tsx`.
+  - [ ] Start normal project creation with live-artifact intent / skill path.
+- [ ] List live artifacts in the `Designs` tab.
+  - [ ] Show live artifacts as first-class selectable entries associated with their parent project/design.
+  - [ ] Visually distinguish entries with `Live` / `Refreshable` status.
+  - [ ] Open directly into the parent project workspace with the live artifact selected.
+  - [ ] Optionally show live-artifact count/status on parent design cards.
 - [ ] Show live artifacts as virtual nodes in the artifact tree.
   - [ ] One node per live artifact.
   - [ ] Hide `snapshots/` by default.
   - [ ] Hide `tiles/` implementation files by default.
+  - [ ] Render under a virtual group in `FileWorkspace.tsx`.
 - [ ] Add badges.
   - [ ] `Live`.
   - [ ] `Refreshable`.
@@ -134,6 +156,9 @@
   - [ ] `Archived`.
 - [ ] Add preview panel support.
   - [ ] Load preview route in iframe.
+  - [ ] Add `LiveArtifactViewer` path in `apps/web/src/components/FileViewer.tsx`.
+  - [ ] Reuse existing `HtmlViewer` toolbar / iframe / sandbox patterns.
+  - [ ] Add `Preview` tab.
   - [ ] Add `Source` tab.
   - [ ] Add `Data` tab.
   - [ ] Add `Provenance` tab.
@@ -160,25 +185,25 @@
   - [ ] Determine if user wants live vs static artifact.
   - [ ] Use daemon wrappers instead of raw curl.
   - [ ] Write `template.html`, `data.json`, `artifact.json`, `provenance.json`.
+  - [ ] Include `template.html` in declared skill outputs.
   - [ ] Treat `index.html` as derived preview output.
   - [ ] Never store credentials or raw provider responses.
   - [ ] Keep `data.json` compact and preview-oriented.
 - [ ] Implement wrapper CLI.
-  - [ ] `daemon/tools/live-artifacts.js create --input artifact.json`.
-  - [ ] `daemon/tools/live-artifacts.js list --format compact`.
-  - [ ] `daemon/tools/live-artifacts.js update --artifact-id <id> --input artifact.json`.
-  - [ ] `daemon/tools/live-artifacts.js refresh --artifact-id <id>`.
+  - [ ] `od tools live-artifacts create --input artifact.json`.
+  - [ ] `od tools live-artifacts list --format compact`.
+  - [ ] `od tools live-artifacts update --artifact-id <id> --input artifact.json`.
+  - [ ] `od tools live-artifacts refresh --artifact-id <id>`.
+  - [ ] Implement project-owned command code as TypeScript under `apps/daemon/src`.
 - [ ] Ensure wrapper reads injected environment.
   - [ ] `OD_DAEMON_URL`.
   - [ ] `OD_TOOL_TOKEN`.
-  - [ ] `OD_TOOL_ROOT`.
 - [ ] Ensure wrapper returns agent-friendly output.
   - [ ] Compact success JSON.
   - [ ] Compact validation errors.
   - [ ] Non-zero exit code on failure.
 - [ ] Update system prompt / skill preamble injection.
   - [ ] Include daemon URL.
-  - [ ] Include tool root.
   - [ ] Include token availability without exposing unnecessary internals.
 - [ ] Verify skill discovery.
   - [ ] Skill appears in catalog.
@@ -236,16 +261,18 @@
   - [ ] Persist `manual_refresh_granted_for_read_only` after approval.
   - [ ] Allow revoke from Source tab.
 - [ ] Emit refresh events.
-  - [ ] Through active chat SSE when tied to active agent run.
-  - [ ] Through project-scoped event stream for UI-triggered/background refreshes, if implemented.
+  - [ ] Extend `packages/contracts/src/sse/chat.ts` for live artifact create/update/refresh events.
+  - [ ] Translate live artifact SSE payloads in `apps/web/src/providers/daemon.ts`.
+  - [ ] Auto-open created/updated live artifacts via the existing project open-request flow.
+  - [ ] Update viewer refresh loading/failure state.
 
 ## Phase 3 — Connector catalog and read-only connector tools
 
 - [ ] Create connector module structure.
-  - [ ] `daemon/connectors/catalog.js`.
-  - [ ] `daemon/connectors/service.js`.
-  - [ ] `daemon/routes/connectors.js`.
-  - [ ] `daemon/tools/connectors.js`.
+  - [ ] `apps/daemon/src/connectors/catalog.ts`.
+  - [ ] `apps/daemon/src/connectors/service.ts`.
+  - [ ] `apps/daemon/src/connectors/routes.ts`.
+  - [ ] `apps/daemon/src/tools/connectors.ts`.
 - [ ] Implement connector catalog.
   - [ ] Static connector definitions.
   - [ ] Featured tools.
@@ -262,13 +289,14 @@
   - [ ] `GET /api/connectors/:connectorId`.
   - [ ] `POST /api/connectors/:connectorId/connect`.
   - [ ] `DELETE /api/connectors/:connectorId/connection`.
-  - [ ] `GET /connectors/oauth/callback/:connectorId`.
+  - [ ] Defer OAuth callback routes until OAuth-backed connectors are implemented.
 - [ ] Implement connector tool endpoints.
   - [ ] `GET /api/tools/connectors/list`.
   - [ ] `POST /api/tools/connectors/execute`.
 - [ ] Implement connector wrapper CLI.
-  - [ ] `daemon/tools/connectors.js list --format compact`.
-  - [ ] `daemon/tools/connectors.js execute --connector <id> --tool <name> --input input.json`.
+  - [ ] `od tools connectors list --format compact`.
+  - [ ] `od tools connectors execute --connector <id> --tool <name> --input input.json`.
+  - [ ] Implement project-owned command code as TypeScript under `apps/daemon/src`.
 - [ ] Implement read-only safety classification.
   - [ ] Scope/name contains write/create/update/delete/admin/send/post/manage → write/confirm.
   - [ ] Destructive hints → destructive/disabled for refresh.

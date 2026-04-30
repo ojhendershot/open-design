@@ -55,6 +55,23 @@ Reasons:
 - **Centralized safety:** daemon endpoints can enforce project, path, connector, and output-size policies consistently.
 - **Skill-native product model:** OD's extension point is already `skills/` + `SKILL.md`, so live artifacts should feel like another OD capability, not a separate agent protocol.
 
+### 2.2 Keep live artifacts distinct, but project-native
+
+Live artifacts are a distinct persisted model integrated into the existing project UI. They must not be represented as a new static `ArtifactKind` in the existing artifact model, because they require ID-based identity, directory-shaped runtime storage, refresh/provenance history, connector permissions, locking, and server-rendered preview behavior.
+
+Product terms:
+
+- **Design / project:** the workspace container.
+- **Artifact:** a static generated file inside a design.
+- **Live artifact:** a refreshable, data-backed artifact inside a design.
+- **Connector:** an external or local data source available to live artifacts.
+
+Implementation boundaries:
+
+- Keep dedicated live-artifact storage under `.live-artifacts/`, dedicated `/api/live-artifacts/*` endpoints, and dedicated live-artifact DTOs in `packages/contracts`.
+- Reuse the existing project scope, workspace tabs, file tree, viewer primitives, chat SSE stream, and API error envelope so live artifacts feel native without polluting the simple static artifact path.
+- Do not expose `.live-artifacts/` through generic project file APIs; all mutation should go through live-artifact or tool endpoints.
+
 ## 3. What to migrate from Monet
 
 ### 3.1 Concepts to preserve
@@ -170,6 +187,7 @@ od:
   outputs:
     primary: index.html
     secondary:
+      - template.html
       - artifact.json
       - data.json
       - provenance.json
@@ -187,31 +205,30 @@ The skill should instruct the agent to:
 2. Query available connectors and allowed read-only operations.
 3. Fetch or ask the user for the required data source.
 4. Create a safe render model, not raw provider output.
-5. Write `template.html`, `data.json`, `artifact.json`, and `provenance.json` into the project artifact directory; treat `index.html` as derived preview output.
+5. Write `template.html`, `data.json`, `artifact.json`, and `provenance.json` into the live artifact workspace directory; treat `index.html` as derived preview output.
 6. Register the artifact through daemon tooling.
 7. Include provenance and refresh source metadata.
 8. Never store credentials, raw OAuth responses, headers, cookies, or tokens.
 
 ### 5.3 Agent-callable command surface
 
-Prefer a small wrapper command over raw `curl` in the skill body:
+Prefer a small `od` wrapper command over raw `curl` in the skill body:
 
 ```bash
-node "$OD_TOOL_ROOT/live-artifacts.js" create --input artifact.json
-node "$OD_TOOL_ROOT/live-artifacts.js" list --format compact
-node "$OD_TOOL_ROOT/live-artifacts.js" update --artifact-id "$ID" --input artifact.json
-node "$OD_TOOL_ROOT/live-artifacts.js" refresh --artifact-id "$ID"
-node "$OD_TOOL_ROOT/connectors.js" list --format compact
-node "$OD_TOOL_ROOT/connectors.js" execute --connector github --tool list_releases --input input.json
+od tools live-artifacts create --input artifact.json
+od tools live-artifacts list --format compact
+od tools live-artifacts update --artifact-id "$ID" --input artifact.json
+od tools live-artifacts refresh --artifact-id "$ID"
+od tools connectors list --format compact
+od tools connectors execute --connector github --tool list_releases --input input.json
 ```
 
-The wrapper should call daemon endpoints using injected runtime values:
+The wrapper should be implemented as TypeScript source under `apps/daemon/src` and call daemon endpoints using injected runtime values:
 
 - `OD_DAEMON_URL`
 - `OD_TOOL_TOKEN`
-- `OD_TOOL_ROOT`
 
-The daemon injects these into the system prompt or skill preamble at runtime. The agent should not choose or override `projectId`; `/api/tools/*` derives project/run scope from `OD_TOOL_TOKEN`.
+The daemon injects these into the system prompt or skill preamble at runtime. The agent should not choose or override `projectId`; `/api/tools/*` derives project/run scope from `OD_TOOL_TOKEN`. If standalone JavaScript wrappers are later exposed, they must be generated build output from TypeScript source, not project-owned `.js` source files.
 
 Raw HTTP is for developer debugging only and must include the run-scoped bearer token:
 
@@ -231,10 +248,9 @@ GET    /api/connectors
 GET    /api/connectors/:connectorId
 POST   /api/connectors/:connectorId/connect
 DELETE /api/connectors/:connectorId/connection
-GET    /connectors/oauth/callback/:connectorId
 ```
 
-MVP may stub OAuth-backed connectors and start with local/read-only connectors, but the API should preserve Monet's split between catalog and connection status.
+MVP may stub OAuth-backed connectors and start with local/read-only connectors, but the API should preserve Monet's split between catalog and connection status. OAuth callback routes are deferred until OAuth-backed connectors are implemented.
 
 Connector response shape:
 
@@ -289,7 +305,7 @@ type ConnectorExecuteResponse =
       providerExecutionId?: string;
       metadata?: BoundedJsonObject;
     }
-  | ToolError;
+  | ApiErrorResponse;
 ```
 
 Execution rules:
@@ -326,29 +342,25 @@ GET   /api/live-artifacts/:artifactId/preview
 
 The `/api/tools/*` endpoints are optimized for agent consumption: compact JSON, concise errors, and explicit machine-readable validation failures. They never accept an arbitrary `projectId`; project/run scope comes from `OD_TOOL_TOKEN`. The `/api/live-artifacts/*` endpoints are optimized for UI state and use the web app's normal project context.
 
-Both endpoint families must call the same service-layer validation and storage code. Only authentication, response verbosity, and error formatting should differ.
+Both endpoint families must call the same service-layer validation and storage code. Only authentication and response verbosity should differ; errors should share the `ApiErrorResponse` envelope from `packages/contracts`.
 
-Agent-facing error format:
+Agent-facing tool endpoints should reuse the shared API error envelope from `packages/contracts/src/errors.ts` instead of introducing a parallel error type:
 
 ```ts
-type ToolError = {
-  ok: false;
-  code: string;
-  message: string;
-  fieldErrors?: Array<{ path: string; message: string }>;
-  retryable?: boolean;
-};
+type LiveArtifactToolResponse<TSuccess> = TSuccess | ApiErrorResponse;
 ```
+
+Add live-artifact and connector-specific `ApiErrorCode` values such as `TOOL_TOKEN_INVALID`, `TOOL_TOKEN_EXPIRED`, `CONNECTOR_NOT_CONNECTED`, `CONNECTOR_SAFETY_DENIED`, `REFRESH_LOCKED`, `REFRESH_TIMED_OUT`, `OUTPUT_TOO_LARGE`, `TEMPLATE_BINDING_INVALID`, and `REDACTION_REQUIRED`. Validation details should live in the existing error `details` field so web, daemon, and tests share one error model.
 
 ## 7. Data model
 
 ### 7.1 Storage layout
 
-Use project-scoped files first:
+Use project-scoped files under the daemon runtime data directory first. `OD_DATA_DIR` may override the default; otherwise `<RUNTIME_DATA_DIR>` is `<repo>/.od`:
 
 ```text
-.od/projects/<projectId>/
-└── live-artifacts/
+<RUNTIME_DATA_DIR>/projects/<projectId>/
+└── .live-artifacts/
     └── <artifactId>/
         ├── artifact.json
         ├── template.html
@@ -365,7 +377,7 @@ Use project-scoped files first:
                 └── provenance.json
 ```
 
-This matches OD's file-first artifact philosophy and keeps artifacts inspectable in git. Add SQLite later only for cross-project indexing or high-volume refresh history.
+The dot-prefixed `.live-artifacts/` directory keeps implementation files out of the generic project file tree while preserving OD's file-first, inspectable-on-disk artifact philosophy. Add SQLite later only for cross-project indexing or high-volume refresh history.
 
 `index.html` is a generated preview artifact, not the source of truth for refreshable data. The UI should load live artifacts through:
 
@@ -605,7 +617,7 @@ Default decision:
 
 - OAuth connection state and credentials live outside project artifacts, under a daemon-controlled global store such as `~/.open-design/connectors/` or an app database.
 - Project artifacts only store stable references: `connectorId`, `accountLabel`, provider tool id/name, minimized input, and provenance.
-- Access tokens, refresh tokens, headers, cookies, OAuth state, and raw provider responses are never written under `.od/projects/<projectId>/live-artifacts`.
+- Access tokens, refresh tokens, headers, cookies, OAuth state, and raw provider responses are never written under `<RUNTIME_DATA_DIR>/projects/<projectId>/.live-artifacts` or any other project artifact directory.
 - Refresh resolves credentials through the daemon connector service at execution time.
 - UI must show the connector/account label so users understand which global connection backs a project artifact.
 
@@ -627,9 +639,33 @@ OAuth-backed providers can follow the Monet pattern after the artifact pipeline 
 
 ## 10. UI changes
 
-### 10.1 Artifact tree
+### 10.1 Entry header connector tab
+
+Add a `Connectors` tab to the entry-header navigation. When selected, it should show cards for available external and local connectors.
+
+Connector cards should include, as data becomes available:
+
+- connector name and provider/category
+- connection status
+- connected account label, when connected
+- connect, disconnect, or configure action
+- available read-only tools/capabilities, when useful
+
+This tab is a workspace-level connector management surface, not a separate project type. Phase 1B may show stubbed or local-only connector card data; full external connector status, connect/disconnect actions, and OAuth-backed flows belong to the connector phase.
+
+### 10.2 New project live artifact entry
+
+Add `New live artifact` to the new project tabs. Selecting it should start the normal project creation flow with live-artifact intent and the `live-artifact` skill path preselected or strongly hinted.
+
+This creates a normal project/design whose first output is expected to be a live artifact. It should not create a separate top-level project type unless the product model changes later.
+
+Live artifacts should also be listed in the existing `Designs` tab. The `Designs` tab should continue to show normal designs/projects, and it should additionally surface live artifacts as first-class selectable entries associated with their parent project/design. Live artifact entries should be visually distinguishable with `Live` / `Refreshable` status and should open directly into the project workspace with the corresponding live artifact selected. Parent design cards may also show a small live-artifact count or status summary.
+
+### 10.3 Artifact tree
 
 Show live artifacts as a first-class virtual group in the existing artifact tree, not as raw nested files. The tree should show one node per live artifact and hide implementation files such as `snapshots/` by default.
+
+`ProjectView.tsx` should fetch `GET /api/live-artifacts?projectId=...` alongside the existing project file fetch, then merge live artifacts into the workspace state as a discriminated item such as `kind: 'live-artifact'`. Use namespaced tab IDs such as `live:<artifactId>` so live artifacts cannot collide with file paths. `FileWorkspace.tsx` should render these items in a virtual group and route open/select actions to a live artifact viewer without treating artifact IDs as normal project file paths.
 
 Badges:
 
@@ -639,24 +675,24 @@ Badges:
 - `Refresh failed`
 - `Archived`
 
-### 10.2 Preview panel
+### 10.4 Preview panel
 
 Reuse existing iframe/file viewer where possible:
 
 - Load `GET /api/live-artifacts/:artifactId/preview` in the iframe instead of opening nested files directly.
-- Add side panel tabs: `Source`, `Data`, `Provenance`, `Refresh history`.
-- Show refresh button only when at least one tile is refreshable.
+- Add read-only viewer toolbar tabs using the existing `FileViewer.tsx` / `HtmlViewer` tab pattern: `Preview`, `Source`, `Data`, `Provenance`, `Refresh history`. Do not require a new split-pane side panel in Phase 1B.
+- Show refresh button only when at least one tile is refreshable. When `refreshStatus` is `running`, the button should be disabled and show a loading state to prevent duplicate refreshes.
 
-Data sources for side tabs:
+Data sources for viewer tabs:
 
 - `Source`: `artifact.json` `sourceJson` fields with credentials redacted.
 - `Data`: current `data.json` and tile render summaries.
 - `Provenance`: `provenance.json` and connector/account labels.
 - `Refresh history`: parsed `refreshes.jsonl`, newest first.
 
-### 10.3 Chat integration
+### 10.5 Chat integration
 
-When an agent creates or updates a live artifact, the daemon should emit an agent/UI event similar to produced files so the UI can open it automatically.
+When an agent creates or updates a live artifact, the daemon should emit an agent/UI event similar to produced files so the UI can open it automatically. For MVP, extend the existing chat SSE stream in `packages/contracts/src/sse/chat.ts` rather than creating a second live-artifact SSE connection. `apps/web/src/providers/daemon.ts` should translate the SSE payload into a UI `AgentEvent` such as `kind: 'live_artifact_update'`, and `ProjectView.tsx` should use that event to refresh the live artifact list and auto-open the artifact using the same open-request flow used for produced files.
 
 Suggested event:
 
@@ -675,9 +711,16 @@ type LiveArtifactEvent = {
 ### Phase 0 — Contracts first
 
 - Add this spec.
-- Add JSON schemas or Zod schemas for `LiveArtifact`, `LiveArtifactTile`, `LiveArtifactTileSource`, and connector catalog entries.
+- Add shared TypeScript DTOs under `packages/contracts`, keeping the package pure TypeScript and free of Next.js, Express, filesystem/process APIs, browser APIs, SQLite, daemon internals, and sidecar control-plane dependencies.
+- Add shared contract DTOs for `LiveArtifact`, `LiveArtifactTile`, `LiveArtifactTileSource`, and connector catalog entries. Runtime validation schemas belong under daemon source, especially `apps/daemon/src/live-artifacts/schema.ts`, and should consume or mirror the shared contract types without adding daemon internals to `packages/contracts`.
+- Add or update contract files such as:
+  - `packages/contracts/src/api/live-artifacts.ts`
+  - `packages/contracts/src/api/connectors.ts`
+  - `packages/contracts/src/sse/chat.ts`
+  - `packages/contracts/src/examples.ts`
+  - `packages/contracts/src/index.ts`
 - Add fixture artifacts under `specs/2026-04-29-live-artifacts/examples/`.
-- Define compact error format for agent-facing tool endpoints.
+- Extend `packages/contracts/src/errors.ts` with live artifact / connector error codes instead of defining a second error envelope.
 - Define `html_template_v1` binding grammar and example `template.html + data.json`.
 
 Exit criteria:
@@ -688,7 +731,7 @@ Exit criteria:
 ### Phase 1A — Register static local live artifacts
 
 - Implement daemon live artifact service.
-- Implement project-scoped file storage under `.od/projects/<projectId>/live-artifacts`.
+- Implement project-scoped file storage under `<RUNTIME_DATA_DIR>/projects/<projectId>/.live-artifacts`.
 - Add `/api/tools/live-artifacts/create` and `list`.
 - Add `GET /api/live-artifacts?projectId=...` and `GET /api/live-artifacts/:artifactId`.
 - Add run-scoped `OD_TOOL_TOKEN` for tool endpoints.
@@ -702,8 +745,9 @@ Exit criteria:
 
 - Add `GET /api/live-artifacts/:artifactId/preview`.
 - Render `template.html + data.json` into a sandboxed iframe response.
-- Show live artifacts as virtual nodes in the artifact tree.
-- Add read-only `Source`, `Data`, `Provenance`, and `Refresh history` panels.
+- Fetch live artifacts alongside project files and show them as virtual nodes in the artifact tree.
+- Add a `LiveArtifactViewer` path in `FileViewer.tsx` that reuses the existing HTML viewer toolbar/iframe patterns.
+- Add read-only `Preview`, `Source`, `Data`, `Provenance`, and `Refresh history` viewer tabs.
 
 Exit criteria:
 
@@ -713,8 +757,8 @@ Exit criteria:
 ### Phase 1C — Built-in skill and wrapper command
 
 - Add built-in `skills/live-artifact/SKILL.md`.
-- Add `daemon/tools/live-artifacts.js` wrapper.
-- Inject daemon tool root, daemon URL, and short-lived tool token into skill preamble.
+- Add `od tools live-artifacts ...` and connector command handlers from TypeScript source under `apps/daemon/src`.
+- Inject daemon URL and short-lived tool token into skill preamble.
 
 Exit criteria:
 
@@ -728,7 +772,7 @@ Exit criteria:
 - Implement manual refresh for local daemon tools.
 - Implement per-artifact refresh lock, timeout, stale-write protection, and crash recovery.
 - Preserve previous render on validation failure.
-- Emit UI refresh events.
+- Emit chat-stream UI refresh events and update viewer refresh loading/failure state.
 
 Exit criteria:
 
@@ -766,16 +810,19 @@ Exit criteria:
 Likely new files:
 
 ```text
-daemon/live-artifacts/schema.js
-daemon/live-artifacts/store.js
-daemon/live-artifacts/render.js
-daemon/live-artifacts/refresh.js
-daemon/routes/live-artifacts.js
-daemon/routes/connectors.js
-daemon/connectors/catalog.js
-daemon/connectors/service.js
-daemon/tools/live-artifacts.js
-daemon/tools/connectors.js
+packages/contracts/src/api/live-artifacts.ts
+packages/contracts/src/api/connectors.ts
+packages/contracts/src/examples.ts
+apps/daemon/src/live-artifacts/schema.ts
+apps/daemon/src/live-artifacts/store.ts
+apps/daemon/src/live-artifacts/render.ts
+apps/daemon/src/live-artifacts/refresh.ts
+apps/daemon/src/live-artifacts/routes.ts
+apps/daemon/src/connectors/catalog.ts
+apps/daemon/src/connectors/service.ts
+apps/daemon/src/connectors/routes.ts
+apps/daemon/src/tools/live-artifacts.ts
+apps/daemon/src/tools/connectors.ts
 skills/live-artifact/SKILL.md
 skills/live-artifact/references/artifact-schema.md
 skills/live-artifact/references/connector-policy.md
@@ -785,18 +832,26 @@ skills/live-artifact/references/refresh-contract.md
 Likely touched files:
 
 ```text
-daemon/server.js
-daemon/skills.js
-src/providers/daemon.ts
-src/providers/registry.ts
-src/components/ProjectView.tsx
-src/components/FileViewer.tsx
-src/components/PreviewModal.tsx
-src/types.ts
-src/prompts/system.ts
+packages/contracts/src/errors.ts
+packages/contracts/src/index.ts
+packages/contracts/src/sse/chat.ts
+apps/daemon/src/server.ts
+apps/daemon/src/skills.ts
+apps/daemon/src/cli.ts
+apps/web/src/providers/daemon.ts
+apps/web/src/providers/registry.ts
+apps/web/src/components/EntryView.tsx
+apps/web/src/components/NewProjectPanel.tsx
+apps/web/src/components/ProjectView.tsx
+apps/web/src/components/DesignsTab.tsx
+apps/web/src/components/FileWorkspace.tsx
+apps/web/src/components/FileViewer.tsx
+apps/web/src/components/PreviewModal.tsx
+apps/web/src/types.ts
+apps/web/src/prompts/system.ts
 ```
 
-Keep the first implementation small: if adding a route module system is too large, mount live artifact routes directly in `daemon/server.js` first and refactor after behavior is proven.
+Keep the first implementation small: current daemon route handlers live in `apps/daemon/src/server.ts`, so either mount live artifact routes there first or add small TypeScript route modules that are imported by `server.ts`. Do not add project-owned `.js` source files; JavaScript should only be generated build output or an explicitly documented compatibility artifact.
 
 ## 13. Security and trust model
 
@@ -844,7 +899,7 @@ Keep the first implementation small: if adding a route module system is too larg
 
 ## 15. Open questions
 
-1. Should the daemon wrapper command live under `daemon/tools/` only, or also be generated into each project workspace for easier agent access?
+1. Should `od tools ...` be the only wrapper surface, or should generated per-project wrappers also be provided for easier agent access?
 2. How should agent adapters advertise `shell` availability for skill gating?
 3. What exact binding grammar should `html_template_v1` support in MVP: Mustache-style only, `data-od-*` attributes, or both?
 4. How much refresh history should be retained before compaction?
@@ -867,11 +922,12 @@ Keep the first implementation small: if adding a route module system is too larg
 Implement the smallest useful vertical slice:
 
 1. `skills/live-artifact/SKILL.md`
-2. `daemon/live-artifacts/schema.js`
-3. `daemon/live-artifacts/store.js`
-4. `POST /api/tools/live-artifacts/create`
-5. `GET /api/live-artifacts?projectId=...`
-6. `GET /api/live-artifacts/:artifactId/preview`
-7. UI list + virtual live-artifact node + sandboxed preview
+2. `packages/contracts/src/api/live-artifacts.ts`
+3. `apps/daemon/src/live-artifacts/schema.ts`
+4. `apps/daemon/src/live-artifacts/store.ts`
+5. `POST /api/tools/live-artifacts/create`
+6. `GET /api/live-artifacts?projectId=...`
+7. `GET /api/live-artifacts/:artifactId/preview`
+8. UI list + virtual live-artifact node + sandboxed preview
 
 This proves the skill-based interface and storage model before adding connectors, OAuth, refresh runner complexity, or MCP wrappers.
