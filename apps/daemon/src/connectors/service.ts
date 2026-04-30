@@ -688,7 +688,7 @@ async function executeGithubPublicRepoSummary(input: BoundedJsonObject, signal?:
       'User-Agent': 'open-design-local-daemon',
       'X-GitHub-Api-Version': '2022-11-28',
     },
-    signal,
+    ...(signal ? { signal } : {}),
   });
   if (!response.ok) {
     throw new ConnectorServiceError('CONNECTOR_EXECUTION_FAILED', `GitHub public repository summary failed with HTTP ${response.status}`, response.status === 404 ? 404 : 502, {
