@@ -10,7 +10,9 @@ export function buildAcpSessionNewParams(cwd, { mcpServers } = {}) {
   return {
     cwd: path.resolve(cwd),
     // MCP is an optional compatibility layer. Default to no MCP servers so ACP
-    // agents can run through the skill + CLI path without MCP support.
+    // agents can run through the skill + CLI path without MCP support. Do not
+    // auto-install or mutate user/global MCP config; callers must pass an
+    // explicit per-session MCP descriptor when a compatible agent supports it.
     mcpServers: Array.isArray(mcpServers) ? mcpServers : [],
   };
 }
