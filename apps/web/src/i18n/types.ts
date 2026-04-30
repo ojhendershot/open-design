@@ -369,6 +369,7 @@ export interface Dict {
   'designFiles.sectionScripts': string;
   'designFiles.sectionImages': string;
   'designFiles.sectionSketches': string;
+  'designFiles.sectionLiveArtifacts': string;
   'designFiles.sectionOther': string;
   'designFiles.kindHtml': string;
   'designFiles.kindImage': string;
@@ -379,6 +380,7 @@ export interface Dict {
   'designFiles.kindDocument': string;
   'designFiles.kindPresentation': string;
   'designFiles.kindSpreadsheet': string;
+  'designFiles.kindLiveArtifact': string;
   'designFiles.kindBinary': string;
   'pasteDialog.title': string;
   'pasteDialog.hint': string;

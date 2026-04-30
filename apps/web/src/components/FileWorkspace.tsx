@@ -6,7 +6,12 @@ import {
   uploadProjectFiles,
   writeProjectTextFile,
 } from '../providers/registry';
-import type { OpenTabsState, ProjectFile } from '../types';
+import {
+  liveArtifactSummaryToWorkspaceEntry,
+  type LiveArtifactSummary,
+  type OpenTabsState,
+  type ProjectFile,
+} from '../types';
 import { DesignFilesPanel } from './DesignFilesPanel';
 import { FileViewer } from './FileViewer';
 import { Icon } from './Icon';
@@ -16,6 +21,7 @@ import { SketchEditor, type SketchDocument, type SketchItem } from './SketchEdit
 interface Props {
   projectId: string;
   files: ProjectFile[];
+  liveArtifacts: LiveArtifactSummary[];
   onRefreshFiles: () => Promise<void> | void;
   isDeck: boolean;
   onExportAsPptx?: ((fileName: string) => void) | undefined;
@@ -40,6 +46,7 @@ const DESIGN_FILES_TAB = '__design_files__';
 export function FileWorkspace({
   projectId,
   files,
+  liveArtifacts,
   onRefreshFiles,
   isDeck,
   onExportAsPptx,
@@ -60,6 +67,16 @@ export function FileWorkspace({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [sketches, setSketches] = useState<Record<string, SketchState>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const visibleFiles = useMemo(
+    () => files.filter((file) => !isLiveArtifactImplementationPath(file.name)),
+    [files],
+  );
+
+  const liveArtifactEntries = useMemo(
+    () => liveArtifacts.map(liveArtifactSummaryToWorkspaceEntry),
+    [liveArtifacts],
+  );
 
   // Pull the persisted active tab in when the parent's hydration completes
   // (or on project switch). Fall back to the Design Files browser so a
@@ -288,7 +305,7 @@ export function FileWorkspace({
 
   const activeFile = useMemo<ProjectFile | null>(() => {
     if (activeTab === DESIGN_FILES_TAB) return null;
-    const onDisk = files.find((f) => f.name === activeTab);
+    const onDisk = visibleFiles.find((f) => f.name === activeTab);
     if (onDisk) return onDisk;
     if (isSketchName(activeTab) && sketches[activeTab]) {
       return {
@@ -300,7 +317,7 @@ export function FileWorkspace({
       };
     }
     return null;
-  }, [activeTab, files, sketches]);
+  }, [activeTab, visibleFiles, sketches]);
 
   // Tabs rendered are persisted tabs plus any pending (un-saved) sketches.
   const tabNames = useMemo(() => {
@@ -341,12 +358,13 @@ export function FileWorkspace({
           const dirtyMark =
             sketchEntry && (sketchEntry.dirty || !sketchEntry.persisted) ? ' •' : '';
           const isPending = sketchEntry && !sketchEntry.persisted;
-          const onDisk = files.find((f) => f.name === name);
-          const kind = onDisk?.kind ?? (isSketchName(name) ? 'sketch' : 'text');
+          const onDisk = visibleFiles.find((f) => f.name === name);
+          const liveArtifact = liveArtifactEntries.find((entry) => entry.tabId === name);
+          const kind = liveArtifact ? 'live-artifact' : onDisk?.kind ?? (isSketchName(name) ? 'sketch' : 'text');
           return (
             <Tab
               key={name}
-              label={`${name}${dirtyMark}`}
+              label={`${liveArtifact?.title ?? name}${dirtyMark}`}
               active={activeTab === name}
               onActivate={() =>
                 isPending ? activatePending(name) : setPersistedActive(name)
@@ -362,9 +380,11 @@ export function FileWorkspace({
         {activeTab === DESIGN_FILES_TAB ? (
           <DesignFilesPanel
             projectId={projectId}
-            files={files}
+            files={visibleFiles}
+            liveArtifacts={liveArtifactEntries}
             onRefreshFiles={onRefreshFiles}
             onOpenFile={openFile}
+            onOpenLiveArtifact={(tabId) => openFile(tabId)}
             onDeleteFile={(name) => void handleDelete(name)}
             onUpload={() => fileInputRef.current?.click()}
             onUploadFiles={(picked) => void uploadFiles(picked)}
@@ -449,7 +469,7 @@ function Tab({
   onActivate: () => void;
   onClose?: () => void;
   closable?: boolean;
-  kind?: ProjectFile['kind'];
+  kind?: ProjectFile['kind'] | 'live-artifact';
 }) {
   const t = useT();
   const iconName = kindIconName(kind);
@@ -498,6 +518,7 @@ function kindIconName(
   | 'pencil'
   | 'file'
   | null {
+  if (kind === 'live-artifact') return 'file-code';
   if (kind === 'html') return 'file-code';
   if (kind === 'image') return 'image';
   if (kind === 'sketch') return 'pencil';
@@ -508,6 +529,15 @@ function kindIconName(
 
 function isSketchName(name: string): boolean {
   return name.endsWith('.sketch.json');
+}
+
+function isLiveArtifactImplementationPath(name: string): boolean {
+  if (name === '.live-artifacts') return true;
+  if (!name.startsWith('.live-artifacts/')) return false;
+  // Live artifacts are exposed through virtual tree nodes only. In
+  // particular, keep implementation-only snapshot and tile files hidden even
+  // if a generic project-files endpoint returns them in older daemon builds.
+  return true;
 }
 
 function parseSketchDocument(text: string | null): SketchItem[] {

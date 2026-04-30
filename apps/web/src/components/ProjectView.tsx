@@ -6,6 +6,7 @@ import { streamMessage } from '../providers/anthropic';
 import { streamViaDaemon } from '../providers/daemon';
 import {
   fetchDesignSystem,
+  fetchLiveArtifacts,
   fetchProjectFiles,
   fetchSkill,
   writeProjectTextFile,
@@ -14,6 +15,7 @@ import { composeSystemPrompt } from '../prompts/system';
 import { navigate } from '../router';
 import { agentDisplayName } from '../utils/agentLabels';
 import type { TodoItem } from '../runtime/todos';
+import { isLiveArtifactTabId } from '../types';
 import {
   createConversation,
   deleteConversation as deleteConversationApi,
@@ -39,6 +41,7 @@ import type {
   Project,
   ProjectFile,
   ProjectTemplate,
+  LiveArtifactSummary,
   SkillSummary,
 } from '../types';
 import { AvatarMenu } from './AvatarMenu';
@@ -99,6 +102,7 @@ export function ProjectView({
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const [filesRefresh, setFilesRefresh] = useState(0);
   const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
+  const [liveArtifacts, setLiveArtifacts] = useState<LiveArtifactSummary[]>([]);
   // The persisted set of open tabs + active tab. Persisted via PUT on every
   // change; loaded once when the project mounts.
   const [openTabsState, setOpenTabsState] = useState<OpenTabsState>({
@@ -208,6 +212,17 @@ export function ProjectView({
     return next;
   }, [project.id]);
 
+  const refreshLiveArtifacts = useCallback(async (): Promise<LiveArtifactSummary[]> => {
+    const next = await fetchLiveArtifacts(project.id);
+    setLiveArtifacts(next);
+    return next;
+  }, [project.id]);
+
+  const refreshWorkspaceItems = useCallback(async (): Promise<ProjectFile[]> => {
+    const [nextFiles] = await Promise.all([refreshProjectFiles(), refreshLiveArtifacts()]);
+    return nextFiles;
+  }, [refreshLiveArtifacts, refreshProjectFiles]);
+
   const requestOpenFile = useCallback((name: string) => {
     if (!name) return;
     setOpenRequest({ name, nonce: Date.now() });
@@ -231,8 +246,8 @@ export function ProjectView({
   // agent has written anything still see the user's pasted images.
   useEffect(() => {
     if (!daemonLive) return;
-    void refreshProjectFiles();
-  }, [daemonLive, refreshProjectFiles, filesRefresh]);
+    void refreshWorkspaceItems();
+  }, [daemonLive, refreshWorkspaceItems, filesRefresh]);
 
   // When the URL points at a specific file, fire an open request so the
   // FileWorkspace promotes it to an active tab. We watch routeFileName
@@ -247,7 +262,9 @@ export function ProjectView({
   // history stack doesn't fill with every tab click.
   const lastSyncedFileRef = useRef<string | null>(null);
   useEffect(() => {
-    const target = openTabsState.active && projectFileNames.has(openTabsState.active)
+    const target = openTabsState.active && (
+      projectFileNames.has(openTabsState.active) || isLiveArtifactTabId(openTabsState.active)
+    )
       ? openTabsState.active
       : null;
     if (target === lastSyncedFileRef.current) return;
@@ -829,8 +846,9 @@ export function ProjectView({
         <FileWorkspace
           projectId={project.id}
           files={projectFiles}
+          liveArtifacts={liveArtifacts}
           onRefreshFiles={() => {
-            void refreshProjectFiles();
+            void refreshWorkspaceItems();
           }}
           isDeck={isDeck}
           onExportAsPptx={handleExportAsPptx}

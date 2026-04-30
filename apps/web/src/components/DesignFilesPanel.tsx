@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import type { Dict } from '../i18n/types';
 import { projectFileUrl } from '../providers/registry';
-import type { ProjectFile, ProjectFileKind } from '../types';
+import type { LiveArtifactWorkspaceEntry, ProjectFile, ProjectFileKind } from '../types';
 import { Icon } from './Icon';
 
 type TranslateFn = (key: keyof Dict, vars?: Record<string, string | number>) => string;
@@ -10,8 +10,10 @@ type TranslateFn = (key: keyof Dict, vars?: Record<string, string | number>) => 
 interface Props {
   projectId: string;
   files: ProjectFile[];
+  liveArtifacts: LiveArtifactWorkspaceEntry[];
   onRefreshFiles: () => Promise<void> | void;
   onOpenFile: (name: string) => void;
+  onOpenLiveArtifact: (tabId: LiveArtifactWorkspaceEntry['tabId']) => void;
   onDeleteFile: (name: string) => void;
   onUpload: () => void;
   onUploadFiles: (files: File[]) => void;
@@ -40,8 +42,10 @@ const SECTION_ORDER: Section[] = ['pages', 'sketches', 'scripts', 'images', 'oth
 export function DesignFilesPanel({
   projectId,
   files,
+  liveArtifacts,
   onRefreshFiles,
   onOpenFile,
+  onOpenLiveArtifact,
   onDeleteFile,
   onUpload,
   onUploadFiles,
@@ -153,61 +157,89 @@ export function DesignFilesPanel({
           </div>
         </div>
         <div className="df-body">
-          {files.length === 0 ? (
+          {files.length === 0 && liveArtifacts.length === 0 ? (
             <div className="df-empty">{t('designFiles.empty')}</div>
           ) : (
-            SECTION_ORDER.filter((s) => grouped[s].length > 0).map((section) => (
-              <div className="df-section" key={section}>
-                <div className="df-section-label">
-                  {t(SECTION_LABEL_KEY[section])}
-                </div>
-                {grouped[section].map((f) => {
-                  const active = preview === f.name;
-                  const isHovered = hover === f.name;
-                  return (
+            <>
+              {liveArtifacts.length > 0 ? (
+                <div className="df-section" key="live-artifacts">
+                  <div className="df-section-label">{t('designFiles.sectionLiveArtifacts')}</div>
+                  {liveArtifacts.map((artifact) => (
                     <button
-                      key={f.name}
+                      key={artifact.artifactId}
                       type="button"
-                      data-testid={`design-file-row-${f.name}`}
-                      className={`df-row ${active ? 'active' : ''}`}
-                      onMouseEnter={() => setHover(f.name)}
-                      onMouseLeave={() => setHover((c) => (c === f.name ? null : c))}
-                      onClick={() => setPreview(f.name)}
-                      onDoubleClick={() => onOpenFile(f.name)}
+                      data-testid={`design-file-row-${artifact.tabId}`}
+                      className="df-row"
+                      onDoubleClick={() => onOpenLiveArtifact(artifact.tabId)}
+                      onClick={() => onOpenLiveArtifact(artifact.tabId)}
                     >
-                      <span className="df-row-icon" data-kind={f.kind} aria-hidden>
-                        {kindGlyph(f.kind)}
+                      <span className="df-row-icon" data-kind="live-artifact" aria-hidden>
+                        ◉
                       </span>
                       <span className="df-row-name-wrap">
-                        <span className="df-row-name">{f.name}</span>
-                        <span className="df-row-sub">{kindLabel(f.kind, t)}</span>
+                        <span className="df-row-name">{artifact.title}</span>
+                        <span className="df-row-sub">{liveArtifactLabel(artifact, t)}</span>
                       </span>
-                      <span className="df-row-time">{relativeTime(f.mtime, t)}</span>
-                      <span
-                        data-testid={`design-file-menu-${f.name}`}
-                        className="df-row-menu"
-                        style={isHovered || active ? { opacity: 1 } : undefined}
-                        role="button"
-                        aria-label={t('designFiles.rowMenu')}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const rect = (e.target as HTMLElement)
-                            .closest('.df-row-menu')
-                            ?.getBoundingClientRect();
-                          setMenuPos({
-                            name: f.name,
-                            top: (rect?.bottom ?? 0) + 4,
-                            left: (rect?.right ?? 0) - 160,
-                          });
-                        }}
-                      >
-                        ⋯
+                      <span className="df-row-time">
+                        {relativeTime(Date.parse(artifact.updatedAt) || Date.now(), t)}
                       </span>
                     </button>
-                  );
-                })}
-              </div>
-            ))
+                  ))}
+                </div>
+              ) : null}
+              {SECTION_ORDER.filter((s) => grouped[s].length > 0).map((section) => (
+                <div className="df-section" key={section}>
+                  <div className="df-section-label">
+                    {t(SECTION_LABEL_KEY[section])}
+                  </div>
+                  {grouped[section].map((f) => {
+                    const active = preview === f.name;
+                    const isHovered = hover === f.name;
+                    return (
+                      <button
+                        key={f.name}
+                        type="button"
+                        data-testid={`design-file-row-${f.name}`}
+                        className={`df-row ${active ? 'active' : ''}`}
+                        onMouseEnter={() => setHover(f.name)}
+                        onMouseLeave={() => setHover((c) => (c === f.name ? null : c))}
+                        onClick={() => setPreview(f.name)}
+                        onDoubleClick={() => onOpenFile(f.name)}
+                      >
+                        <span className="df-row-icon" data-kind={f.kind} aria-hidden>
+                          {kindGlyph(f.kind)}
+                        </span>
+                        <span className="df-row-name-wrap">
+                          <span className="df-row-name">{f.name}</span>
+                          <span className="df-row-sub">{kindLabel(f.kind, t)}</span>
+                        </span>
+                        <span className="df-row-time">{relativeTime(f.mtime, t)}</span>
+                        <span
+                          data-testid={`design-file-menu-${f.name}`}
+                          className="df-row-menu"
+                          style={isHovered || active ? { opacity: 1 } : undefined}
+                          role="button"
+                          aria-label={t('designFiles.rowMenu')}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const rect = (e.target as HTMLElement)
+                              .closest('.df-row-menu')
+                              ?.getBoundingClientRect();
+                            setMenuPos({
+                              name: f.name,
+                              top: (rect?.bottom ?? 0) + 4,
+                              left: (rect?.right ?? 0) - 160,
+                            });
+                          }}
+                        >
+                          ⋯
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </>
           )}
           <div
             className={`df-drop ${draggingFiles ? 'dragging' : ''}`}
@@ -398,6 +430,16 @@ function kindLabel(kind: ProjectFileKind, t: TranslateFn): string {
   if (kind === 'presentation') return t('designFiles.kindPresentation');
   if (kind === 'spreadsheet') return t('designFiles.kindSpreadsheet');
   return t('designFiles.kindBinary');
+}
+
+function liveArtifactLabel(
+  artifact: LiveArtifactWorkspaceEntry,
+  t: TranslateFn,
+): string {
+  const parts = [t('designFiles.kindLiveArtifact')];
+  if (artifact.refreshStatus !== 'never') parts.push(artifact.refreshStatus);
+  if (artifact.status === 'archived') parts.push(artifact.status);
+  return parts.join(' · ');
 }
 
 function relativeTime(ts: number, t: TranslateFn): string {
