@@ -1121,7 +1121,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     try {
       const toolGrant = authorizeToolRequest(req, res, 'live-artifacts:update');
       if (!toolGrant) return;
-      const { projectId, artifactId, input } = req.body || {};
+      const { projectId, artifactId, input, templateHtml, provenanceJson } = req.body || {};
       if (requestProjectOverride(projectId, toolGrant.projectId)) {
         return sendApiError(res, 403, 'FORBIDDEN', 'projectId is derived from the tool token', {
           details: { suppliedProjectId: projectId },
@@ -1136,6 +1136,8 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
         projectId: toolGrant.projectId,
         artifactId,
         input: input ?? {},
+        templateHtml,
+        provenanceJson,
       });
       res.json({ artifact: record.artifact });
     } catch (err) {

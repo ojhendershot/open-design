@@ -1,8 +1,21 @@
 #!/usr/bin/env node
 // @ts-nocheck
 import { startServer } from './server.js';
+import { runLiveArtifactsToolCli } from './tools-live-artifacts-cli.js';
 
 const args = process.argv.slice(2);
+
+if (args[0] === 'tools' && args[1] === 'live-artifacts') {
+  runLiveArtifactsToolCli(args.slice(2))
+    .then(({ exitCode }) => {
+      process.exitCode = exitCode;
+    })
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`${JSON.stringify({ ok: false, error: { message } })}\n`);
+      process.exitCode = 1;
+    });
+} else {
 let port = Number(process.env.OD_PORT) || 7456;
 let open = true;
 
@@ -14,6 +27,7 @@ for (let i = 0; i < args.length; i++) {
     open = false;
   } else if (a === '-h' || a === '--help') {
     console.log(`Usage: od [--port <n>] [--no-open]
+       od tools live-artifacts <create|list|update> [options]
 
 Starts a local daemon that:
   * scans PATH for installed code-agent CLIs (claude, codex, gemini, opencode, cursor-agent, ...)
@@ -35,3 +49,4 @@ startServer({ port }).then(url => {
     });
   }
 });
+}
