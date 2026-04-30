@@ -188,6 +188,16 @@ export interface Dict {
   'designs.deleteTitle': string;
   'designs.deleteConfirm': string;
   'designs.cardFreeform': string;
+  'designs.badgeLive': string;
+  'designs.badgeRefreshable': string;
+  'designs.liveArtifactBadgesAria': string;
+  'designs.liveCount': string;
+  'designs.statusLive': string;
+  'designs.statusArchived': string;
+  'designs.statusError': string;
+  'designs.statusRefreshing': string;
+  'designs.statusRefreshFailed': string;
+  'designs.statusRefreshed': string;
 
   // Examples tab
   'examples.typeLabel': string;

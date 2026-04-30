@@ -72,6 +72,7 @@ interface Props {
   onCreateProject: (input: CreateInput & { pendingPrompt?: string }) => void;
   onImportClaudeDesign: (file: File) => Promise<void> | void;
   onOpenProject: (id: string) => void;
+  onOpenLiveArtifact: (projectId: string, artifactId: string) => void;
   onDeleteProject: (id: string) => void;
   onChangeDefaultDesignSystem: (id: string) => void;
   onOpenSettings: () => void;
@@ -106,6 +107,7 @@ export function EntryView({
   onCreateProject,
   onImportClaudeDesign,
   onOpenProject,
+  onOpenLiveArtifact,
   onDeleteProject,
   onChangeDefaultDesignSystem,
   onOpenSettings,
@@ -296,6 +298,7 @@ export function EntryView({
                   skills={skills}
                   designSystems={designSystems}
                   onOpen={onOpenProject}
+                  onOpenLiveArtifact={onOpenLiveArtifact}
                   onDelete={onDeleteProject}
                 />
               ) : null}

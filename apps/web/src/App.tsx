@@ -19,6 +19,7 @@ import {
   listTemplates,
   patchProject,
 } from './state/projects';
+import { liveArtifactTabId } from './types';
 import type {
   AgentInfo,
   AppConfig,
@@ -199,6 +200,10 @@ export function App() {
     navigate({ kind: 'project', projectId: id, fileName: null });
   }, []);
 
+  const handleOpenLiveArtifact = useCallback((projectId: string, artifactId: string) => {
+    navigate({ kind: 'project', projectId, fileName: liveArtifactTabId(artifactId) });
+  }, []);
+
   const handleDeleteProject = useCallback(async (id: string) => {
     const ok = await deleteProjectApi(id);
     if (!ok) return;
@@ -318,6 +323,7 @@ export function App() {
           onCreateProject={handleCreateProject}
           onImportClaudeDesign={handleImportClaudeDesign}
           onOpenProject={handleOpenProject}
+          onOpenLiveArtifact={handleOpenLiveArtifact}
           onDeleteProject={handleDeleteProject}
           onChangeDefaultDesignSystem={handleChangeDefaultDesignSystem}
           onOpenSettings={openSettings}
