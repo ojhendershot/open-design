@@ -5,6 +5,15 @@ import type {
   Conversation,
   DesignSystemDetail,
   DesignSystemSummary,
+  LiveArtifact,
+  LiveArtifactDetailResponse,
+  LiveArtifactListResponse,
+  LiveArtifactPreview,
+  LiveArtifactRefreshStatus,
+  LiveArtifactStatus,
+  LiveArtifactSummary,
+  LiveArtifactTile,
+  LiveArtifactTileRefreshStatus,
   PersistedAgentEvent,
   Project,
   ProjectFile,
@@ -17,6 +26,47 @@ import type {
 } from '@open-design/contracts';
 
 export type ExecMode = 'daemon' | 'api';
+
+export type LiveArtifactTabId = `live:${string}`;
+
+export type LiveArtifactViewerTab =
+  | 'preview'
+  | 'source'
+  | 'data'
+  | 'provenance'
+  | 'refresh-history';
+
+export interface ProjectFileWorkspaceEntry {
+  kind: 'file';
+  tabId: string;
+  name: string;
+  file: ProjectFile;
+}
+
+export interface LiveArtifactWorkspaceEntry {
+  kind: 'live-artifact';
+  tabId: LiveArtifactTabId;
+  artifactId: string;
+  projectId: string;
+  title: string;
+  slug: string;
+  status: LiveArtifactStatus;
+  refreshStatus: LiveArtifactRefreshStatus;
+  pinned: boolean;
+  preview: LiveArtifactPreview;
+  tileCount: number;
+  hasDocument: boolean;
+  updatedAt: string;
+  lastRefreshedAt?: string;
+}
+
+export type ProjectWorkspaceEntry = ProjectFileWorkspaceEntry | LiveArtifactWorkspaceEntry;
+
+export interface LiveArtifactPreviewRequest {
+  projectId: string;
+  artifactId: string;
+  previewUrl: string;
+}
 
 // Per-CLI model + reasoning the user picked in the model menu. Each agent
 // keeps its own slot so flipping between Codex and Gemini doesn't reset the
@@ -73,6 +123,14 @@ export type {
   Conversation,
   DesignSystemDetail,
   DesignSystemSummary,
+  LiveArtifact,
+  LiveArtifactDetailResponse,
+  LiveArtifactListResponse,
+  LiveArtifactRefreshStatus,
+  LiveArtifactStatus,
+  LiveArtifactSummary,
+  LiveArtifactTile,
+  LiveArtifactTileRefreshStatus,
   Project,
   ProjectFile,
   ProjectFileKind,
