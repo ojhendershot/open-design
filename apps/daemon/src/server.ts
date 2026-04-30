@@ -171,6 +171,34 @@ function sendLiveArtifactRouteError(res, err) {
   return sendApiError(res, 500, 'LIVE_ARTIFACT_STORAGE_FAILED', String(err));
 }
 
+function bearerTokenFromRequest(req) {
+  const header = req.get('authorization');
+  if (typeof header !== 'string') return undefined;
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  return match?.[1];
+}
+
+function authorizeToolRequest(req, res, operation) {
+  const endpoint = req.path;
+  const validation = toolTokenRegistry.validate(bearerTokenFromRequest(req), { endpoint, operation });
+  if (!validation.ok) {
+    const status = validation.code === 'TOOL_ENDPOINT_DENIED' || validation.code === 'TOOL_OPERATION_DENIED' ? 403 : 401;
+    sendApiError(res, status, validation.code, validation.message, {
+      details: { endpoint, operation },
+    });
+    return null;
+  }
+  return validation.grant;
+}
+
+function requestProjectOverride(projectId, tokenProjectId) {
+  return typeof projectId === 'string' && projectId.length > 0 && projectId !== tokenProjectId;
+}
+
+function requestRunOverride(runId, tokenRunId) {
+  return typeof runId === 'string' && runId.length > 0 && runId !== tokenRunId;
+}
+
 /**
  * @param {ApiErrorCode} code
  * @param {string} message
@@ -915,18 +943,27 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
 
   app.post('/api/tools/live-artifacts/create', async (req, res) => {
     try {
+      const toolGrant = authorizeToolRequest(req, res, 'live-artifacts:create');
+      if (!toolGrant) return;
       const { projectId, input, templateHtml, provenanceJson, createdByRunId } = req.body || {};
-      if (typeof projectId !== 'string' || projectId.length === 0) {
-        return sendApiError(res, 400, 'BAD_REQUEST', 'projectId is required');
+      if (requestProjectOverride(projectId, toolGrant.projectId)) {
+        return sendApiError(res, 403, 'FORBIDDEN', 'projectId is derived from the tool token', {
+          details: { suppliedProjectId: projectId },
+        });
+      }
+      if (requestRunOverride(createdByRunId, toolGrant.runId)) {
+        return sendApiError(res, 403, 'FORBIDDEN', 'createdByRunId is derived from the tool token', {
+          details: { suppliedRunId: createdByRunId },
+        });
       }
 
       const record = await createLiveArtifact({
         projectsRoot: PROJECTS_DIR,
-        projectId,
+        projectId: toolGrant.projectId,
         input: input ?? {},
         templateHtml,
         provenanceJson,
-        createdByRunId,
+        createdByRunId: toolGrant.runId,
       });
       res.json({ artifact: record.artifact });
     } catch (err) {
@@ -936,14 +973,18 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
 
   app.get('/api/tools/live-artifacts/list', async (req, res) => {
     try {
+      const toolGrant = authorizeToolRequest(req, res, 'live-artifacts:list');
+      if (!toolGrant) return;
       const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : undefined;
-      if (!projectId) {
-        return sendApiError(res, 400, 'BAD_REQUEST', 'projectId query parameter is required');
+      if (requestProjectOverride(projectId, toolGrant.projectId)) {
+        return sendApiError(res, 403, 'FORBIDDEN', 'projectId is derived from the tool token', {
+          details: { suppliedProjectId: projectId },
+        });
       }
 
       const artifacts = await listLiveArtifacts({
         projectsRoot: PROJECTS_DIR,
-        projectId,
+        projectId: toolGrant.projectId,
       });
       res.json({ artifacts });
     } catch (err) {
@@ -953,9 +994,13 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
 
   app.post('/api/tools/live-artifacts/update', async (req, res) => {
     try {
+      const toolGrant = authorizeToolRequest(req, res, 'live-artifacts:update');
+      if (!toolGrant) return;
       const { projectId, artifactId, input } = req.body || {};
-      if (typeof projectId !== 'string' || projectId.length === 0) {
-        return sendApiError(res, 400, 'BAD_REQUEST', 'projectId is required');
+      if (requestProjectOverride(projectId, toolGrant.projectId)) {
+        return sendApiError(res, 403, 'FORBIDDEN', 'projectId is derived from the tool token', {
+          details: { suppliedProjectId: projectId },
+        });
       }
       if (typeof artifactId !== 'string' || artifactId.length === 0) {
         return sendApiError(res, 400, 'BAD_REQUEST', 'artifactId is required');
@@ -963,7 +1008,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
 
       const record = await updateLiveArtifact({
         projectsRoot: PROJECTS_DIR,
-        projectId,
+        projectId: toolGrant.projectId,
         artifactId,
         input: input ?? {},
       });
