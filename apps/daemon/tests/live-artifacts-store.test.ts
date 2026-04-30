@@ -8,6 +8,7 @@ import { deleteProjectFile, listFiles, readProjectFile, writeProjectFile } from 
 import {
   acquireLiveArtifactRefreshLock,
   appendLiveArtifactRefreshLogEntry,
+  commitLiveArtifactRefreshCandidate,
   compactLiveArtifactRefreshError,
   createLiveArtifact,
   ensureLiveArtifactStoreLayout,
@@ -30,6 +31,7 @@ import {
 } from '../src/live-artifacts/store.js';
 import {
   applyLiveArtifactOutputMapping,
+  buildLiveArtifactRefreshCandidate,
   LiveArtifactRefreshAbortError,
   executeLocalDaemonRefreshSource,
   LiveArtifactRefreshRunRegistry,
@@ -672,6 +674,82 @@ describe('live artifact store layout', () => {
     });
     expect(thirdLock.metadata.refreshId).toBe('refresh-000003');
     await releaseLiveArtifactRefreshLock(thirdLock);
+  });
+
+  it('commits refresh candidates only after all refreshable tiles validate', async () => {
+    const projectsRoot = await makeProjectsRoot();
+    const input: any = validCreateInput();
+    input.tiles[0] = {
+      ...input.tiles[0],
+      renderJson: { type: 'metric' as const, label: 'Revenue', value: 42 },
+      refreshStatus: 'idle' as const,
+      sourceJson: {
+        type: 'daemon_tool' as const,
+        toolName: 'project_files.read_json',
+        input: { path: 'metrics.json' },
+        outputMapping: {
+          dataPaths: [{ from: 'json.revenue', to: 'value' }],
+          transform: 'identity' as const,
+        },
+        refreshPermission: 'manual_refresh_granted_for_read_only' as const,
+      },
+    };
+    input.document!.dataJson = { title: 'Revenue', revenue: 42 };
+    const created = await createLiveArtifact({
+      projectsRoot,
+      projectId: 'project-1',
+      input,
+      templateHtml: '<h1>{{data.title}}</h1><p>{{data.value}}</p>',
+    });
+    const previousData = await readFile(created.paths.dataJsonPath, 'utf8');
+    const previousPreview = await readFile(created.paths.generatedPreviewHtmlPath, 'utf8');
+    const previousTile = await readFile(liveArtifactTilePath(created.paths, 'tile-1'), 'utf8');
+
+    const failedLock = await acquireLiveArtifactRefreshLock({ projectsRoot, projectId: 'project-1', artifactId: created.artifact.id });
+    await expect(() => buildLiveArtifactRefreshCandidate({
+      artifact: created.artifact,
+      currentDataJson: created.artifact.document!.dataJson,
+      tileOutputs: [{ tileId: 'tile-1', output: { json: { revenue: { nested: true } } } }],
+      now: new Date('2026-04-30T11:00:00.000Z'),
+    })).toThrow(/metric refresh output/);
+    await releaseLiveArtifactRefreshLock(failedLock);
+
+    await expect(readFile(created.paths.dataJsonPath, 'utf8')).resolves.toBe(previousData);
+    await expect(readFile(created.paths.generatedPreviewHtmlPath, 'utf8')).resolves.toBe(previousPreview);
+    await expect(readFile(liveArtifactTilePath(created.paths, 'tile-1'), 'utf8')).resolves.toBe(previousTile);
+
+    const successLock = await acquireLiveArtifactRefreshLock({ projectsRoot, projectId: 'project-1', artifactId: created.artifact.id });
+    const candidate = buildLiveArtifactRefreshCandidate({
+      artifact: created.artifact,
+      currentDataJson: created.artifact.document!.dataJson,
+      tileOutputs: [{ tileId: 'tile-1', output: { json: { revenue: 99 } } }],
+      now: new Date('2026-04-30T11:01:00.000Z'),
+    });
+    const committed = await commitLiveArtifactRefreshCandidate({
+      projectsRoot,
+      projectId: 'project-1',
+      artifactId: created.artifact.id,
+      refreshId: successLock.metadata.refreshId,
+      dataJson: candidate.dataJson,
+      tiles: candidate.tiles,
+      now: new Date('2026-04-30T11:01:00.000Z'),
+    });
+    await releaseLiveArtifactRefreshLock(successLock);
+
+    expect(committed.artifact.refreshStatus).toBe('succeeded');
+    expect(committed.artifact.lastRefreshedAt).toBe('2026-04-30T11:01:00.000Z');
+    expect(committed.artifact.tiles[0]?.renderJson).toMatchObject({ type: 'metric', value: 99 });
+    await expect(readFile(created.paths.dataJsonPath, 'utf8')).resolves.toContain('"value": 99');
+    await expect(readFile(created.paths.generatedPreviewHtmlPath, 'utf8')).resolves.toContain('<p>99</p>');
+    await expect(readFile(liveArtifactTilePath(created.paths, 'tile-1'), 'utf8')).resolves.toContain('"value": 99');
+    await expect(
+      markLiveArtifactRefreshCommitted({
+        projectsRoot,
+        projectId: 'project-1',
+        artifactId: created.artifact.id,
+        refreshId: successLock.metadata.refreshId,
+      }),
+    ).rejects.toBeInstanceOf(LiveArtifactStaleRefreshError);
   });
 
   it('normalizes refresh timeout configuration and rejects invalid durations', () => {

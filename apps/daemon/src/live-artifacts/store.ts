@@ -156,6 +156,13 @@ export interface MarkLiveArtifactRefreshCommittedOptions {
   refreshId: string;
 }
 
+export interface CommitLiveArtifactRefreshCandidateOptions extends MarkLiveArtifactRefreshCommittedOptions {
+  dataJson: BoundedJsonObject;
+  tiles: LiveArtifact['tiles'];
+  provenanceJson?: LiveArtifactProvenance;
+  now?: Date;
+}
+
 export interface RecoverStaleLiveArtifactRefreshesOptions {
   projectsRoot: string;
   now?: Date;
@@ -839,6 +846,77 @@ export async function markLiveArtifactRefreshCommitted(
   };
   await writeLiveArtifactRefreshState(paths, nextState);
   return nextState;
+}
+
+function assertLiveArtifactRefreshCanCommit(
+  state: LiveArtifactRefreshState,
+  options: MarkLiveArtifactRefreshCommittedOptions,
+): number {
+  const refreshOrdinal = parseRefreshOrdinal(options.refreshId);
+  if (refreshOrdinal >= state.nextRefreshOrdinal) {
+    throw validationError('refreshId', 'live artifact refresh id has not been allocated');
+  }
+  if ((state.lastCommittedRefreshOrdinal ?? 0) >= refreshOrdinal) {
+    const staleOptions: { projectId: string; artifactId: string; refreshId: string; lastCommittedRefreshId?: string } = {
+      projectId: options.projectId,
+      artifactId: options.artifactId,
+      refreshId: options.refreshId,
+    };
+    if (state.lastCommittedRefreshId !== undefined) staleOptions.lastCommittedRefreshId = state.lastCommittedRefreshId;
+    throw new LiveArtifactStaleRefreshError('live artifact refresh is older than the latest committed refresh', staleOptions);
+  }
+  return refreshOrdinal;
+}
+
+export async function commitLiveArtifactRefreshCandidate(
+  options: CommitLiveArtifactRefreshCandidateOptions,
+): Promise<LiveArtifactStoreRecord> {
+  const artifactId = validateLiveArtifactStorageId(options.artifactId);
+  const paths = await assertLiveArtifactRefreshLockScope(options.projectsRoot, options.projectId, artifactId);
+  const current = await readLiveArtifactWithDataJsonCache(paths);
+  assertArtifactMatchesStorage(current, options.projectId, artifactId);
+
+  const state = await readLiveArtifactRefreshState(paths, options.projectId, artifactId);
+  const refreshOrdinal = assertLiveArtifactRefreshCanCommit(state, { ...options, artifactId });
+  const nowIso = (options.now ?? new Date()).toISOString();
+  const candidateData = validateBoundedJsonObject(options.dataJson, 'data.json');
+  if (!candidateData.ok) throw new LiveArtifactStoreValidationError(candidateData.error, candidateData.issues);
+
+  const candidateArtifact: LiveArtifact = artifactWithDataJson({
+    ...current,
+    tiles: options.tiles,
+    refreshStatus: 'succeeded',
+    updatedAt: nowIso,
+    lastRefreshedAt: nowIso,
+  }, candidateData.value);
+  const persisted = validatePersistedLiveArtifact(candidateArtifact);
+  if (!persisted.ok) throw new LiveArtifactStoreValidationError(persisted.error, persisted.issues);
+
+  const templateHtml = await readTextFileOrDefault(paths.templateHtmlPath, defaultTemplateHtml(persisted.value.title));
+  const provenanceJson = options.provenanceJson ?? await readProvenanceOrDefault(paths, nowIso);
+  const previewHtml = persisted.value.document?.format === 'html_template_v1'
+    ? renderPreviewHtml(templateHtml, candidateData.value)
+    : templateHtml;
+
+  const nextState: LiveArtifactRefreshState = {
+    ...state,
+    nextRefreshOrdinal: Math.max(state.nextRefreshOrdinal, refreshOrdinal + 1),
+    lastCommittedRefreshId: options.refreshId,
+    lastCommittedRefreshOrdinal: refreshOrdinal,
+  };
+
+  await mkdir(paths.tilesDir, { recursive: true });
+  await rm(paths.tilesDir, { recursive: true, force: true });
+  await mkdir(paths.tilesDir, { recursive: true });
+  await Promise.all([
+    writeFile(paths.artifactJsonPath, stableJson(persisted.value), 'utf8'),
+    writeFile(paths.dataJsonPath, stableJson(candidateData.value), 'utf8'),
+    writeFile(paths.generatedPreviewHtmlPath, previewHtml, 'utf8'),
+    writeFile(paths.provenanceJsonPath, stableJson(provenanceJson), 'utf8'),
+    ...persisted.value.tiles.map((tile) => writeFile(liveArtifactTilePath(paths, tile.id), stableJson(tile), 'utf8')),
+  ]);
+  await writeLiveArtifactRefreshState(paths, nextState);
+  return { artifact: persisted.value, paths };
 }
 
 export async function releaseLiveArtifactRefreshLock(lock: LiveArtifactRefreshLock): Promise<void> {

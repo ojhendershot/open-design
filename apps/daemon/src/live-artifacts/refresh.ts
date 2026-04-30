@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import { listFiles, projectDir, readProjectFile, validateProjectPath } from '../projects.js';
-import type { BoundedJsonObject, BoundedJsonValue, LiveArtifactRefreshSourceMetadata, LiveArtifactTileSource } from './schema.js';
+import type { BoundedJsonObject, BoundedJsonValue, LiveArtifact, LiveArtifactRefreshSourceMetadata, LiveArtifactRenderJson, LiveArtifactTile, LiveArtifactTileSource } from './schema.js';
 import { validateBoundedJsonObject } from './schema.js';
 
 const execFileAsync = promisify(execFile);
@@ -51,6 +51,23 @@ export interface ExecuteLocalDaemonRefreshSourceOptions {
 export interface ApplyLiveArtifactOutputMappingOptions {
   source: LiveArtifactTileSource;
   output: BoundedJsonObject;
+}
+
+export interface LiveArtifactRefreshTileOutput {
+  tileId: string;
+  output: BoundedJsonObject;
+}
+
+export interface BuildLiveArtifactRefreshCandidateOptions {
+  artifact: LiveArtifact;
+  currentDataJson: BoundedJsonObject;
+  tileOutputs: LiveArtifactRefreshTileOutput[];
+  now?: Date;
+}
+
+export interface LiveArtifactRefreshCandidate {
+  dataJson: BoundedJsonObject;
+  tiles: LiveArtifactTile[];
 }
 
 export interface ProjectFilesSearchInput extends BoundedJsonObject {
@@ -409,6 +426,99 @@ export function applyLiveArtifactOutputMapping(options: ApplyLiveArtifactOutputM
       ? compactTable(selected)
       : metricSummary(selected);
   return asBoundedRefreshOutput(transformed);
+}
+
+function renderJsonFromMappedOutput(tile: LiveArtifactTile, mapped: BoundedJsonObject): LiveArtifactRenderJson {
+  switch (tile.renderJson.type) {
+    case 'metric': {
+      const value = mapped.value;
+      if (typeof value !== 'string' && typeof value !== 'number') {
+        throw new Error(`tile ${tile.id} metric refresh output must include string or number value`);
+      }
+      return {
+        type: 'metric',
+        label: optionalPrimitiveString(mapped.label) ?? tile.renderJson.label,
+        value,
+        ...(optionalPrimitiveString(mapped.unit) === undefined ? {} : { unit: optionalPrimitiveString(mapped.unit)! }),
+        ...(optionalPrimitiveString(mapped.delta) === undefined ? {} : { delta: optionalPrimitiveString(mapped.delta)! }),
+        ...(mapped.tone === 'neutral' || mapped.tone === 'good' || mapped.tone === 'warning' || mapped.tone === 'bad' ? { tone: mapped.tone } : {}),
+      };
+    }
+    case 'table': {
+      if (!Array.isArray(mapped.columns) || !Array.isArray(mapped.rows)) {
+        throw new Error(`tile ${tile.id} table refresh output must include columns and rows arrays`);
+      }
+      return {
+        type: 'table',
+        columns: mapped.columns as Array<{ key: string; label: string }>,
+        rows: mapped.rows.filter(isJsonObject),
+        ...(typeof mapped.maxRows === 'number' ? { maxRows: mapped.maxRows } : {}),
+      };
+    }
+    case 'chart': {
+      const rows = Array.isArray(mapped.rows) ? mapped.rows.filter(isJsonObject) : undefined;
+      if (rows === undefined) throw new Error(`tile ${tile.id} chart refresh output must include rows array`);
+      return {
+        ...tile.renderJson,
+        rows,
+        ...(optionalPrimitiveString(mapped.xKey) === undefined ? {} : { xKey: optionalPrimitiveString(mapped.xKey)! }),
+        ...(Array.isArray(mapped.yKeys) && mapped.yKeys.every((value) => typeof value === 'string') ? { yKeys: mapped.yKeys } : {}),
+      };
+    }
+    case 'markdown':
+      return { type: 'markdown', markdown: optionalPrimitiveString(mapped.markdown) ?? JSON.stringify(mapped, null, 2) };
+    case 'link_card': {
+      const title = optionalPrimitiveString(mapped.title) ?? tile.renderJson.title;
+      const url = optionalPrimitiveString(mapped.url) ?? tile.renderJson.url;
+      return { type: 'link_card', title, url, ...(optionalPrimitiveString(mapped.description) === undefined ? {} : { description: optionalPrimitiveString(mapped.description)! }) };
+    }
+    case 'json':
+      return { type: 'json', value: mapped.value ?? mapped };
+    case 'html_document':
+      return tile.renderJson;
+  }
+}
+
+function cloneBoundedJsonObject(value: BoundedJsonObject): BoundedJsonObject {
+  return JSON.parse(JSON.stringify(value)) as BoundedJsonObject;
+}
+
+export function buildLiveArtifactRefreshCandidate(options: BuildLiveArtifactRefreshCandidateOptions): LiveArtifactRefreshCandidate {
+  const outputs = new Map<string, BoundedJsonObject>();
+  for (const tileOutput of options.tileOutputs) {
+    if (outputs.has(tileOutput.tileId)) throw new Error(`duplicate refresh output for tile ${tileOutput.tileId}`);
+    outputs.set(tileOutput.tileId, asBoundedRefreshOutput(tileOutput.output));
+  }
+
+  const dataJson = cloneBoundedJsonObject(options.currentDataJson);
+  const nowIso = (options.now ?? new Date()).toISOString();
+  const tiles = options.artifact.tiles.map((tile) => {
+    if (tile.sourceJson === undefined) return tile;
+    if (tile.sourceJson.refreshPermission !== 'manual_refresh_granted_for_read_only') return tile;
+    const output = outputs.get(tile.id);
+    if (output === undefined) throw new Error(`missing refresh output for tile ${tile.id}`);
+    const mapped = applyLiveArtifactOutputMapping({ source: tile.sourceJson, output });
+    Object.assign(dataJson, mapped);
+    const { lastError: _lastError, ...tileWithoutLastError } = tile;
+    return {
+      ...tileWithoutLastError,
+      renderJson: renderJsonFromMappedOutput(tile, mapped),
+      provenanceJson: {
+        generatedAt: nowIso,
+        generatedBy: 'refresh_runner' as const,
+        sources: tile.provenanceJson.sources,
+      },
+      refreshStatus: 'succeeded' as const,
+    };
+  });
+
+  for (const tileId of outputs.keys()) {
+    if (!options.artifact.tiles.some((tile) => tile.id === tileId && tile.sourceJson?.refreshPermission === 'manual_refresh_granted_for_read_only')) {
+      throw new Error(`refresh output references non-refreshable tile ${tileId}`);
+    }
+  }
+
+  return { dataJson: asBoundedRefreshOutput(dataJson), tiles };
 }
 
 function optionalString(value: BoundedJsonValue | undefined, field: string): string | undefined {
