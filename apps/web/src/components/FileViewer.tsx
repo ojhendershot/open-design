@@ -3,8 +3,10 @@ import { artifactRendererRegistry } from '../artifacts/renderer-registry';
 import { useT } from '../i18n';
 import type { Dict } from '../i18n/types';
 import {
+  fetchLiveArtifact,
   fetchProjectFilePreview,
   fetchProjectFileText,
+  liveArtifactPreviewUrl,
   projectFileUrl,
   projectRawUrl,
 } from '../providers/registry';
@@ -12,7 +14,7 @@ import type { ProjectFilePreview } from '../providers/registry';
 import { exportAsHtml, exportAsPdf, exportAsZip } from '../runtime/exports';
 import { buildSrcdoc } from '../runtime/srcdoc';
 import { saveTemplate } from '../state/projects';
-import type { ProjectFile } from '../types';
+import type { LiveArtifact, LiveArtifactViewerTab, LiveArtifactWorkspaceEntry, ProjectFile } from '../types';
 import { Icon } from './Icon';
 
 type TranslateFn = (key: keyof Dict, vars?: Record<string, string | number>) => string;
@@ -69,6 +71,227 @@ export function FileViewer({
     return <DocumentPreviewViewer projectId={projectId} file={file} />;
   }
   return <BinaryViewer projectId={projectId} file={file} />;
+}
+
+export function LiveArtifactViewer({
+  projectId,
+  liveArtifact,
+}: {
+  projectId: string;
+  liveArtifact: LiveArtifactWorkspaceEntry;
+}) {
+  const t = useT();
+  const [mode, setMode] = useState<LiveArtifactViewerTab>('preview');
+  const [detail, setDetail] = useState<LiveArtifact | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [zoom, setZoom] = useState(100);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setDetail(null);
+    void fetchLiveArtifact(projectId, liveArtifact.artifactId).then((next) => {
+      if (cancelled) return;
+      setDetail(next);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, liveArtifact.artifactId, liveArtifact.updatedAt, reloadKey]);
+
+  const previewUrl = useMemo(
+    () => `${liveArtifactPreviewUrl(projectId, liveArtifact.artifactId)}&v=${reloadKey}`,
+    [projectId, liveArtifact.artifactId, reloadKey],
+  );
+  const previewScale = zoom / 100;
+
+  function bumpZoom(delta: number) {
+    setZoom((z) => Math.max(25, Math.min(200, z + delta)));
+  }
+
+  const sourcePayload = detail ? liveArtifactSourcePayload(detail) : null;
+  const dataPayload = detail?.document?.dataJson ?? null;
+  const provenancePayload = detail ? liveArtifactProvenancePayload(detail) : null;
+  const refreshPayload = detail ? liveArtifactRefreshPayload(detail) : null;
+
+  return (
+    <div className="viewer html-viewer live-artifact-viewer">
+      <div className="viewer-toolbar">
+        <div className="viewer-toolbar-left">
+          <button
+            type="button"
+            className="icon-only"
+            onClick={() => setReloadKey((n) => n + 1)}
+            title={t('fileViewer.reload')}
+            aria-label={t('fileViewer.reloadAria')}
+          >
+            <Icon name="reload" size={14} />
+          </button>
+          <span className="viewer-meta">
+            Live artifact · {liveArtifact.refreshStatus}
+          </span>
+        </div>
+        <div className="viewer-toolbar-actions">
+          <div className="viewer-tabs">
+            {LIVE_ARTIFACT_VIEWER_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={`viewer-tab ${mode === tab.id ? 'active' : ''}`}
+                onClick={() => setMode(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <span className="viewer-divider" aria-hidden />
+          {mode === 'preview' ? (
+            <>
+              <button
+                type="button"
+                className="icon-only"
+                onClick={() => bumpZoom(-25)}
+                title={t('fileViewer.zoomOut')}
+                aria-label={t('fileViewer.zoomOut')}
+              >
+                <Icon name="minus" size={14} />
+              </button>
+              <button
+                type="button"
+                className="viewer-action"
+                onClick={() => setZoom(100)}
+                title={t('fileViewer.resetZoom')}
+                style={{ minWidth: 60 }}
+              >
+                <span style={{ fontVariantNumeric: 'tabular-nums' }}>{zoom}%</span>
+              </button>
+              <button
+                type="button"
+                className="icon-only"
+                onClick={() => bumpZoom(25)}
+                title={t('fileViewer.zoomIn')}
+                aria-label={t('fileViewer.zoomIn')}
+              >
+                <Icon name="plus" size={14} />
+              </button>
+              <span className="viewer-divider" aria-hidden />
+              <a
+                className="ghost-link"
+                href={liveArtifactPreviewUrl(projectId, liveArtifact.artifactId)}
+                target="_blank"
+                rel="noreferrer noopener"
+              >
+                {t('fileViewer.open')}
+              </a>
+            </>
+          ) : null}
+        </div>
+      </div>
+      <div className="viewer-body">
+        {mode === 'preview' ? (
+          <div
+            style={{
+              width: `${100 / previewScale}%`,
+              height: `${100 / previewScale}%`,
+              transform: `scale(${previewScale})`,
+              transformOrigin: '0 0',
+            }}
+          >
+            <iframe
+              data-testid="live-artifact-preview-frame"
+              title={liveArtifact.title}
+              sandbox="allow-scripts"
+              src={previewUrl}
+            />
+          </div>
+        ) : loading ? (
+          <div className="viewer-empty">{t('fileViewer.loading')}</div>
+        ) : mode === 'source' ? (
+          <JsonPanel value={sourcePayload} emptyLabel="No source metadata available." />
+        ) : mode === 'data' ? (
+          <JsonPanel value={dataPayload} emptyLabel="No data.json cache available." />
+        ) : mode === 'provenance' ? (
+          <JsonPanel value={provenancePayload} emptyLabel="No provenance available." />
+        ) : (
+          <JsonPanel value={refreshPayload} emptyLabel="No refresh history available yet." />
+        )}
+      </div>
+    </div>
+  );
+}
+
+const LIVE_ARTIFACT_VIEWER_TABS: Array<{ id: LiveArtifactViewerTab; label: string }> = [
+  { id: 'preview', label: 'Preview' },
+  { id: 'source', label: 'Source' },
+  { id: 'data', label: 'Data' },
+  { id: 'provenance', label: 'Provenance' },
+  { id: 'refresh-history', label: 'Refresh history' },
+];
+
+function JsonPanel({ value, emptyLabel }: { value: unknown; emptyLabel: string }) {
+  if (value == null) return <div className="viewer-empty">{emptyLabel}</div>;
+  return <pre className="viewer-source">{JSON.stringify(value, null, 2)}</pre>;
+}
+
+function liveArtifactSourcePayload(liveArtifact: LiveArtifact): unknown {
+  return {
+    artifact: {
+      id: liveArtifact.id,
+      title: liveArtifact.title,
+      slug: liveArtifact.slug,
+      status: liveArtifact.status,
+      pinned: liveArtifact.pinned,
+      preview: liveArtifact.preview,
+      refreshStatus: liveArtifact.refreshStatus,
+      createdAt: liveArtifact.createdAt,
+      updatedAt: liveArtifact.updatedAt,
+      lastRefreshedAt: liveArtifact.lastRefreshedAt,
+    },
+    document: liveArtifact.document
+      ? {
+          format: liveArtifact.document.format,
+          templatePath: liveArtifact.document.templatePath,
+          generatedPreviewPath: liveArtifact.document.generatedPreviewPath,
+          dataPath: liveArtifact.document.dataPath,
+          dataSchemaJson: liveArtifact.document.dataSchemaJson,
+          sourceJson: liveArtifact.document.sourceJson,
+        }
+      : null,
+    tiles: liveArtifact.tiles.map((tile) => ({
+      id: tile.id,
+      kind: tile.kind,
+      title: tile.title,
+      refreshStatus: tile.refreshStatus,
+      sourceJson: tile.sourceJson,
+      lastError: tile.lastError,
+    })),
+  };
+}
+
+function liveArtifactProvenancePayload(liveArtifact: LiveArtifact): unknown {
+  return {
+    documentSource: liveArtifact.document?.sourceJson ?? null,
+    tiles: liveArtifact.tiles.map((tile) => ({
+      id: tile.id,
+      title: tile.title,
+      provenanceJson: tile.provenanceJson,
+    })),
+  };
+}
+
+function liveArtifactRefreshPayload(liveArtifact: LiveArtifact): unknown {
+  return {
+    refreshStatus: liveArtifact.refreshStatus,
+    lastRefreshedAt: liveArtifact.lastRefreshedAt ?? null,
+    tiles: liveArtifact.tiles.map((tile) => ({
+      id: tile.id,
+      title: tile.title,
+      refreshStatus: tile.refreshStatus,
+      lastError: tile.lastError ?? null,
+    })),
+  };
 }
 
 function FileActions({

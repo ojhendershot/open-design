@@ -14,7 +14,7 @@ import {
   type ProjectFile,
 } from '../types';
 import { DesignFilesPanel } from './DesignFilesPanel';
-import { FileViewer } from './FileViewer';
+import { FileViewer, LiveArtifactViewer } from './FileViewer';
 import { Icon } from './Icon';
 import { LiveArtifactBadges } from './LiveArtifactBadges';
 import { PasteTextDialog } from './PasteTextDialog';
@@ -321,6 +321,11 @@ export function FileWorkspace({
     return null;
   }, [activeTab, visibleFiles, sketches]);
 
+  const activeLiveArtifact = useMemo<LiveArtifactWorkspaceEntry | null>(() => {
+    if (activeTab === DESIGN_FILES_TAB) return null;
+    return liveArtifactEntries.find((entry) => entry.tabId === activeTab) ?? null;
+  }, [activeTab, liveArtifactEntries]);
+
   // Tabs rendered are persisted tabs plus any pending (un-saved) sketches.
   const tabNames = useMemo(() => {
     const seen = new Set(persistedTabs);
@@ -408,6 +413,8 @@ export function FileWorkspace({
           ) : (
             <div className="viewer-empty">{t('workspace.loadingSketch')}</div>
           )
+        ) : activeLiveArtifact ? (
+          <LiveArtifactViewer projectId={projectId} liveArtifact={activeLiveArtifact} />
         ) : activeFile ? (
           <FileViewer
             projectId={projectId}
