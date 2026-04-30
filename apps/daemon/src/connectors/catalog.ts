@@ -53,6 +53,57 @@ export interface ConnectorCatalogDefinition {
   disabled?: boolean;
 }
 
+export interface ConnectorToolSafetyClassificationInput {
+  name: string;
+  title?: string;
+  description?: string;
+  requiredScopes?: readonly string[];
+}
+
+const destructiveHintPattern = /(?:^|[._:\-/\s])(?:destructive|destroy|drop|truncate|purge|erase|wipe|remove-all|remove_all|revoke|reset)(?:$|[._:\-/\s])/i;
+const writeHintPattern = /(?:^|[._:\-/\s])(?:write|create|update|delete|admin|send|post|manage)(?:$|[._:\-/\s])/i;
+const readOnlyHintPattern = /(?:^|[._:\-/\s])(?:read|readonly|read-only|read_only|get|list|search|fetch|view|query|inspect|summary|status)(?:$|[._:\-/\s])/i;
+
+function connectorToolSafetyHaystack(input: ConnectorToolSafetyClassificationInput): string {
+  return [input.name, input.title, input.description, ...(input.requiredScopes ?? [])]
+    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    .join(' ');
+}
+
+export function classifyConnectorToolSafety(input: ConnectorToolSafetyClassificationInput): ConnectorToolSafety {
+  const haystack = connectorToolSafetyHaystack(input);
+  if (destructiveHintPattern.test(haystack)) {
+    return {
+      sideEffect: 'destructive',
+      approval: 'disabled',
+      reason: 'Tool name, scope, or description contains destructive hints; destructive tools are not refreshable.',
+    };
+  }
+  if (writeHintPattern.test(haystack)) {
+    return {
+      sideEffect: 'write',
+      approval: 'confirm',
+      reason: 'Tool name or required scope indicates write-capable behavior; explicit confirmation is required.',
+    };
+  }
+  if (readOnlyHintPattern.test(haystack)) {
+    return {
+      sideEffect: 'read',
+      approval: 'auto',
+      reason: 'Tool name, scope, or description indicates explicit read-only behavior.',
+    };
+  }
+  return {
+    sideEffect: 'write',
+    approval: 'confirm',
+    reason: 'Tool safety could not be proven read-only; defaulting to confirmation-required write policy.',
+  };
+}
+
+export function isRefreshEligibleConnectorToolSafety(safety: ConnectorToolSafety): boolean {
+  return safety.sideEffect === 'read' && safety.approval === 'auto';
+}
+
 const emptyInputSchema = {
   type: 'object',
   properties: {},
@@ -104,6 +155,20 @@ const gitSummaryOutputSchema = {
   },
 } satisfies BoundedJsonObject;
 
+function defineConnectorTool(
+  tool: Omit<ConnectorCatalogToolDefinition, 'safety' | 'refreshEligible'> & {
+    safety?: ConnectorToolSafety;
+    refreshEligible?: boolean;
+  },
+): ConnectorCatalogToolDefinition {
+  const safety = tool.safety ?? classifyConnectorToolSafety(tool);
+  return {
+    ...tool,
+    safety,
+    refreshEligible: tool.refreshEligible ?? isRefreshEligibleConnectorToolSafety(safety),
+  };
+}
+
 export const CONNECTOR_CATALOG: readonly ConnectorCatalogDefinition[] = [
   {
     id: 'project_files',
@@ -112,34 +177,22 @@ export const CONNECTOR_CATALOG: readonly ConnectorCatalogDefinition[] = [
     category: 'local',
     description: 'Read compact summaries from files in the current project workspace.',
     tools: [
-      {
+      defineConnectorTool({
         name: 'project_files.search',
         title: 'Search project files',
         description: 'Search project filenames and text snippets without reading hidden live-artifact implementation files.',
         inputSchemaJson: projectFilesSearchInputSchema,
         outputSchemaJson: projectFilesSearchOutputSchema,
-        safety: {
-          sideEffect: 'read',
-          approval: 'auto',
-          reason: 'Searches local project files and returns compact read-only matches.',
-        },
-        refreshEligible: true,
         requiredScopes: [],
-      },
-      {
+      }),
+      defineConnectorTool({
         name: 'project_files.read_json',
         title: 'Read project JSON file',
         description: 'Read and parse a bounded JSON file from the current project workspace.',
         inputSchemaJson: projectFilesReadJsonInputSchema,
         outputSchemaJson: { value: {} },
-        safety: {
-          sideEffect: 'read',
-          approval: 'auto',
-          reason: 'Reads one bounded JSON file inside the project workspace without mutating data.',
-        },
-        refreshEligible: true,
         requiredScopes: [],
-      },
+      }),
     ],
     allowedToolNames: ['project_files.search', 'project_files.read_json'],
     featuredToolNames: ['project_files.search', 'project_files.read_json'],
@@ -152,20 +205,14 @@ export const CONNECTOR_CATALOG: readonly ConnectorCatalogDefinition[] = [
     category: 'local',
     description: 'Read compact status and recent-change summaries from the project Git repository.',
     tools: [
-      {
+      defineConnectorTool({
         name: 'git.summary',
         title: 'Git summary',
         description: 'Return current branch, commit, dirty state, and a compact changed-file summary.',
         inputSchemaJson: emptyInputSchema,
         outputSchemaJson: gitSummaryOutputSchema,
-        safety: {
-          sideEffect: 'read',
-          approval: 'auto',
-          reason: 'Runs read-only Git inspection commands and does not mutate repository state.',
-        },
-        refreshEligible: true,
         requiredScopes: [],
-      },
+      }),
     ],
     allowedToolNames: ['git.summary'],
     featuredToolNames: ['git.summary'],
