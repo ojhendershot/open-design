@@ -47,6 +47,104 @@ export interface ConnectorConnectionStatus {
   lastError?: string;
 }
 
+export interface ConnectorConnectionRecord extends ConnectorConnectionStatus {
+  updatedAt: string;
+}
+
+export interface ConnectorStatusServiceOptions {
+  initialStatuses?: Record<string, ConnectorConnectionStatus>;
+}
+
+const LOCAL_CONNECTOR_ACCOUNT_LABELS: Record<string, string> = {
+  project_files: 'Local project',
+  git: 'Current repository',
+};
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function cloneStatus(status: ConnectorConnectionStatus): ConnectorConnectionStatus {
+  return {
+    status: status.status,
+    ...(status.accountLabel === undefined ? {} : { accountLabel: status.accountLabel }),
+    ...(status.lastError === undefined ? {} : { lastError: status.lastError }),
+  };
+}
+
+function isLocalAutoConnected(definition: ConnectorCatalogDefinition): boolean {
+  return definition.provider === 'open-design' && definition.tools.every((tool) => tool.requiredScopes.length === 0);
+}
+
+function defaultConnectedAccountLabel(definition: ConnectorCatalogDefinition): string {
+  return LOCAL_CONNECTOR_ACCOUNT_LABELS[definition.id] ?? definition.name;
+}
+
+export class ConnectorStatusService {
+  private readonly statuses = new Map<string, ConnectorConnectionRecord>();
+
+  constructor(options: ConnectorStatusServiceOptions = {}) {
+    for (const [connectorId, status] of Object.entries(options.initialStatuses ?? {})) {
+      this.statuses.set(connectorId, { ...cloneStatus(status), updatedAt: nowIso() });
+    }
+  }
+
+  getStatus(definition: ConnectorCatalogDefinition): ConnectorConnectionStatus {
+    if (definition.disabled) return { status: 'disabled' };
+
+    const stored = this.statuses.get(definition.id);
+    if (stored) return cloneStatus(stored);
+
+    if (isLocalAutoConnected(definition)) {
+      return { status: 'connected', accountLabel: defaultConnectedAccountLabel(definition) };
+    }
+
+    return { status: 'available' };
+  }
+
+  connect(definition: ConnectorCatalogDefinition, accountLabel?: string): ConnectorConnectionStatus {
+    if (definition.disabled) return { status: 'disabled' };
+
+    const next: ConnectorConnectionRecord = {
+      status: 'connected',
+      accountLabel: accountLabel ?? defaultConnectedAccountLabel(definition),
+      updatedAt: nowIso(),
+    };
+    this.statuses.set(definition.id, next);
+    return cloneStatus(next);
+  }
+
+  disconnect(definition: ConnectorCatalogDefinition): ConnectorConnectionStatus {
+    if (definition.disabled) return { status: 'disabled' };
+
+    if (isLocalAutoConnected(definition)) {
+      this.statuses.delete(definition.id);
+      return this.getStatus(definition);
+    }
+
+    const next: ConnectorConnectionRecord = { status: 'available', updatedAt: nowIso() };
+    this.statuses.set(definition.id, next);
+    return cloneStatus(next);
+  }
+
+  setError(definition: ConnectorCatalogDefinition, lastError: string, accountLabel?: string): ConnectorConnectionStatus {
+    if (definition.disabled) return { status: 'disabled' };
+
+    const next: ConnectorConnectionRecord = {
+      status: 'error',
+      ...(accountLabel === undefined ? {} : { accountLabel }),
+      lastError,
+      updatedAt: nowIso(),
+    };
+    this.statuses.set(definition.id, next);
+    return cloneStatus(next);
+  }
+
+  clear(connectorId: string): void {
+    this.statuses.delete(connectorId);
+  }
+}
+
 export interface ConnectorExecutionContext {
   projectId: string;
   runId?: string;
@@ -54,6 +152,8 @@ export interface ConnectorExecutionContext {
 }
 
 export class ConnectorService {
+  constructor(private readonly statusService = new ConnectorStatusService()) {}
+
   listDefinitions(): ConnectorCatalogDefinition[] {
     return listConnectorCatalogDefinitions();
   }
@@ -63,7 +163,7 @@ export class ConnectorService {
   }
 
   getStatus(definition: ConnectorCatalogDefinition): ConnectorConnectionStatus {
-    return { status: definition.disabled ? 'disabled' : 'available' };
+    return this.statusService.getStatus(definition);
   }
 
   listConnectors(): ConnectorDetail[] {
@@ -79,15 +179,24 @@ export class ConnectorService {
   }
 
   async connect(connectorId: string): Promise<ConnectorDetail> {
-    const connector = this.getConnector(connectorId);
-    if (connector.status === 'disabled') {
+    const definition = this.getDefinition(connectorId);
+    if (!definition) {
+      throw new ConnectorServiceError('CONNECTOR_NOT_FOUND', 'connector not found', 404);
+    }
+    const status = this.statusService.connect(definition);
+    if (status.status === 'disabled') {
       throw new ConnectorServiceError('CONNECTOR_DISABLED', 'connector is disabled', 403);
     }
-    return connector;
+    return this.toDetail(definition);
   }
 
   async disconnect(connectorId: string): Promise<ConnectorDetail> {
-    return this.getConnector(connectorId);
+    const definition = this.getDefinition(connectorId);
+    if (!definition) {
+      throw new ConnectorServiceError('CONNECTOR_NOT_FOUND', 'connector not found', 404);
+    }
+    this.statusService.disconnect(definition);
+    return this.toDetail(definition);
   }
 
   async execute(request: ConnectorExecuteRequest, _context: ConnectorExecutionContext): Promise<ConnectorExecuteResponse> {
