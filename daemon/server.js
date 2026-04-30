@@ -195,6 +195,68 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     res.json({ ok: true, version: '0.1.0' });
   });
 
+  // ---- Music proxy ---------------------------------------------------------
+  // Forwards a single fetch to a user-specified URL (Suno / ACE-Step / any
+  // compatible gateway). Lives on the daemon so the API key never leaves
+  // the local machine in a way the upstream can correlate with the user's
+  // browser origin, and so CORS-strict mirrors still work. The browser
+  // sends `{ url, method, headers, body }` and we relay verbatim.
+  //
+  // We intentionally keep this dumb: no validation of the upstream
+  // response shape, no caching. The frontend understands the Suno-style
+  // payload; this proxy just unblocks it.
+  app.post('/api/music/proxy', async (req, res) => {
+    try {
+      const { url, method, headers, body } = req.body ?? {};
+      if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+        return res.status(400).json({ error: 'invalid url' });
+      }
+      const safeMethod =
+        typeof method === 'string' && /^(GET|POST|PUT|DELETE)$/i.test(method)
+          ? method.toUpperCase()
+          : 'GET';
+      const outHeaders = { Accept: 'application/json' };
+      if (headers && typeof headers === 'object') {
+        for (const [k, v] of Object.entries(headers)) {
+          if (typeof v === 'string') outHeaders[k] = v;
+        }
+      }
+      const init = { method: safeMethod, headers: outHeaders };
+      if (safeMethod !== 'GET' && body !== undefined && body !== null) {
+        if (!outHeaders['Content-Type'] && !outHeaders['content-type']) {
+          outHeaders['Content-Type'] = 'application/json';
+        }
+        init.body =
+          typeof body === 'string' ? body : JSON.stringify(body);
+      }
+
+      // Bound the upstream call so a hung Suno worker doesn't pin a
+      // daemon connection forever.
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 60_000);
+      init.signal = ctrl.signal;
+
+      let upstream;
+      try {
+        upstream = await fetch(url, init);
+      } finally {
+        clearTimeout(timer);
+      }
+
+      const text = await upstream.text();
+      let data = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = text;
+      }
+      res.json({ status: upstream.status, ok: upstream.ok, data });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(502).json({ error: message || 'music proxy failed' });
+    }
+  });
+
   // ---- Projects (DB-backed) -------------------------------------------------
 
   app.get('/api/projects', (_req, res) => {

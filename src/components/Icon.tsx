@@ -24,6 +24,8 @@ type IconName =
   | 'link'
   | 'mic'
   | 'minus'
+  | 'music'
+  | 'trash'
   | 'pencil'
   | 'plus'
   | 'play'
@@ -224,6 +226,24 @@ export function Icon({ name, size = 14, strokeWidth = 1.6, ...rest }: Props) {
           <rect x="9" y="2" width="6" height="11" rx="3" />
           <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
           <path d="M12 18v3" />
+        </svg>
+      );
+    case 'music':
+      return (
+        <svg {...common}>
+          <path d="M9 18V5l12-2v13" />
+          <circle cx="6" cy="18" r="3" />
+          <circle cx="18" cy="16" r="3" />
+        </svg>
+      );
+    case 'trash':
+      return (
+        <svg {...common}>
+          <path d="M3 6h18" />
+          <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+          <path d="M10 11v6" />
+          <path d="M14 11v6" />
         </svg>
       );
     case 'minus':

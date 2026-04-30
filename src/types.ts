@@ -11,6 +11,23 @@ export interface AgentModelChoice {
   reasoning?: string;
 }
 
+// Music generation provider id. `suno` covers any Suno-compatible REST
+// gateway (sunoapi.org, suno-api proxies, etc.) using Bearer token auth.
+// `acestep` targets a local ACE-Step Gradio server (no key needed).
+// `custom` is an escape hatch: callers must give a baseUrl and matching
+// auth header. Adding more providers is a single switch case in
+// providers/music.ts.
+export type MusicProviderId = 'suno' | 'acestep' | 'custom';
+
+export interface MusicConfig {
+  provider: MusicProviderId;
+  apiKey: string;
+  baseUrl: string;
+  // Default Suno model id (V3_5 / V4 / V4_5 / chirp-v3-5 …). Free-form
+  // because every gateway invents its own naming.
+  model: string;
+}
+
 export interface AppConfig {
   mode: ExecMode;
   apiKey: string;
@@ -27,6 +44,9 @@ export interface AppConfig {
   // Pre-existing configs without this field fall through to the agent's
   // declared default.
   agentModels?: Record<string, AgentModelChoice>;
+  // Music generation settings. Optional so existing stored configs
+  // upgrade transparently — `loadConfig` fills in defaults.
+  music?: MusicConfig;
 }
 
 export type AgentEvent =
@@ -254,4 +274,39 @@ export interface Conversation {
 export interface OpenTabsState {
   tabs: string[];
   active: string | null;
+}
+
+// One generated music track. Persisted to localStorage under the
+// 'open-design:music-tracks' key so reloading the page doesn't lose your
+// library. Streaming and complete share the same shape — `audioUrl` is
+// always set, but `streaming` audio may still be growing on the server.
+export interface MusicTrack {
+  id: string;
+  taskId: string;
+  provider: MusicProviderId;
+  title: string;
+  prompt: string;
+  style?: string;
+  lyrics?: string;
+  instrumental?: boolean;
+  model?: string;
+  audioUrl?: string;
+  imageUrl?: string;
+  videoUrl?: string;
+  duration?: number;
+  createdAt: number;
+  status: 'pending' | 'streaming' | 'complete' | 'failed';
+  error?: string;
+}
+
+// Input shape used by the studio form / providers/music.ts. `customMode`
+// flips the request from "describe a song in plain English" to "here are
+// my exact lyrics + style tags".
+export interface MusicGenerateInput {
+  prompt: string;
+  style?: string;
+  title?: string;
+  instrumental?: boolean;
+  customMode?: boolean;
+  model?: string;
 }

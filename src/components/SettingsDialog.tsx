@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LOCALE_LABEL, LOCALES, useI18n } from '../i18n';
 import type { Locale } from '../i18n';
+import { DEFAULT_MUSIC_CONFIG } from '../state/config';
 import { AgentIcon } from './AgentIcon';
 import {
   CUSTOM_MODEL_SENTINEL,
   isCustomModel,
   renderModelOptions,
 } from './modelOptions';
-import type { AgentInfo, AppConfig, ExecMode } from '../types';
+import type {
+  AgentInfo,
+  AppConfig,
+  ExecMode,
+  MusicConfig,
+  MusicProviderId,
+} from '../types';
 
 interface Props {
   initial: AppConfig;
@@ -37,6 +44,10 @@ export function SettingsDialog({
   const { t, locale, setLocale } = useI18n();
   const [cfg, setCfg] = useState<AppConfig>(initial);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [showMusicKey, setShowMusicKey] = useState(false);
+  const music: MusicConfig = cfg.music ?? DEFAULT_MUSIC_CONFIG;
+  const setMusic = (next: Partial<MusicConfig>) =>
+    setCfg((c) => ({ ...c, music: { ...DEFAULT_MUSIC_CONFIG, ...c.music, ...next } }));
 
   // If the daemon goes offline mid-edit, force API mode so the UI doesn't
   // pretend Local CLI is selectable.
@@ -343,6 +354,72 @@ export function SettingsDialog({
             <p className="hint">{t('settings.apiHint')}</p>
           </section>
         )}
+
+        <section className="settings-section">
+          <div className="section-head">
+            <div>
+              <h3>{t('settings.musicSection')}</h3>
+              <p className="hint">{t('settings.musicSectionHint')}</p>
+            </div>
+          </div>
+          <label className="field">
+            <span className="field-label">{t('settings.musicProvider')}</span>
+            <select
+              value={music.provider}
+              onChange={(e) =>
+                setMusic({ provider: e.target.value as MusicProviderId })
+              }
+            >
+              <option value="suno">{t('music.providerSuno')}</option>
+              <option value="acestep">{t('music.providerAcestep')}</option>
+              <option value="custom">{t('music.providerCustom')}</option>
+            </select>
+          </label>
+          <label className="field">
+            <span className="field-label">{t('settings.musicApiKey')}</span>
+            <div className="field-row">
+              <input
+                type={showMusicKey ? 'text' : 'password'}
+                placeholder={music.provider === 'acestep' ? '—' : 'sk-...'}
+                value={music.apiKey}
+                disabled={music.provider === 'acestep'}
+                onChange={(e) => setMusic({ apiKey: e.target.value })}
+              />
+              <button
+                type="button"
+                className="ghost icon-btn"
+                onClick={() => setShowMusicKey((v) => !v)}
+                disabled={music.provider === 'acestep'}
+                title={
+                  showMusicKey ? t('settings.hideKey') : t('settings.showKey')
+                }
+              >
+                {showMusicKey ? t('settings.hide') : t('settings.show')}
+              </button>
+            </div>
+            <p className="hint">{t('settings.musicApiKeyHint')}</p>
+          </label>
+          <label className="field">
+            <span className="field-label">{t('settings.musicBaseUrl')}</span>
+            <input
+              type="text"
+              value={music.baseUrl}
+              onChange={(e) => setMusic({ baseUrl: e.target.value.trim() })}
+              placeholder="https://api.sunoapi.org"
+            />
+            <p className="hint">{t('settings.musicBaseUrlHint')}</p>
+          </label>
+          <label className="field">
+            <span className="field-label">{t('settings.musicModel')}</span>
+            <input
+              type="text"
+              value={music.model}
+              onChange={(e) => setMusic({ model: e.target.value })}
+              placeholder="V4"
+            />
+            <p className="hint">{t('settings.musicModelHint')}</p>
+          </label>
+        </section>
 
         <section className="settings-section">
           <div className="section-head">

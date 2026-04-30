@@ -105,10 +105,61 @@ export interface Dict {
   'entry.tabDesigns': string;
   'entry.tabExamples': string;
   'entry.tabDesignSystems': string;
+  'entry.tabMusic': string;
   'entry.openSettingsTitle': string;
   'entry.openSettingsAria': string;
   'entry.resizeAria': string;
   'entry.loadingWorkspace': string;
+
+  // Music studio
+  'music.title': string;
+  'music.subtitle': string;
+  'music.modeSimple': string;
+  'music.modeCustom': string;
+  'music.promptLabel': string;
+  'music.promptPlaceholder': string;
+  'music.lyricsLabel': string;
+  'music.lyricsPlaceholder': string;
+  'music.styleLabel': string;
+  'music.stylePlaceholder': string;
+  'music.titleLabel': string;
+  'music.titlePlaceholder': string;
+  'music.instrumentalLabel': string;
+  'music.instrumentalHint': string;
+  'music.modelLabel': string;
+  'music.generate': string;
+  'music.generating': string;
+  'music.cancel': string;
+  'music.libraryTitle': string;
+  'music.empty': string;
+  'music.emptyHint': string;
+  'music.statusPending': string;
+  'music.statusStreaming': string;
+  'music.statusComplete': string;
+  'music.statusFailed': string;
+  'music.errorNoKey': string;
+  'music.openSettings': string;
+  'music.deleteTrack': string;
+  'music.deleteTrackConfirm': string;
+  'music.clearAll': string;
+  'music.clearAllConfirm': string;
+  'music.downloadTrack': string;
+  'music.providerSuno': string;
+  'music.providerAcestep': string;
+  'music.providerCustom': string;
+  'music.proTipQuickPrompt': string;
+  'music.untitledTrack': string;
+
+  // Settings — music section
+  'settings.musicSection': string;
+  'settings.musicSectionHint': string;
+  'settings.musicProvider': string;
+  'settings.musicApiKey': string;
+  'settings.musicApiKeyHint': string;
+  'settings.musicBaseUrl': string;
+  'settings.musicBaseUrlHint': string;
+  'settings.musicModel': string;
+  'settings.musicModelHint': string;
 
   // New project panel
   'newproj.tabPrototype': string;

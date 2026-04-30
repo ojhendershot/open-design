@@ -4650,3 +4650,341 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   background: var(--bg-panel);
   outline: none;
 }
+
+/* ============================================================
+   Music Studio — embedded songwriter inspired by ace-step-ui.
+   Shares the surface tokens so it feels native to Open Design.
+   ============================================================ */
+.music-studio {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 4px 4px 24px;
+  max-width: 1080px;
+  margin: 0 auto;
+}
+.music-studio-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 0 0;
+}
+.music-studio-head h2 {
+  margin: 0 0 4px;
+  font-family: var(--serif);
+  font-size: 22px;
+  letter-spacing: -0.005em;
+  color: var(--text-strong);
+}
+.music-studio-head .hint { margin: 0; max-width: 720px; }
+.music-studio .danger-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.music-studio .danger-link:hover {
+  background: var(--bg-subtle);
+  border-color: var(--border);
+  color: var(--red);
+}
+
+.music-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--accent-tint);
+  border: 1px solid var(--accent-soft);
+  border-radius: var(--radius);
+  color: var(--accent-strong);
+  font-size: 13px;
+}
+.music-banner .ghost {
+  background: var(--bg-panel);
+  border: 1px solid var(--accent-soft);
+  color: var(--accent-strong);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-weight: 500;
+}
+.music-banner .ghost:hover { background: #fff; }
+
+.music-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+.music-form textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 96px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--bg-panel);
+  color: var(--text);
+}
+.music-form input[type='text'] {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  background: var(--bg-panel);
+  color: var(--text);
+}
+.music-form textarea:focus,
+.music-form input[type='text']:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+.music-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 720px) {
+  .music-form-row { grid-template-columns: 1fr; }
+}
+.music-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  cursor: pointer;
+}
+.music-toggle input { margin-top: 2px; }
+.music-toggle-text { display: flex; flex-direction: column; gap: 2px; }
+.music-toggle-title { font-size: 13px; font-weight: 500; color: var(--text-strong); }
+.music-toggle-hint { font-size: 12px; color: var(--text-muted); }
+.music-tip { margin: 0; font-size: 12px; color: var(--text-soft); }
+
+.music-error {
+  padding: 10px 12px;
+  border: 1px solid var(--red-border);
+  background: var(--red-bg);
+  color: var(--red);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+}
+.music-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.music-form-actions .primary {
+  padding: 10px 18px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid var(--accent-strong);
+  cursor: pointer;
+}
+.music-form-actions .primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.music-form-actions .primary:not(:disabled):hover {
+  background: var(--accent-strong);
+}
+
+.music-library {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.music-library-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.music-library-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-strong);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.music-library-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.music-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 36px 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+  text-align: center;
+}
+.music-empty strong { font-size: 14px; color: var(--text-strong); font-weight: 600; }
+.music-empty p { margin: 0; max-width: 320px; font-size: 12.5px; }
+
+.music-track-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+}
+.music-track {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-xs);
+}
+.music-track-art {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, var(--accent-tint) 0%, var(--bg-muted) 100%);
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  overflow: hidden;
+}
+.music-track-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.music-track-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.music-track-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.music-track-title {
+  font-size: 13.5px;
+  color: var(--text-strong);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.music-track-status {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-muted);
+  color: var(--text-muted);
+}
+.music-track-status-streaming {
+  background: var(--blue-bg);
+  color: var(--blue);
+}
+.music-track-status-complete {
+  background: var(--green-bg);
+  color: var(--green);
+}
+.music-track-status-failed {
+  background: var(--red-bg);
+  color: var(--red);
+}
+.music-track-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.music-track-error {
+  font-size: 12px;
+  color: var(--red);
+  background: var(--red-bg);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--red-border);
+}
+.music-track-audio {
+  width: 100%;
+  height: 36px;
+}
+.music-track-progress {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-muted);
+  overflow: hidden;
+  position: relative;
+}
+.music-track-progress-bar {
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--accent) 50%,
+    transparent 100%
+  );
+  animation: music-shimmer 1.6s linear infinite;
+}
+@keyframes music-shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+.music-track-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.music-track-actions .ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  cursor: pointer;
+  text-decoration: none;
+}
+.music-track-actions .ghost:hover {
+  color: var(--text-strong);
+  border-color: var(--border-strong);
+  background: var(--bg-subtle);
+}
+.music-track-failed { opacity: 0.85; }

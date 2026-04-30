@@ -17,9 +17,10 @@ import { ExamplesTab } from './ExamplesTab';
 import { Icon } from './Icon';
 import { LanguageMenu } from './LanguageMenu';
 import { CenteredLoader } from './Loading';
+import { MusicStudioTab } from './MusicStudioTab';
 import { NewProjectPanel, type CreateInput } from './NewProjectPanel';
 
-type TopTab = 'designs' | 'examples' | 'design-systems';
+type TopTab = 'designs' | 'examples' | 'design-systems' | 'music';
 
 interface Props {
   skills: SkillSummary[];
@@ -225,6 +226,12 @@ export function EntryView({
               label={t('entry.tabDesignSystems')}
               onClick={setTopTab}
             />
+            <TopTabButton
+              current={topTab}
+              value="music"
+              label={t('entry.tabMusic')}
+              onClick={setTopTab}
+            />
           </div>
           <div className="entry-header-right">
             {/* Avatar settings live next to tabs to mirror the project view. */}
@@ -269,6 +276,9 @@ export function EntryView({
                   onSelect={onChangeDefaultDesignSystem}
                   onPreview={previewDesignSystem}
                 />
+              ) : null}
+              {topTab === 'music' ? (
+                <MusicStudioTab config={config} onOpenSettings={onOpenSettings} />
               ) : null}
             </>
           )}

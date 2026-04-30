@@ -1,6 +1,16 @@
-import type { AppConfig } from '../types';
+import type { AppConfig, MusicConfig } from '../types';
 
 const STORAGE_KEY = 'open-design:config';
+
+export const DEFAULT_MUSIC_CONFIG: MusicConfig = {
+  provider: 'suno',
+  apiKey: '',
+  // sunoapi.org is the most popular Bring-Your-Own-Key gateway for Suno.
+  // Any compatible mirror that exposes /api/v1/generate + /generate/record-info
+  // works by changing this URL.
+  baseUrl: 'https://api.sunoapi.org',
+  model: 'V4',
+};
 
 export const DEFAULT_CONFIG: AppConfig = {
   mode: 'daemon',
@@ -12,6 +22,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   designSystemId: null,
   onboardingCompleted: false,
   agentModels: {},
+  music: { ...DEFAULT_MUSIC_CONFIG },
 };
 
 export function loadConfig(): AppConfig {
@@ -19,7 +30,13 @@ export function loadConfig(): AppConfig {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULT_CONFIG };
     const parsed = JSON.parse(raw) as Partial<AppConfig>;
-    return { ...DEFAULT_CONFIG, ...parsed };
+    // Deep-merge the music block so older stored configs (which lack it)
+    // don't drop fields when partial values are written back.
+    const music: MusicConfig = {
+      ...DEFAULT_MUSIC_CONFIG,
+      ...(parsed.music ?? {}),
+    };
+    return { ...DEFAULT_CONFIG, ...parsed, music };
   } catch {
     return { ...DEFAULT_CONFIG };
   }

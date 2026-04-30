@@ -94,10 +94,69 @@ export const en: Dict = {
   'entry.tabDesigns': 'Designs',
   'entry.tabExamples': 'Examples',
   'entry.tabDesignSystems': 'Design systems',
+  'entry.tabMusic': 'Music',
   'entry.openSettingsTitle': 'Settings',
   'entry.openSettingsAria': 'Open settings',
   'entry.resizeAria': 'Resize sidebar',
   'entry.loadingWorkspace': 'Loading workspace…',
+
+  'music.title': 'Music studio',
+  'music.subtitle':
+    'Generate songs with Suno or any compatible API. Bring your own key — audio stays in your browser library.',
+  'music.modeSimple': 'Simple',
+  'music.modeCustom': 'Custom (lyrics)',
+  'music.promptLabel': 'Describe the song',
+  'music.promptPlaceholder':
+    'e.g. an upbeat indie pop song about chasing fireflies on a summer night',
+  'music.lyricsLabel': 'Lyrics',
+  'music.lyricsPlaceholder':
+    '[Verse 1]\nWalking through the city lights\nDancing with the neon signs\n\n[Chorus]\n…',
+  'music.styleLabel': 'Style / genre tags',
+  'music.stylePlaceholder': 'e.g. indie pop, dreamy, female vocals, 110bpm',
+  'music.titleLabel': 'Title',
+  'music.titlePlaceholder': 'Optional song title',
+  'music.instrumentalLabel': 'Instrumental',
+  'music.instrumentalHint': 'No vocals — useful for background music.',
+  'music.modelLabel': 'Model',
+  'music.generate': 'Generate',
+  'music.generating': 'Generating…',
+  'music.cancel': 'Cancel',
+  'music.libraryTitle': 'Your library',
+  'music.empty': 'No tracks yet',
+  'music.emptyHint':
+    'Tracks you generate will appear here. They live only in this browser — clear or delete them at any time.',
+  'music.statusPending': 'Queued',
+  'music.statusStreaming': 'Streaming',
+  'music.statusComplete': 'Ready',
+  'music.statusFailed': 'Failed',
+  'music.errorNoKey':
+    'Add a music API key in Settings → Music to start generating.',
+  'music.openSettings': 'Open settings',
+  'music.deleteTrack': 'Delete track',
+  'music.deleteTrackConfirm': 'Remove this track from your library?',
+  'music.clearAll': 'Clear library',
+  'music.clearAllConfirm': 'Remove every track from your local library?',
+  'music.downloadTrack': 'Download',
+  'music.providerSuno': 'Suno (Bring-your-own-key)',
+  'music.providerAcestep': 'ACE-Step (local Gradio)',
+  'music.providerCustom': 'Custom endpoint',
+  'music.proTipQuickPrompt':
+    'Tip: keep prompts vivid and specific (mood, instruments, tempo) for better results.',
+  'music.untitledTrack': 'Untitled track',
+
+  'settings.musicSection': 'Music generation',
+  'settings.musicSectionHint':
+    'Configure the music backend used by the Music studio. Calls flow through the daemon proxy when available; the key stays in this browser.',
+  'settings.musicProvider': 'Provider',
+  'settings.musicApiKey': 'API key',
+  'settings.musicApiKeyHint':
+    'For Suno-style gateways. ACE-Step running locally does not require a key.',
+  'settings.musicBaseUrl': 'Base URL',
+  'settings.musicBaseUrlHint':
+    'e.g. https://api.sunoapi.org for Suno gateways, http://localhost:8001 for ACE-Step.',
+  'settings.musicModel': 'Default model',
+  'settings.musicModelHint':
+    'Free-form. Common Suno values: V3_5, V4, V4_5. Leave blank for the gateway default.',
 
   'newproj.tabPrototype': 'Prototype',
   'newproj.tabDeck': 'Slide deck',

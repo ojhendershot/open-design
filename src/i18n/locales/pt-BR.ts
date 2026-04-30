@@ -94,10 +94,69 @@ export const ptBR: Dict = {
   'entry.tabDesigns': 'Designs',
   'entry.tabExamples': 'Exemplos',
   'entry.tabDesignSystems': 'Sistemas de design',
+  'entry.tabMusic': 'Música',
   'entry.openSettingsTitle': 'Configurações',
   'entry.openSettingsAria': 'Abrir configurações',
   'entry.resizeAria': 'Redimensionar barra lateral',
   'entry.loadingWorkspace': 'Carregando área de trabalho…',
+
+  'music.title': 'Estúdio de música',
+  'music.subtitle':
+    'Gere músicas com Suno ou qualquer API compatível. Use sua própria chave — as faixas ficam só na biblioteca do navegador.',
+  'music.modeSimple': 'Simples',
+  'music.modeCustom': 'Personalizado (letras)',
+  'music.promptLabel': 'Descreva a música',
+  'music.promptPlaceholder':
+    'ex.: uma indie pop animada sobre caçar vagalumes numa noite de verão',
+  'music.lyricsLabel': 'Letra',
+  'music.lyricsPlaceholder':
+    '[Verso 1]\nAndando pelas luzes da cidade\nDançando com letreiros de neon\n\n[Refrão]\n…',
+  'music.styleLabel': 'Estilo / tags de gênero',
+  'music.stylePlaceholder': 'ex.: indie pop, sonhador, vocais femininos, 110bpm',
+  'music.titleLabel': 'Título',
+  'music.titlePlaceholder': 'Título opcional da música',
+  'music.instrumentalLabel': 'Instrumental',
+  'music.instrumentalHint': 'Sem vocais — útil como trilha de fundo.',
+  'music.modelLabel': 'Modelo',
+  'music.generate': 'Gerar',
+  'music.generating': 'Gerando…',
+  'music.cancel': 'Cancelar',
+  'music.libraryTitle': 'Sua biblioteca',
+  'music.empty': 'Nenhuma faixa ainda',
+  'music.emptyHint':
+    'As faixas geradas aparecerão aqui. Vivem só neste navegador — apague ou limpe quando quiser.',
+  'music.statusPending': 'Na fila',
+  'music.statusStreaming': 'Em streaming',
+  'music.statusComplete': 'Pronta',
+  'music.statusFailed': 'Falhou',
+  'music.errorNoKey':
+    'Adicione uma chave de API em Configurações → Música para começar a gerar.',
+  'music.openSettings': 'Abrir configurações',
+  'music.deleteTrack': 'Excluir faixa',
+  'music.deleteTrackConfirm': 'Remover esta faixa da biblioteca?',
+  'music.clearAll': 'Limpar biblioteca',
+  'music.clearAllConfirm': 'Remover todas as faixas da biblioteca local?',
+  'music.downloadTrack': 'Baixar',
+  'music.providerSuno': 'Suno (chave própria)',
+  'music.providerAcestep': 'ACE-Step (Gradio local)',
+  'music.providerCustom': 'Endpoint personalizado',
+  'music.proTipQuickPrompt':
+    'Dica: prompts vívidos e específicos (humor, instrumentos, tempo) rendem resultados melhores.',
+  'music.untitledTrack': 'Faixa sem título',
+
+  'settings.musicSection': 'Geração de música',
+  'settings.musicSectionHint':
+    'Configure o backend de música usado pelo Estúdio. As chamadas passam pelo proxy do daemon quando disponível; a chave fica neste navegador.',
+  'settings.musicProvider': 'Provedor',
+  'settings.musicApiKey': 'Chave de API',
+  'settings.musicApiKeyHint':
+    'Para gateways Suno. ACE-Step rodando localmente não precisa de chave.',
+  'settings.musicBaseUrl': 'URL base',
+  'settings.musicBaseUrlHint':
+    'ex.: https://api.sunoapi.org para gateways Suno; http://localhost:8001 para ACE-Step.',
+  'settings.musicModel': 'Modelo padrão',
+  'settings.musicModelHint':
+    'Texto livre. Valores Suno comuns: V3_5, V4, V4_5. Deixe em branco para o padrão do gateway.',
 
   'newproj.tabPrototype': 'Protótipo',
   'newproj.tabDeck': 'Apresentação',
