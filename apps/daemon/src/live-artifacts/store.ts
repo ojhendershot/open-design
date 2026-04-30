@@ -312,6 +312,14 @@ function artifactWithDataJson(artifact: LiveArtifact, dataJson: BoundedJsonObjec
   return { ...artifact, document: { ...artifact.document, dataJson } };
 }
 
+async function readLiveArtifactWithDataJsonCache(paths: LiveArtifactStorePaths): Promise<LiveArtifact> {
+  const artifact = await readPersistedLiveArtifact(paths);
+  if (artifact.document?.format !== 'html_template_v1') return artifact;
+
+  const dataJson = await readPersistedDataJson(paths);
+  return artifactWithDataJson(artifact, dataJson);
+}
+
 function renderPreviewHtml(templateHtml: string, dataJson: BoundedJsonObject): string {
   try {
     return renderHtmlTemplateV1({ templateHtml, dataJson }).html;
@@ -460,7 +468,7 @@ export async function listLiveArtifacts(options: ListLiveArtifactsOptions): Prom
 export async function getLiveArtifact(options: GetLiveArtifactOptions): Promise<LiveArtifactStoreRecord> {
   const artifactId = validateLiveArtifactStorageId(options.artifactId);
   const paths = liveArtifactStorePaths(options.projectsRoot, options.projectId, artifactId);
-  const artifact = await readPersistedLiveArtifact(paths);
+  const artifact = await readLiveArtifactWithDataJsonCache(paths);
   assertArtifactMatchesStorage(artifact, options.projectId, artifactId);
   return { artifact, paths };
 }
@@ -468,7 +476,7 @@ export async function getLiveArtifact(options: GetLiveArtifactOptions): Promise<
 export async function regenerateLiveArtifactPreview(options: RegenerateLiveArtifactPreviewOptions): Promise<LiveArtifactPreviewRenderRecord> {
   const artifactId = validateLiveArtifactStorageId(options.artifactId);
   const paths = liveArtifactStorePaths(options.projectsRoot, options.projectId, artifactId);
-  const artifact = await readPersistedLiveArtifact(paths);
+  const artifact = await readLiveArtifactWithDataJsonCache(paths);
   assertArtifactMatchesStorage(artifact, options.projectId, artifactId);
 
   const html = await renderLiveArtifactPreviewFromFiles(paths, artifact);
@@ -480,7 +488,7 @@ export async function regenerateLiveArtifactPreview(options: RegenerateLiveArtif
 export async function ensureLiveArtifactPreview(options: RegenerateLiveArtifactPreviewOptions): Promise<LiveArtifactPreviewRenderRecord> {
   const artifactId = validateLiveArtifactStorageId(options.artifactId);
   const paths = liveArtifactStorePaths(options.projectsRoot, options.projectId, artifactId);
-  const artifact = await readPersistedLiveArtifact(paths);
+  const artifact = await readLiveArtifactWithDataJsonCache(paths);
   assertArtifactMatchesStorage(artifact, options.projectId, artifactId);
 
   try {

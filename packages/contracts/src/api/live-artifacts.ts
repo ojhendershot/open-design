@@ -55,6 +55,7 @@ export interface LiveArtifactDocument {
   templatePath: 'template.html';
   generatedPreviewPath: 'index.html';
   dataPath: 'data.json';
+  /** Derived cache hydrated from dataPath in API responses; data.json is canonical. */
   dataJson: BoundedJsonObject;
   dataSchemaJson?: BoundedJsonObject;
   sourceJson?: LiveArtifactTileSource;

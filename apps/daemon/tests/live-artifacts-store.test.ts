@@ -307,7 +307,7 @@ describe('live artifact store layout', () => {
     expect(JSON.stringify(summaries)).not.toContain('data.json');
   });
 
-  it('gets a full project-scoped live artifact record by id', async () => {
+  it('gets a full project-scoped live artifact record by id with data.json as source of truth', async () => {
     const projectsRoot = await makeProjectsRoot();
     const created = await createLiveArtifact({
       projectsRoot,
@@ -315,6 +315,8 @@ describe('live artifact store layout', () => {
       input: validCreateInput(),
       now: new Date('2026-04-30T10:11:12.345Z'),
     });
+    const diskDataJson = { title: 'Disk Title', owner: 'Disk Owner', note: 'From data.json' };
+    await writeFile(created.paths.dataJsonPath, `${JSON.stringify(diskDataJson, null, 2)}\n`, 'utf8');
 
     const record = await getLiveArtifact({
       projectsRoot,
@@ -322,7 +324,10 @@ describe('live artifact store layout', () => {
       artifactId: created.artifact.id,
     });
 
-    expect(record.artifact).toEqual(created.artifact);
+    expect(record.artifact).toEqual({
+      ...created.artifact,
+      document: { ...created.artifact.document!, dataJson: diskDataJson },
+    });
     expect(record.paths).toEqual(created.paths);
     expect(record.artifact.tiles).toHaveLength(1);
     expect(record.artifact.document).toMatchObject({

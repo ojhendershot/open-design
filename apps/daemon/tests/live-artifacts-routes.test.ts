@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { rm } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,7 @@ import { CHAT_TOOL_ENDPOINTS, CHAT_TOOL_OPERATIONS, toolTokenRegistry } from '..
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(here, '../../..');
+const serverRuntimeDataRoot = path.join(projectRoot, 'apps', '.od');
 
 let server;
 let baseUrl;
@@ -29,10 +30,12 @@ afterEach(async () => {
   });
   server = undefined;
   toolTokenRegistry.clear();
+  const cleanupProjectIds = projectIds.splice(0);
   await Promise.all(
-    projectIds.splice(0).map((projectId) =>
+    cleanupProjectIds.flatMap((projectId) => [
       rm(path.join(projectRoot, '.od', 'projects', projectId), { recursive: true, force: true }),
-    ),
+      rm(path.join(serverRuntimeDataRoot, 'projects', projectId), { recursive: true, force: true }),
+    ]),
   );
 });
 
@@ -179,6 +182,43 @@ describe('live artifact tool routes', () => {
     expect(csp).toContain('sandbox allow-same-origin');
     expect(preview.body).toContain('<h1>Preview Route Artifact</h1>');
     expect(preview.body).toContain('<p>Agent</p>');
+  });
+
+  it('returns API dataJson from data.json when the artifact cache diverges', async () => {
+    const projectId = uniqueProjectId();
+    const token = mintToolToken(projectId, 'run-route-test-data-json-source');
+    const create = await jsonFetch(`${baseUrl}/api/tools/live-artifacts/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        input: validCreateInput('API Cache Artifact'),
+        templateHtml: '<!doctype html><h1>{{data.title}}</h1><p>{{data.owner}}</p>',
+      }),
+    });
+
+    expect(create.status).toBe(200);
+    const diskDataJson = { title: 'Disk API Title', owner: 'data.json owner' };
+    await writeFile(
+      path.join(projectRoot, '.od', 'projects', projectId, '.live-artifacts', create.body.artifact.id, 'data.json'),
+      `${JSON.stringify(diskDataJson, null, 2)}\n`,
+      'utf8',
+    ).catch(async (error) => {
+      if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') throw error;
+      await writeFile(
+        path.join(serverRuntimeDataRoot, 'projects', projectId, '.live-artifacts', create.body.artifact.id, 'data.json'),
+        `${JSON.stringify(diskDataJson, null, 2)}\n`,
+        'utf8',
+      );
+    });
+
+    const detail = await jsonFetch(`${baseUrl}/api/live-artifacts/${create.body.artifact.id}?projectId=${encodeURIComponent(projectId)}`);
+    const preview = await textFetch(`${baseUrl}/api/live-artifacts/${create.body.artifact.id}/preview?projectId=${encodeURIComponent(projectId)}`);
+
+    expect(detail.status).toBe(200);
+    expect(detail.body.artifact.document.dataJson).toEqual(diskDataJson);
+    expect(preview.status).toBe(200);
+    expect(preview.body).toContain('<h1>Disk API Title</h1>');
+    expect(preview.body).toContain('<p>data.json owner</p>');
   });
 
   it('rejects preview requests with non-loopback host or origin headers', async () => {
