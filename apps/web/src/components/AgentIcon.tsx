@@ -140,6 +140,25 @@ const VISUALS: Record<string, Visual> = {
       );
     },
   },
+  // MiMo — Xiaomi orange with "Mi" stylized mark.
+  mimo: {
+    bg: 'linear-gradient(135deg, #FF6900 0%, #FF4D00 100%)',
+    fg: '#ffffff',
+    glyph: (s) => {
+      const c = s / 2;
+      const r = s * 0.22;
+      return (
+        <g fill="none" stroke="#ffffff" strokeWidth={s * 0.06} strokeLinecap="round" strokeLinejoin="round">
+          {/* Stylized "Mi" — three vertical bars */}
+          <line x1={c - r * 0.9} y1={c - r * 0.6} x2={c - r * 0.9} y2={c + r * 0.8} />
+          <line x1={c - r * 0.1} y1={c - r * 0.6} x2={c - r * 0.1} y2={c + r * 0.8} />
+          <line x1={c + r * 0.9} y1={c - r * 0.6} x2={c + r * 0.9} y2={c + r * 0.8} />
+          {/* Connecting roof */}
+          <polyline points={`${c - r * 0.9},${c - r * 0.6} ${c - r * 0.1},${c - r * 1.2} ${c + r * 0.9},${c - r * 0.6}`} />
+        </g>
+      );
+    },
+  },
 };
 
 const FALLBACK: Visual = {

@@ -9,6 +9,10 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import type { AppConfig, ChatMessage } from '../types';
+import { isOpenAICompatible, streamMessageOpenAI } from './openai-compatible';
+
+// Re-export for convenience
+export { isOpenAICompatible } from './openai-compatible';
 
 export interface StreamHandlers {
   onDelta: (textDelta: string) => void;
@@ -31,6 +35,11 @@ export async function streamMessage(
   signal: AbortSignal,
   handlers: StreamHandlers,
 ): Promise<void> {
+  // Route to OpenAI-compatible provider for non-Anthropic models.
+  if (isOpenAICompatible(cfg.model, cfg.baseUrl)) {
+    return streamMessageOpenAI(cfg, system, history, signal, handlers);
+  }
+
   if (!cfg.apiKey) {
     handlers.onError(new Error('Missing API key — open Settings and paste one in.'));
     return;

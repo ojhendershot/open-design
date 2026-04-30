@@ -7,6 +7,7 @@ import {
   isCustomModel,
   renderModelOptions,
 } from './modelOptions';
+import { KNOWN_PROVIDERS } from '../state/config';
 import type { AgentInfo, AppConfig, ExecMode } from '../types';
 
 interface Props {
@@ -23,6 +24,7 @@ const SUGGESTED_MODELS = [
   'claude-opus-4-5',
   'claude-sonnet-4-5',
   'claude-haiku-4-5',
+  'mimo-v2.5-pro',
 ];
 
 export function SettingsDialog({
@@ -340,6 +342,24 @@ export function SettingsDialog({
                   value={cfg.baseUrl}
                   onChange={(e) => setCfg({ ...cfg, baseUrl: e.target.value })}
                 />
+              </label>
+              <label className="field">
+                <span className="field-label">Quick fill provider</span>
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const idx = Number(e.target.value);
+                    if (!isNaN(idx) && KNOWN_PROVIDERS[idx]) {
+                      const p = KNOWN_PROVIDERS[idx]!;
+                      setCfg((c) => ({ ...c, baseUrl: p.baseUrl, model: p.model }));
+                    }
+                  }}
+                >
+                  <option value="">— choose a provider —</option>
+                  {KNOWN_PROVIDERS.map((p, i) => (
+                    <option key={i} value={i}>{p.label}</option>
+                  ))}
+                </select>
               </label>
               <p className="hint">{t('settings.apiHint')}</p>
             </section>

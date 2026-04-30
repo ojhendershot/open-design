@@ -313,7 +313,12 @@ async function sendPrompt(
     try {
       await expect(input).toHaveValue(prompt, { timeout: 1500 });
       await expect(sendButton).toBeEnabled({ timeout: 1500 });
+      const chatResponse = page.waitForResponse(
+        (resp) => resp.url().includes('/api/chat') && resp.request().method() === 'POST',
+        { timeout: 2000 },
+      );
       await sendButton.evaluate((button: HTMLButtonElement) => button.click());
+      await chatResponse;
       return;
     } catch (error) {
       await input.click();
@@ -323,7 +328,12 @@ async function sendPrompt(
       try {
         await expect(input).toHaveValue(prompt, { timeout: 1500 });
         await expect(sendButton).toBeEnabled({ timeout: 1500 });
+        const chatResponse = page.waitForResponse(
+          (resp) => resp.url().includes('/api/chat') && resp.request().method() === 'POST',
+          { timeout: 2000 },
+        );
         await sendButton.evaluate((button: HTMLButtonElement) => button.click());
+        await chatResponse;
         return;
       } catch (retryError) {
         if (attempt === 2) throw retryError;
@@ -606,11 +616,16 @@ async function runFileUploadSendFlow(
   page: Parameters<typeof test>[0]['page'],
   entry: UICase,
 ) {
+  const uploadResponse = page.waitForResponse(
+    (resp) => resp.url().includes('/upload') && resp.request().method() === 'POST',
+    { timeout: 5000 },
+  );
   await page.getByTestId('chat-file-input').setInputFiles({
     name: 'reference.txt',
     mimeType: 'text/plain',
     buffer: Buffer.from('Reference content for upload flow.\n', 'utf8'),
   });
+  await expect((await uploadResponse).ok()).toBeTruthy();
 
   await expect(page.getByTestId('staged-attachments')).toBeVisible();
   await expect(

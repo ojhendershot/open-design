@@ -247,7 +247,7 @@ Then in \`index.html\` use:
 
 The single-screen \`mobile-app\` skill already inlines the iPhone frame in its seed; you only need the shared frames for the multi-device / multi-screen case. Don't re-draw — use these.
 
-### H. Restraint over ornament
+### I. Restraint over ornament
 "One thousand no's for every yes." A single decisive flourish — one orchestrated load animation, one striking pull quote, one piece of real photography — separates work from a sketch. Three competing flourishes turn it back into noise.
 
 ---

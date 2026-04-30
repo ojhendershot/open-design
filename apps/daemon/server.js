@@ -79,9 +79,9 @@ const CMD_BAT_RE = /\.(cmd|bat)$/i;
 const PROMPT_TEMP_FILE = () =>
   '.od-prompt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.md';
 const promptFileBootstrap = (fp) =>
-  `Read the file at ${fp.replace(/\\/g, '/')} for your complete instructions ` +
-  '(system prompt, design system, skill workflow, and user request). ' +
-  'Follow every instruction in that file exactly. ' +
+  `Your full instructions are stored in the file: ${fp.replace(/\\/g, '/')}. ` +
+  'Open that file first and follow every instruction in it exactly — ' +
+  'it contains the system prompt, design system, skill workflow, and user request. ' +
   'Do not begin your response until you have read the entire file.';
 
 const UPLOAD_DIR = path.join(os.tmpdir(), 'od-uploads');
@@ -1019,7 +1019,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     // ^^^ idempotency: promptFileCleaned is set synchronously BEFORE the
     // async fs.unlink callback, so a second call never races past the guard.
     if (needsFilePrompt) {
-      promptFilePath = path.join(cwd, PROMPT_TEMP_FILE);
+      promptFilePath = path.join(cwd, PROMPT_TEMP_FILE());
       try {
         fs.writeFileSync(promptFilePath, composed, 'utf8');
         effectivePrompt = promptFileBootstrap(promptFilePath);
@@ -1101,14 +1101,14 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
       // prompt through stdin instead of embedding it in argv. Bypasses the
       // OS command-line length limit (Windows CreateProcess caps at ~32 KB)
       // which causes `spawn ENAMETOOLONG` for any non-trivial prompt.
-      const stdinMode = def.promptViaStdin || def.streamFormat === 'acp-json-rpc' ? 'pipe' : 'ignore';
+      const stdinMode = def.promptViaStdin || def.streamFormat === 'acp-json-rpc' || needsFilePrompt ? 'pipe' : 'ignore';
       child = spawn(resolvedBin, args, {
         env: { ...process.env },
         stdio: [stdinMode, 'pipe', 'pipe'],
         cwd: cwd || undefined,
         shell: useShell,
       });
-      if (def.promptViaStdin && child.stdin) {
+      if ((def.promptViaStdin || needsFilePrompt) && child.stdin) {
         // EPIPE from a fast-exiting CLI (bad auth, missing model, exit on
         // launch) would otherwise surface as an unhandled stream error and
         // crash the daemon. Swallow it — the regular exit/close handlers
@@ -1179,6 +1179,146 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
       send('end', { code, signal });
       res.end();
     });
+  });
+
+  // ---- API Proxy (SSE) for OpenAI-compatible endpoints ---------------------
+  // Browser → daemon → external API. Avoids CORS issues with third-party
+  // providers (MiMo, DeepSeek, Groq, etc.).
+
+  app.post('/api/proxy/stream', async (req, res) => {
+    const { baseUrl, apiKey, model, systemPrompt, messages } = req.body || {};
+    if (!baseUrl || !apiKey || !model) {
+      return res.status(400).json({ error: 'baseUrl, apiKey, and model are required' });
+    }
+
+    // Validate baseUrl — only allow http/https and block internal IPs (SSRF).
+    let parsed;
+    try {
+      parsed = new URL(baseUrl.replace(/\/+$/, ''));
+    } catch {
+      return res.status(400).json({ error: 'Invalid baseUrl' });
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return res.status(400).json({ error: 'Only http/https allowed' });
+    }
+    if (
+      ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname) ||
+      parsed.hostname.startsWith('169.254.') ||
+      parsed.hostname.startsWith('10.') ||
+      /^192\.168\./.test(parsed.hostname) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(parsed.hostname)
+    ) {
+      return res.status(400).json({ error: 'Internal IPs blocked' });
+    }
+
+    // Build the upstream URL. If the base URL already ends with /v1 (or
+    // /v1/), append /chat/completions directly. Otherwise append
+    // /v1/chat/completions for providers that expect a versioned prefix.
+    let url;
+    const clean = baseUrl.replace(/\/+$/, '');
+    if (/\/v\d+$/.test(clean)) {
+      url = clean + '/chat/completions';
+    } else {
+      url = clean + '/v1/chat/completions';
+    }
+
+    // Force MiMo to behave as a pure text generator (no tool calls)
+    const isMiMo = model.toLowerCase().startsWith('mimo');
+    console.log(`[proxy] ${req.method} ${parsed.hostname} model=${model} miMo=${isMiMo}`);
+
+    const payload = {
+      model,
+      max_tokens: 8192,
+      stream: true,
+      ...(isMiMo ? { tool_choice: 'none', tools: [] } : {}),
+      messages: [
+        { role: 'system', content: systemPrompt || '' },
+        ...(Array.isArray(messages) ? messages : []),
+      ],
+    };
+    const body = JSON.stringify(payload);
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+
+    const send = (event, data) => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    let upstream;
+    try {
+      upstream = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body,
+      });
+    } catch (fetchErr) {
+      send('error', { message: `fetch failed: ${fetchErr.message}` });
+      return res.end();
+    }
+
+    if (!upstream.ok) {
+      const errText = await upstream.text().catch(() => '');
+      const safeErr = errText.slice(0, 500).replace(/Bearer [A-Za-z0-9_\-\.]+/g, 'Bearer [REDACTED]');
+      console.error(`[proxy] upstream ${upstream.status}: ${safeErr.slice(0, 200)}`);
+      send('error', { message: `upstream ${upstream.status}: ${safeErr}` });
+      return res.end();
+    }
+
+    send('start', { model });
+
+    const reader = upstream.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+
+      let idx;
+      while ((idx = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, idx);
+        buf = buf.slice(idx + 1);
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6).trim();
+        if (payload === '[DONE]') {
+          send('end', {});
+          return res.end();
+        }
+        try {
+          const chunk = JSON.parse(payload);
+          const delta = chunk.choices?.[0]?.delta;
+          if (delta) {
+            let text = delta.content ?? '';
+            if (text) {
+              send('delta', { text });
+            }
+            // Structured tool_calls from the API (not in content)
+            if (Array.isArray(delta.tool_calls)) {
+              for (const tc of delta.tool_calls) {
+                const fn = tc.function;
+                if (fn?.name) {
+                  send('delta', { text: `\n\n[${fn.name}]\n` });
+                }
+              }
+            }
+          }
+        } catch {
+          // skip malformed chunks
+        }
+      }
+    }
+
+    send('end', {});
+    res.end();
   });
 
   // SPA fallback for the built web app. Put this LAST so it never shadows
