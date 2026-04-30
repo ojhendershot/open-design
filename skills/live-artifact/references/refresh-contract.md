@@ -45,6 +45,21 @@ Supported output transforms:
 - Users must be able to revoke refresh permission from the Source tab.
 - Write, destructive, unknown, or drifted connector tools are never refreshable.
 
+## Connector-backed refresh
+
+Connector-backed refresh sources use the same connector execution service as agent-initiated connector calls. Do not call provider APIs directly from refresh logic or from skill-authored scripts.
+
+Before creating a connector-backed refresh source:
+
+1. List connectors with `od tools connectors list --format compact`.
+2. Select a connected connector and a tool whose safety is `read` + `auto` and whose catalog metadata marks it refresh-eligible.
+3. Execute once with `od tools connectors execute --connector <id> --tool <name> --input input.json` to produce compact normalized preview data.
+4. Store only non-sensitive connector references, the bounded input object, output mapping, and `refreshPermission`/approval state in `sourceJson`.
+
+On each refresh, the daemon must re-check connector status, account label, allowlist membership, current scopes, tool safety, input schema, approval policy, and refresh eligibility. If any check fails or output protection rejects the result, refresh fails all-or-nothing and preserves the previous valid preview.
+
+Persisted connector refresh metadata may include `connectorId`, `toolName`, non-sensitive `accountLabel`, `approvalPolicy`, bounded `input`, `outputMapping`, and `refreshPermission`. It must not include credentials, auth/session material, raw provider envelopes, or unbounded provider responses.
+
 ## Commit behavior
 
 Refresh is all-or-nothing:

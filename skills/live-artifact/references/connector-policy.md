@@ -21,6 +21,66 @@ If a tool name, scope, or description suggests write/create/update/delete/admin/
 - Re-check connector status, allowlists, current scopes, tool safety, and refresh eligibility at execution time.
 - For connector-backed refresh, saved `connectorId`, `accountLabel`, tool name, input shape, and approval policy must still match current connector state.
 
+## Connector listing
+
+List connectors before using connector-backed data:
+
+```bash
+od tools connectors list --format compact
+```
+
+The compact result includes each connector's `id`, display metadata, `status`, optional `accountLabel`, and callable tool summaries with `name`, `description`, `safety`, and `inputSchema`. Use this output to select a connector and tool; do not guess tool names.
+
+Only execute tools from connectors whose status is `connected`. Local/public connectors may already be connected by the daemon; OAuth-backed connectors must be connected by the user through the UI before agent execution.
+
+## Connector execution
+
+Create a bounded JSON object input file that matches the selected tool's `inputSchema`, then execute through the wrapper:
+
+```bash
+od tools connectors execute --connector "$CONNECTOR_ID" --tool "$TOOL_NAME" --input input.json
+```
+
+The wrapper reads `OD_DAEMON_URL` and `OD_TOOL_TOKEN`, sends the request to `/api/tools/connectors/execute`, and prints compact JSON. Successful output includes `connectorId`, optional `accountLabel`, `toolName`, `safety`, `outputSummary`, redacted `output`, and daemon metadata. On failure, fix the input/schema/connection issue and retry; do not bypass connector validation with direct provider calls.
+
+Execution is fail-closed:
+
+- connector and tool IDs must be in the daemon catalog allowlist;
+- the connector must still be connected and not disabled;
+- current runtime safety must be `read` + `auto` for agent execution;
+- input must match the current tool schema;
+- run rate limits and total call limits apply;
+- output is size-bounded and redacted before the agent receives it.
+
+Use execution output as an intermediate source only. Normalize it into `data.json` and provenance, keeping only fields the preview needs.
+
+## Read-only refresh rules
+
+Connector-backed live artifact refresh is allowed only for tools that remain read-only and refresh-eligible at refresh time. A saved refresh source must include non-sensitive connector metadata and permission state, for example:
+
+```json
+{
+  "type": "connector_tool",
+  "toolName": "github.public_repo_summary",
+  "input": { "owner": "open-design", "repo": "open-design" },
+  "connector": {
+    "connectorId": "github_public",
+    "accountLabel": "public",
+    "toolName": "github.public_repo_summary",
+    "approvalPolicy": "manual_refresh_granted_for_read_only"
+  },
+  "outputMapping": {
+    "dataPaths": [{ "from": "summary", "to": "repository" }],
+    "transform": "metric_summary"
+  },
+  "refreshPermission": "manual_refresh_granted_for_read_only"
+}
+```
+
+During refresh, the daemon revalidates `connectorId`, `accountLabel`, tool name, saved input schema, current scopes, current safety classification, allowlist membership, and approval policy. If anything drifts, the refresh fails without changing the previous valid preview.
+
+Never mark write, destructive, unknown, confirmation-required, disabled, unconnected, or schema-drifted connector tools as refreshable.
+
 ## Persistence rules
 
 Persist only:
@@ -37,6 +97,14 @@ Never persist:
 - connector credentials under `.live-artifacts/`.
 
 Credential storage is daemon-controlled and outside project artifact directories. Artifacts may contain connector IDs and non-sensitive account labels only.
+
+## Credential handling constraints
+
+- Do not ask the user for connector secrets inside the artifact workflow.
+- Do not write OAuth material, API keys, cookies, sessions, HTTP request metadata, or provider auth state into `artifact.json`, `data.json`, `provenance.json`, tile JSON, snapshots, refresh history, or `.live-artifacts/`.
+- Do not include secret-like values in connector tool inputs or source metadata. If a connector requires credentials, the daemon-owned connector UI/storage must handle them outside project artifacts.
+- Safe persisted connector references are limited to catalog IDs, tool names, non-sensitive account labels, approval/refresh permission values, selected normalized output fields, and concise provenance notes.
+- If connector output contains unredacted sensitive or envelope-like fields, stop and return a validation/safety error instead of storing it.
 
 ## Output protection
 

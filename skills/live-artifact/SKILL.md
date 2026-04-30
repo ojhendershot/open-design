@@ -67,6 +67,7 @@ Before creating files, decide whether the user actually wants a live artifact or
    - Identify the preview goal, audience, data freshness expectations, and whether refresh should be possible later.
    - Prefer local/project sources or daemon connector tools when available.
    - Do not call provider APIs directly when a daemon connector/wrapper exists.
+   - If connector data is needed, first list connectors with `od tools connectors list --format compact`, choose only connected read-only tools, then execute through the connector wrapper.
 
 2. **Author the source files**
    - Write `template.html` as the human-designed HTML template.
@@ -98,7 +99,23 @@ Before creating files, decide whether the user actually wants a live artifact or
    - Do not include or invent `projectId`; the daemon derives project/run scope from the token.
    - Use raw HTTP only for daemon development/debugging when explicitly requested.
 
-6. **Report concise results**
+6. **Use connector wrappers for connector data**
+   - Discover available connectors and tools:
+
+     ```bash
+     od tools connectors list --format compact
+     ```
+
+   - Execute a read-only connector tool with a JSON object input file:
+
+     ```bash
+     od tools connectors execute --connector "$CONNECTOR_ID" --tool "$TOOL_NAME" --input input.json
+     ```
+
+   - Persist only the compact normalized fields needed by the preview plus non-sensitive connector references (`connectorId`, `toolName`, `accountLabel`, approval/refresh permission). Never persist connector credentials, transport metadata, or raw provider output.
+   - See `references/connector-policy.md` for listing/execution and credential boundaries, and `references/refresh-contract.md` for read-only refresh source metadata.
+
+7. **Report concise results**
    - On success, return the artifact ID/title and note that `index.html` is daemon-derived.
    - On validation failure, fix the source files and retry through the wrapper. Do not bypass validation.
 
