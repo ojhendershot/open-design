@@ -17,7 +17,7 @@ import type { ProjectFilePreview } from '../providers/registry';
 import { exportAsHtml, exportAsPdf, exportAsZip } from '../runtime/exports';
 import { buildSrcdoc } from '../runtime/srcdoc';
 import { saveTemplate } from '../state/projects';
-import type { LiveArtifact, LiveArtifactViewerTab, LiveArtifactWorkspaceEntry, ProjectFile } from '../types';
+import type { AgentEvent, LiveArtifact, LiveArtifactViewerTab, LiveArtifactWorkspaceEntry, ProjectFile } from '../types';
 import { Icon } from './Icon';
 
 type TranslateFn = (key: keyof Dict, vars?: Record<string, string | number>) => string;
@@ -79,10 +79,12 @@ export function FileViewer({
 export function LiveArtifactViewer({
   projectId,
   liveArtifact,
+  liveArtifactEvent,
   onRefreshArtifacts,
 }: {
   projectId: string;
   liveArtifact: LiveArtifactWorkspaceEntry;
+  liveArtifactEvent?: AgentEvent | null;
   onRefreshArtifacts?: () => Promise<void> | void;
 }) {
   const t = useT();
@@ -105,6 +107,59 @@ export function LiveArtifactViewer({
     const timeout = window.setTimeout(() => setRefreshSuccess(null), 6000);
     return () => window.clearTimeout(timeout);
   }, [refreshSuccess]);
+
+  useEffect(() => {
+    if (!liveArtifactEvent) return;
+    if (
+      (liveArtifactEvent.kind !== 'live_artifact' && liveArtifactEvent.kind !== 'live_artifact_refresh') ||
+      liveArtifactEvent.projectId !== projectId ||
+      liveArtifactEvent.artifactId !== liveArtifact.artifactId
+    ) {
+      return;
+    }
+
+    if (liveArtifactEvent.kind === 'live_artifact') {
+      setRefreshError(null);
+      setRefreshSuccess(
+        liveArtifactEvent.action === 'created'
+          ? `Live artifact created: ${liveArtifactEvent.title}`
+          : `Live artifact updated: ${liveArtifactEvent.title}`,
+      );
+      void fetchLiveArtifact(projectId, liveArtifact.artifactId).then((next) => {
+        if (next) setDetail(next);
+      });
+      setReloadKey((n) => n + 1);
+      return;
+    }
+
+    if (liveArtifactEvent.phase === 'started') {
+      setRefreshing(true);
+      setRefreshError(null);
+      setRefreshSuccess(null);
+      return;
+    }
+
+    if (liveArtifactEvent.phase === 'failed') {
+      setRefreshing(false);
+      setRefreshError(liveArtifactEvent.error ?? t('liveArtifact.refresh.genericFailure'));
+      void fetchLiveArtifact(projectId, liveArtifact.artifactId).then((next) => {
+        if (next) setDetail(next);
+      });
+      return;
+    }
+
+    setRefreshing(false);
+    setRefreshError(null);
+    setRefreshSuccess(
+      liveArtifactEvent.refreshedTileCount === 1
+        ? t('liveArtifact.refresh.successOne')
+        : t('liveArtifact.refresh.successMany', { count: liveArtifactEvent.refreshedTileCount ?? 0 }),
+    );
+    void fetchLiveArtifact(projectId, liveArtifact.artifactId).then((next) => {
+      if (next) setDetail(next);
+    });
+    setReloadKey((n) => n + 1);
+  }, [liveArtifactEvent, liveArtifact.artifactId, projectId, t]);
 
   useEffect(() => {
     let cancelled = false;

@@ -103,6 +103,35 @@ const ARTIFACTS_DIR = path.join(RUNTIME_DATA_DIR, 'artifacts');
 const PROJECTS_DIR = path.join(RUNTIME_DATA_DIR, 'projects');
 fs.mkdirSync(PROJECTS_DIR, { recursive: true });
 
+const activeChatAgentEventSinks = new Map();
+
+function emitChatAgentEvent(runId, payload) {
+  const sink = activeChatAgentEventSinks.get(runId);
+  if (!sink) return false;
+  return sink(payload);
+}
+
+function emitLiveArtifactEvent(grant, action, artifact) {
+  if (!grant?.runId || !artifact?.id) return false;
+  return emitChatAgentEvent(grant.runId, {
+    type: 'live_artifact',
+    action,
+    projectId: artifact.projectId ?? grant.projectId,
+    artifactId: artifact.id,
+    title: artifact.title ?? artifact.id,
+    refreshStatus: artifact.refreshStatus,
+  });
+}
+
+function emitLiveArtifactRefreshEvent(grant, payload) {
+  if (!grant?.runId || !payload?.artifactId) return false;
+  return emitChatAgentEvent(grant.runId, {
+    type: 'live_artifact_refresh',
+    projectId: grant.projectId,
+    ...payload,
+  });
+}
+
 // Windows ENAMETOOLONG mitigation constants
 const CMD_BAT_RE = /\.(cmd|bat)$/i;
 const PROMPT_TEMP_FILE = () =>
@@ -1119,6 +1148,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
         provenanceJson,
         createdByRunId: toolGrant.runId,
       });
+      emitLiveArtifactEvent(toolGrant, 'created', record.artifact);
       res.json({ artifact: record.artifact });
     } catch (err) {
       sendLiveArtifactRouteError(res, err);
@@ -1168,6 +1198,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
         templateHtml,
         provenanceJson,
       });
+      emitLiveArtifactEvent(toolGrant, 'updated', record.artifact);
       res.json({ artifact: record.artifact });
     } catch (err) {
       sendLiveArtifactRouteError(res, err);
@@ -1188,10 +1219,28 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
         return sendApiError(res, 400, 'BAD_REQUEST', 'artifactId is required');
       }
 
-      const result = await refreshLiveArtifact({
-        projectsRoot: PROJECTS_DIR,
-        projectId: toolGrant.projectId,
+      emitLiveArtifactRefreshEvent(toolGrant, { phase: 'started', artifactId });
+      let result;
+      try {
+        result = await refreshLiveArtifact({
+          projectsRoot: PROJECTS_DIR,
+          projectId: toolGrant.projectId,
+          artifactId,
+        });
+      } catch (refreshErr) {
+        emitLiveArtifactRefreshEvent(toolGrant, {
+          phase: 'failed',
+          artifactId,
+          error: refreshErr instanceof Error ? refreshErr.message : String(refreshErr),
+        });
+        throw refreshErr;
+      }
+      emitLiveArtifactRefreshEvent(toolGrant, {
+        phase: 'succeeded',
         artifactId,
+        refreshId: result.refresh.id,
+        title: result.artifact.title,
+        refreshedTileCount: result.refresh.refreshedTileCount,
       });
       res.json(result);
     } catch (err) {
@@ -1590,6 +1639,14 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
 
     const sse = createSseResponse(res);
     const send = sse.send;
+    const unregisterChatAgentEventSink = () => {
+      activeChatAgentEventSinks.delete(runId);
+    };
+    if (toolTokenGrant?.runId) {
+      activeChatAgentEventSinks.set(toolTokenGrant.runId, (payload) => send('agent', payload));
+      res.on('close', unregisterChatAgentEventSink);
+      res.on('finish', unregisterChatAgentEventSink);
+    }
 
     // resolvedBin was already looked up above for the ENAMETOOLONG check.
     // If detection can't find the binary, surface a friendly SSE error
@@ -1599,6 +1656,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     if (!resolvedBin) {
       cleanPromptFile();
       revokeToolToken('child_exit');
+      unregisterChatAgentEventSink();
       send('error', createSseErrorPayload(
         'AGENT_UNAVAILABLE',
         `Agent "${def.name}" (\`${def.bin}\`) is not installed or not on PATH. ` +
@@ -1676,6 +1734,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     } catch (err) {
       cleanPromptFile();
       revokeToolToken('child_exit');
+      unregisterChatAgentEventSink();
       send('error', createSseErrorPayload('AGENT_EXECUTION_FAILED', `spawn failed: ${err.message}`));
       return sse.end();
     }
@@ -1723,11 +1782,13 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
 
     child.on('error', (err) => {
       revokeToolToken('child_exit');
+      unregisterChatAgentEventSink();
       send('error', createSseErrorPayload('AGENT_EXECUTION_FAILED', err.message));
       sse.end();
     });
     child.on('close', (code, signal) => {
       revokeToolToken('child_exit');
+      unregisterChatAgentEventSink();
       if (acpSession?.hasFatalError()) {
         return sse.end();
       }

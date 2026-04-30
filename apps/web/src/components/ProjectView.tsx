@@ -15,7 +15,7 @@ import { composeSystemPrompt } from '../prompts/system';
 import { navigate } from '../router';
 import { agentDisplayName } from '../utils/agentLabels';
 import type { TodoItem } from '../runtime/todos';
-import { isLiveArtifactTabId } from '../types';
+import { isLiveArtifactTabId, liveArtifactTabId } from '../types';
 import {
   createConversation,
   deleteConversation as deleteConversationApi,
@@ -103,6 +103,7 @@ export function ProjectView({
   const [filesRefresh, setFilesRefresh] = useState(0);
   const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
   const [liveArtifacts, setLiveArtifacts] = useState<LiveArtifactSummary[]>([]);
+  const [latestLiveArtifactEvent, setLatestLiveArtifactEvent] = useState<AgentEvent | null>(null);
   // The persisted set of open tabs + active tab. Persisted via PUT on every
   // change; loaded once when the project mounts.
   const [openTabsState, setOpenTabsState] = useState<OpenTabsState>({
@@ -423,6 +424,20 @@ export function ProjectView({
 
       const pushEvent = (ev: AgentEvent) => {
         updateAssistant((prev) => ({ ...prev, events: [...(prev.events ?? []), ev] }));
+        if (ev.kind === 'live_artifact') {
+          setLatestLiveArtifactEvent(ev);
+          void refreshLiveArtifacts().then(() => {
+            requestOpenFile(liveArtifactTabId(ev.artifactId));
+          });
+          onProjectsRefresh();
+          return;
+        }
+        if (ev.kind === 'live_artifact_refresh') {
+          setLatestLiveArtifactEvent(ev);
+          void refreshLiveArtifacts();
+          onProjectsRefresh();
+          return;
+        }
         // Track Write tool invocations so we can auto-open the destination
         // file the moment the agent finishes writing it. The file-creating
         // tools we care about: Write (new file), Edit (existing file —
@@ -565,6 +580,8 @@ export function ProjectView({
       project.id,
       projectFiles,
       refreshProjectFiles,
+      refreshLiveArtifacts,
+      requestOpenFile,
       persistMessage,
       onProjectsRefresh,
     ],
@@ -854,6 +871,7 @@ export function ProjectView({
           onExportAsPptx={handleExportAsPptx}
           streaming={streaming}
           openRequest={openRequest}
+          liveArtifactEvent={latestLiveArtifactEvent}
           tabsState={openTabsState}
           onTabsStateChange={persistTabsState}
         />
