@@ -1190,10 +1190,29 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     }
   });
 
+  // Preflight for the raw file route. Current artifact fetches are simple GETs
+  // (no preflight needed), but an explicit handler future-proofs the route if
+  // artifacts ever add custom request headers.
+  app.options('/api/projects/:id/raw/*', (req, res) => {
+    if (req.headers.origin === 'null') {
+      res.header('Access-Control-Allow-Origin', '*');
+      res.header('Access-Control-Allow-Methods', 'GET');
+      res.header('Access-Control-Allow-Headers', 'Content-Type');
+    }
+    res.sendStatus(204);
+  });
+
   app.get('/api/projects/:id/raw/*', async (req, res) => {
     try {
       const relPath = req.params[0];
       const file = await readProjectFile(PROJECTS_DIR, req.params.id, relPath);
+      // PreviewModal loads artifact HTML via srcdoc, giving the iframe Origin: "null".
+      // data: URIs, file://, and some sandboxed iframes also send null — all are
+      // local-only callers, so this is safe. Real cross-origin sites send a real
+      // origin and remain blocked by the browser's same-origin policy.
+      if (req.headers.origin === 'null') {
+        res.header('Access-Control-Allow-Origin', '*');
+      }
       res.type(file.mime).send(file.buffer);
     } catch (err) {
       const status = err && err.code === 'ENOENT' ? 404 : 400;
@@ -1963,9 +1982,149 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     design.runs.start(run, () => startChatRun(req.body || {}, run));
   });
 
-  // ---- API Proxy (SSE) for OpenAI-compatible endpoints ---------------------
+  // ---- API Proxy (SSE) for API-compatible endpoints ------------------------
   // Browser → daemon → external API. Avoids CORS issues with third-party
-  // providers (MiMo, DeepSeek, Groq, etc.).
+  // providers. This keeps BYOK setup zero-config for local users at the cost of
+  // one local streaming hop through the daemon.
+
+  const redactAuthTokens = (text) => text.replace(/Bearer [A-Za-z0-9_\-.+/=]+/g, 'Bearer [REDACTED]');
+
+  const validateExternalApiBaseUrl = (baseUrl) => {
+    let parsed;
+    try {
+      parsed = new URL(baseUrl.replace(/\/+$/, ''));
+    } catch {
+      return { error: 'Invalid baseUrl' };
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return { error: 'Only http/https allowed' };
+    }
+    if (
+      ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname) ||
+      parsed.hostname.startsWith('169.254.') ||
+      parsed.hostname.startsWith('10.') ||
+      /^192\.168\./.test(parsed.hostname) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(parsed.hostname)
+    ) {
+      return { error: 'Internal IPs blocked', forbidden: true };
+    }
+    return { parsed };
+  };
+
+  app.post('/api/proxy/anthropic/stream', async (req, res) => {
+    /** @type {Partial<ProxyStreamRequest>} */
+    const proxyBody = req.body || {};
+    const { baseUrl, apiKey, model, systemPrompt, messages } = proxyBody;
+    if (!baseUrl || !apiKey || !model) {
+      return sendApiError(res, 400, 'BAD_REQUEST', 'baseUrl, apiKey, and model are required');
+    }
+
+    const validated = validateExternalApiBaseUrl(baseUrl);
+    if (validated.error) {
+      return sendApiError(res, validated.forbidden ? 403 : 400, validated.forbidden ? 'FORBIDDEN' : 'BAD_REQUEST', validated.error);
+    }
+
+    const clean = baseUrl.replace(/\/+$/, '');
+    const url = /\/v\d+$/.test(clean) ? `${clean}/messages` : `${clean}/v1/messages`;
+    console.log(`[proxy:anthropic] ${req.method} ${validated.parsed.hostname} model=${model}`);
+
+    const payload = {
+      model,
+      max_tokens: 8192,
+      stream: true,
+      system: systemPrompt || '',
+      messages: Array.isArray(messages)
+        ? messages
+          .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+          .map((m) => ({ role: m.role, content: m.content }))
+        : [],
+    };
+
+    const sse = createSseResponse(res);
+    const send = sse.send;
+
+    let upstream;
+    try {
+      upstream = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (fetchErr) {
+      send('error', createSseErrorPayload('UPSTREAM_UNAVAILABLE', `fetch failed: ${fetchErr.message}`, { retryable: true }));
+      return sse.end();
+    }
+
+    if (!upstream.ok) {
+      const errText = await upstream.text().catch(() => '');
+      const safeErr = redactAuthTokens(errText.slice(0, 500));
+      console.error(`[proxy:anthropic] upstream ${upstream.status}: ${safeErr.slice(0, 200)}`);
+      send('error', createSseErrorPayload('UPSTREAM_UNAVAILABLE', `upstream ${upstream.status}: ${safeErr}`, { retryable: upstream.status >= 500 }));
+      return sse.end();
+    }
+
+    send('start', { model });
+
+    const reader = upstream.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+
+      let match;
+      while ((match = buf.match(/\r?\n\r?\n/)) && match.index != null) {
+        const frame = buf.slice(0, match.index);
+        buf = buf.slice(match.index + match[0].length);
+        const raw = frame
+          .split(/\r?\n/)
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trimStart())
+          .join('\n')
+          .trim();
+        if (!raw) continue;
+        if (raw === '[DONE]') {
+          send('end', {});
+          return sse.end();
+        }
+        try {
+          const chunk = JSON.parse(raw);
+          if (chunk.type === 'content_block_delta') {
+            const text = chunk.delta?.text ?? chunk.delta?.partial_json ?? '';
+            if (text) send('delta', { text });
+          } else if (chunk.type === 'message_delta') {
+            const text = chunk.delta?.text ?? '';
+            if (text) send('delta', { text });
+          } else if (chunk.type === 'message_stop') {
+            send('end', {});
+            return sse.end();
+          } else if (chunk.type === 'error') {
+            send('error', createSseErrorPayload('UPSTREAM_UNAVAILABLE', chunk.error?.message || 'upstream error', { retryable: false }));
+            return sse.end();
+          } else if (process.env.NODE_ENV === 'development') {
+            // Anthropic-compatible providers sometimes add vendor-specific
+            // events. Unknown non-text events are ignored but surfaced in dev
+            // logs to make provider compatibility issues easier to diagnose.
+            console.warn(`[proxy:anthropic] skipped upstream event type=${chunk.type || 'unknown'}`);
+          }
+        } catch {
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('[proxy:anthropic] skipped malformed upstream SSE frame');
+          }
+        }
+      }
+    }
+
+    send('end', {});
+    sse.end();
+  });
 
   app.post('/api/proxy/stream', async (req, res) => {
     /** @type {Partial<ProxyStreamRequest>} */
@@ -1976,23 +2135,9 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     }
 
     // Validate baseUrl — only allow http/https and block internal IPs (SSRF).
-    let parsed;
-    try {
-      parsed = new URL(baseUrl.replace(/\/+$/, ''));
-    } catch {
-      return sendApiError(res, 400, 'BAD_REQUEST', 'Invalid baseUrl');
-    }
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      return sendApiError(res, 400, 'BAD_REQUEST', 'Only http/https allowed');
-    }
-    if (
-      ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname) ||
-      parsed.hostname.startsWith('169.254.') ||
-      parsed.hostname.startsWith('10.') ||
-      /^192\.168\./.test(parsed.hostname) ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(parsed.hostname)
-    ) {
-      return sendApiError(res, 400, 'FORBIDDEN', 'Internal IPs blocked');
+    const validated = validateExternalApiBaseUrl(baseUrl);
+    if (validated.error) {
+      return sendApiError(res, validated.forbidden ? 403 : 400, validated.forbidden ? 'FORBIDDEN' : 'BAD_REQUEST', validated.error);
     }
 
     // Build the upstream URL. If the base URL already ends with /v1 (or
@@ -2008,7 +2153,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
 
     // Force MiMo to behave as a pure text generator (no tool calls)
     const isMiMo = model.toLowerCase().startsWith('mimo');
-    console.log(`[proxy] ${req.method} ${parsed.hostname} model=${model} miMo=${isMiMo}`);
+    console.log(`[proxy] ${req.method} ${validated.parsed.hostname} model=${model} miMo=${isMiMo}`);
 
     const payload = {
       model,
@@ -2042,7 +2187,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
 
     if (!upstream.ok) {
       const errText = await upstream.text().catch(() => '');
-      const safeErr = errText.slice(0, 500).replace(/Bearer [A-Za-z0-9_\-\.]+/g, 'Bearer [REDACTED]');
+      const safeErr = redactAuthTokens(errText.slice(0, 500));
       console.error(`[proxy] upstream ${upstream.status}: ${safeErr.slice(0, 200)}`);
       send('error', createSseErrorPayload('UPSTREAM_UNAVAILABLE', `upstream ${upstream.status}: ${safeErr}`, { retryable: upstream.status >= 500 }));
       return sse.end();

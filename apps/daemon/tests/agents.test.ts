@@ -5,6 +5,7 @@ import { AGENT_DEFS } from '../src/agents.js';
 
 const codex = AGENT_DEFS.find((agent) => agent.id === 'codex');
 const cursorAgent = AGENT_DEFS.find((agent) => agent.id === 'cursor-agent');
+const kiro = AGENT_DEFS.find((agent) => agent.id === 'kiro');
 const originalDisablePlugins = process.env.OD_CODEX_DISABLE_PLUGINS;
 
 afterEach(() => {
@@ -66,4 +67,21 @@ test('cursor-agent args deliver prompts via stdin without passing a literal dash
     '--workspace',
     '/tmp/od-project',
   ]);
+});
+
+test('kiro args use acp subcommand for json-rpc streaming', () => {
+  const args = kiro.buildArgs('', [], [], {});
+
+  assert.deepEqual(args, ['acp']);
+  assert.equal(kiro.streamFormat, 'acp-json-rpc');
+});
+
+test('kiro fetchModels falls back to fallbackModels when detection fails', async () => {
+  // fetchModels rejects when the binary doesn't exist; the daemon's
+  // probe() catches this and uses fallbackModels instead.
+  const result = await kiro.fetchModels('/nonexistent/kiro-cli').catch(() => null);
+
+  assert.equal(result, null);
+  assert.ok(Array.isArray(kiro.fallbackModels));
+  assert.equal(kiro.fallbackModels[0].id, 'default');
 });
