@@ -17,6 +17,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/nexu-io/open-design/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/nexu-io/open-design?style=flat-square&color=blueviolet&label=release&include_prereleases" /></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg?style=flat-square" /></a>
   <a href="#supported-coding-agents"><img alt="Agents" src="https://img.shields.io/badge/agents-10%20CLIs%20%2B%20BYOK%20proxy-black?style=flat-square" /></a>
   <a href="#design-systems"><img alt="Design systems" src="https://img.shields.io/badge/design%20systems-72-orange?style=flat-square" /></a>
@@ -51,7 +52,7 @@ OD stands on four open-source shoulders:
 |---|---|
 | **Coding-agent CLIs (11)** | Claude Code · Codex CLI · Cursor Agent · Gemini CLI · OpenCode · Qwen Code · GitHub Copilot CLI · Hermes (ACP) · Kimi CLI (ACP) · Pi (RPC) · Kiro CLI (ACP) — auto-detected on `PATH`, swap with one click |
 | **BYOK fallback** | OpenAI-compatible proxy at `/api/proxy/stream` — paste `baseUrl` + `apiKey` + `model` and any vendor (Anthropic-via-OpenAI, DeepSeek, Groq, MiMo, OpenRouter, your self-hosted vLLM, or any other OpenAI-compatible provider) becomes the engine. Internal-IP/SSRF blocked at the daemon edge. |
-| **Design systems built-in** | **72** — 2 hand-authored starters + 70 product systems (Linear, Stripe, Vercel, Airbnb, Tesla, Notion, Anthropic, Apple, Cursor, Supabase, Figma, Xiaohongshu, …) imported from [`awesome-design-md`][acd2] |
+| **Design systems built-in** | **129** — 2 hand-authored starters + 70 product systems (Linear, Stripe, Vercel, Airbnb, Tesla, Notion, Anthropic, Apple, Cursor, Supabase, Figma, Xiaohongshu, …) from [`awesome-design-md`][acd2], plus 57 design skills from [`awesome-design-skills`][ads] added directly under `design-systems/` |
 | **Skills built-in** | **31** — 27 in `prototype` mode (web-prototype, saas-landing, dashboard, mobile-app, gamified-app, social-carousel, magazine-poster, dating-web, sprite-animation, motion-frames, critique, tweaks, wireframe-sketch, pm-spec, eng-runbook, finance-report, hr-onboarding, invoice, kanban-board, team-okrs, …) + 4 in `deck` mode (`guizang-ppt` · `simple-deck` · `replit-deck` · `weekly-update`). Grouped in the picker by `scenario`: design / marketing / operation / engineering / product / finance / hr / sale / personal. |
 | **Visual directions** | 5 curated schools (Editorial Monocle · Modern Minimal · Warm Soft · Tech Utility · Brutalist Experimental) — each ships a deterministic OKLch palette + font stack ([`apps/web/src/prompts/directions.ts`](apps/web/src/prompts/directions.ts)) |
 | **Device frames** | iPhone 15 Pro · Pixel · iPad Pro · MacBook · Browser Chrome — pixel-accurate, shared across skills under [`assets/frames/`](assets/frames/) |
@@ -64,6 +65,7 @@ OD stands on four open-source shoulders:
 | **License** | Apache-2.0 |
 
 [acd2]: https://github.com/VoltAgent/awesome-design-md
+[ads]: https://github.com/bergside/awesome-design-skills
 
 ## Demo
 
@@ -223,7 +225,7 @@ Following Claude Code's [`SKILL.md` convention](https://docs.anthropic.com/en/do
 
 ### 3 · Design Systems are portable Markdown, not theme JSON.
 
-The 9-section `DESIGN.md` schema from [`VoltAgent/awesome-design-md`][acd2] — color, typography, spacing, layout, components, motion, voice, brand, anti-patterns. Every artifact reads from the active system. Switch system → next render uses the new tokens. The dropdown ships with **Linear, Stripe, Vercel, Airbnb, Tesla, Notion, Apple, Anthropic, Cursor, Supabase, Figma, Resend, Raycast, Lovable, Cohere, Mistral, ElevenLabs, X.AI, Spotify, Webflow, Sanity, PostHog, Sentry, MongoDB, ClickHouse, Cal, Replicate, Clay, Composio, Xiaohongshu…** — 72 in total.
+The 9-section `DESIGN.md` schema from [`VoltAgent/awesome-design-md`][acd2] — color, typography, spacing, layout, components, motion, voice, brand, anti-patterns. Every artifact reads from the active system. Switch system → next render uses the new tokens. The dropdown ships with **Linear, Stripe, Vercel, Airbnb, Tesla, Notion, Apple, Anthropic, Cursor, Supabase, Figma, Resend, Raycast, Lovable, Cohere, Mistral, ElevenLabs, X.AI, Spotify, Webflow, Sanity, PostHog, Sentry, MongoDB, ClickHouse, Cal, Replicate, Clay, Composio, Xiaohongshu…** — plus 57 design skills sourced from [`awesome-design-skills`][ads].
 
 ### 4 · The interactive question form prevents 80% of redirects.
 
@@ -467,7 +469,7 @@ open-design/
 
 </details>
 
-The library is imported via [`scripts/sync-design-systems.ts`](scripts/sync-design-systems.ts) from [`VoltAgent/awesome-design-md`][acd2]. Re-run to refresh.
+The product-system library is imported via [`scripts/sync-design-systems.ts`](scripts/sync-design-systems.ts) from [`VoltAgent/awesome-design-md`][acd2]. Re-run to refresh. The 57 design skills are sourced from [`bergside/awesome-design-skills`][ads] and added directly in `design-systems/`.
 
 ## Visual directions
 
@@ -516,7 +518,7 @@ The whole machinery below is the [`huashu-design`](https://github.com/alchaincyf
 | Deployable on Vercel | ❌ | ❌ | **✅** |
 | Agent runtime | Bundled (Opus 4.7) | Bundled ([`pi-ai`][piai]) | **Delegated to user's existing CLI** |
 | Skills | Proprietary | 12 custom TS modules + `SKILL.md` | **31 file-based [`SKILL.md`][skill] bundles, droppable** |
-| Design system | Proprietary | `DESIGN.md` (v0.2 roadmap) | **`DESIGN.md` × 72 systems shipped** |
+| Design system | Proprietary | `DESIGN.md` (v0.2 roadmap) | **`DESIGN.md` × 129 systems shipped** |
 | Provider flexibility | Anthropic only | 7+ via [`pi-ai`][piai] | **10 CLI adapters + OpenAI-compatible BYOK proxy** |
 | Init question form | ❌ | ❌ | **✅ Hard rule, turn 1** |
 | Direction picker | ❌ | ❌ | **✅ 5 deterministic directions** |
@@ -572,7 +574,8 @@ Every external project this repo borrows from. Each link goes to the source so y
 | [**`op7418/guizang-ppt-skill`**][guizang] | Magazine-web-PPT skill bundled verbatim under [`skills/guizang-ppt/`](skills/guizang-ppt/) with original LICENSE preserved. Default for deck mode. P0/P1/P2 checklist culture borrowed for every other skill. |
 | [**`multica-ai/multica`**](https://github.com/multica-ai/multica) | The daemon + adapter architecture. PATH-scan agent detection, local daemon as the only privileged process, agent-as-teammate worldview. We adopt the model; we do not vendor the code. |
 | [**`OpenCoworkAI/open-codesign`**][ocod] | The first open-source Claude-Design alternative and our closest peer. UX patterns adopted: streaming-artifact loop, sandboxed-iframe preview (vendored React 18 + Babel), live agent panel (todos + tool calls + interruptible), five-format export list (HTML/PDF/PPTX/ZIP/Markdown), local-first storage hub, `SKILL.md` taste-injection. UX patterns on our roadmap: comment-mode surgical edits, AI-emitted tweaks panel. **We deliberately do not vendor [`pi-ai`][piai]** — open-codesign bundles it as the agent runtime; we delegate to whichever CLI the user already has. |
-| [`VoltAgent/awesome-claude-design`][acd] / [`awesome-design-md`][acd2] | Source of the 9-section `DESIGN.md` schema and 69 product systems imported via [`scripts/sync-design-systems.ts`](scripts/sync-design-systems.ts). |
+| [`VoltAgent/awesome-claude-design`][acd] / [`awesome-design-md`][acd2] | Source of the 9-section `DESIGN.md` schema and 70 product systems imported via [`scripts/sync-design-systems.ts`](scripts/sync-design-systems.ts). |
+| [`bergside/awesome-design-skills`][ads] | Source of 57 design skills added directly as normalized `DESIGN.md` files under `design-systems/`. |
 | [`farion1231/cc-switch`](https://github.com/farion1231/cc-switch) | Inspiration for symlink-based skill distribution across multiple agent CLIs. |
 | [Claude Code skills][skill] | The `SKILL.md` convention adopted verbatim — any Claude Code skill drops into `skills/` and is picked up by the daemon. |
 
