@@ -81,6 +81,47 @@ describe('ai-default-indigo', () => {
     const findings = lintArtifact(html);
     expect(findings.find((f) => f.id === 'ai-default-indigo')).toBeUndefined();
   });
+
+  it('does not flag indigo declared in a selector list containing :root', () => {
+    // Theme CSS often pairs `:root` with an attribute selector via a
+    // selector list so the same tokens apply to both default and
+    // light-themed roots. Whichever side comes first, the block is a
+    // token definition and must not fire P0.
+    const html = `
+      <style>
+        :root, [data-theme="light"] { --accent: #6366f1; --bg: #ffffff; }
+        .cta { background: var(--accent); color: white; }
+      </style>
+    `;
+    const findings = lintArtifact(html);
+    expect(findings.find((f) => f.id === 'ai-default-indigo')).toBeUndefined();
+  });
+
+  it('does not flag indigo declared in a selector list with :root second', () => {
+    const html = `
+      <style>
+        [data-theme="light"], :root { --accent: #6366f1; }
+        .cta { background: var(--accent); color: white; }
+      </style>
+    `;
+    const findings = lintArtifact(html);
+    expect(findings.find((f) => f.id === 'ai-default-indigo')).toBeUndefined();
+  });
+
+  it('does not flag indigo declared in a custom-property-only theme block without :root', () => {
+    // Theme-variant blocks that omit `:root` entirely (e.g. only
+    // `[data-theme="dark"]`) are still token definitions when their
+    // body is custom-property-only; treat them the same way.
+    const html = `
+      <style>
+        [data-theme="dark"] { --accent: #6366f1; --bg: #0b0b10; }
+        .cta { background: var(--accent); color: white; }
+      </style>
+    `;
+    const findings = lintArtifact(html);
+    expect(findings.find((f) => f.id === 'ai-default-indigo')).toBeUndefined();
+  });
+
 });
 
 describe('all-caps-no-tracking', () => {

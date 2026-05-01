@@ -128,15 +128,14 @@ export function lintArtifact(rawHtml) {
   // Even outside a gradient, a single use of #6366f1 et al. is the
   // textbook LLM tell. We only fire if the existing purple-gradient
   // check didn't already, since they overlap in spirit. Strip
-  // :root token-definition blocks first: a brief whose accent is
-  // intentionally indigo declares it as `--accent: #6366f1` in
-  // :root and uses var(--accent) downstream — that is the design
-  // system speaking, not the model defaulting, and must not fire.
+  // token-definition blocks first: a brief whose accent is
+  // intentionally indigo declares it as `--accent: #6366f1` inside
+  // a selector list containing `:root` (or any selector whose body
+  // is custom-property-only — common for theme-variant blocks) and
+  // uses var(--accent) downstream. That is the design system
+  // speaking, not the model defaulting, and must not fire.
   if (out.find((f) => f.id === 'purple-gradient') === undefined) {
-    const htmlForIndigo = html.replace(
-      /:root(?:\[[^\]]*\])?\s*\{[^}]*\}/gi,
-      '',
-    );
+    const htmlForIndigo = stripTokenBlocks(html);
     for (const hex of AI_DEFAULT_INDIGO) {
       const re = new RegExp(escapeRe(hex), 'i');
       const m = re.exec(htmlForIndigo);
@@ -448,4 +447,33 @@ function clip(s) {
 
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Remove CSS rule blocks that look like design-token definitions:
+//   1. selector list contains `:root` (with optional attribute selector)
+//      — covers `:root { ... }`, `:root[data-theme="dark"] { ... }`, and
+//      lists like `:root, [data-theme="light"] { ... }`.
+//   2. body declares only CSS custom properties (`--name: value`),
+//      regardless of selector — covers theme-variant blocks like
+//      `[data-theme="dark"] { --accent: ... }` that omit `:root`.
+// Real component rules (any declaration that isn't a custom property)
+// are preserved verbatim so hardcoded indigo still trips the lint.
+function stripTokenBlocks(input) {
+  return input.replace(/([^{}]*)\{([^}]*)\}/g, (full, selector, body) => {
+    if (selectorListContainsRoot(selector || '')) return '';
+    const decls = (body || '')
+      .split(';')
+      .map((d) => d.trim())
+      .filter(Boolean);
+    if (decls.length > 0 && decls.every((d) => /^--[\w-]+\s*:/.test(d))) {
+      return '';
+    }
+    return full;
+  });
+}
+
+function selectorListContainsRoot(selector) {
+  return selector
+    .split(',')
+    .some((s) => /^\s*:root(?:\[[^\]]*\])?\s*$/.test(s));
 }

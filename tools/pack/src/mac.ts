@@ -269,6 +269,9 @@ async function copyResourceTree(config: ToolPackConfig, paths: MacPaths): Promis
   await cp(join(config.workspaceRoot, "design-systems"), join(paths.resourceRoot, "design-systems"), {
     recursive: true,
   });
+  await cp(join(config.workspaceRoot, "craft"), join(paths.resourceRoot, "craft"), {
+    recursive: true,
+  });
   await cp(join(config.workspaceRoot, "assets", "frames"), join(paths.resourceRoot, "frames"), {
     recursive: true,
   });
