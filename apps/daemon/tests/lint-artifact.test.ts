@@ -658,4 +658,69 @@ describe('all-caps-no-tracking', () => {
     const findings = lintArtifact(html);
     expect(findings.find((f) => f.id === 'all-caps-no-tracking')).toBeUndefined();
   });
+
+  it('passes uppercase rule whose letter-spacing dereferences a compliant :root token', () => {
+    // Regression: the tracking helper used to recognise only literal
+    // numeric values, so a tokenized rule — exactly the pattern the
+    // craft prompt steers artifacts toward — was wrongly reported as
+    // `all-caps-no-tracking`. The helper now resolves `var(--name)` to
+    // its `:root` definition and judges the literal value against the
+    // 0.06em floor.
+    const html = `
+      <style>
+        :root { --caps-tracking: 0.08em; }
+        .eyebrow { text-transform: uppercase; letter-spacing: var(--caps-tracking); }
+      </style>
+      <span class="eyebrow">New</span>
+    `;
+    const findings = lintArtifact(html);
+    expect(findings.find((f) => f.id === 'all-caps-no-tracking')).toBeUndefined();
+  });
+
+  it('flags uppercase rule whose letter-spacing dereferences a noncompliant :root token', () => {
+    // The token-resolution path must not blanket-pass `var()` refs:
+    // a token defined below the 0.06em floor still trips the lint.
+    const html = `
+      <style>
+        :root { --caps-tracking: 0.02em; }
+        .eyebrow { text-transform: uppercase; letter-spacing: var(--caps-tracking); }
+      </style>
+      <span class="eyebrow">New</span>
+    `;
+    const findings = lintArtifact(html);
+    expect(findings.find((f) => f.id === 'all-caps-no-tracking')).toBeDefined();
+  });
+
+  it('flags uppercase rule whose letter-spacing var() has no matching :root definition', () => {
+    // Unresolved references stay in place; the existing "no numeric
+    // letter-spacing" path then reports the rule as missing tracking.
+    const html = `
+      <style>
+        .eyebrow { text-transform: uppercase; letter-spacing: var(--caps-tracking); }
+      </style>
+      <span class="eyebrow">New</span>
+    `;
+    const findings = lintArtifact(html);
+    expect(findings.find((f) => f.id === 'all-caps-no-tracking')).toBeDefined();
+  });
+
+  it('passes uppercase rule whose letter-spacing var() has a compliant fallback', () => {
+    const html = `
+      <style>
+        .eyebrow { text-transform: uppercase; letter-spacing: var(--caps-tracking, 0.08em); }
+      </style>
+      <span class="eyebrow">New</span>
+    `;
+    const findings = lintArtifact(html);
+    expect(findings.find((f) => f.id === 'all-caps-no-tracking')).toBeUndefined();
+  });
+
+  it('passes inline uppercase whose letter-spacing dereferences a compliant :root token', () => {
+    const html = `
+      <style>:root { --caps-tracking: 0.08em; }</style>
+      <span style="text-transform: uppercase; letter-spacing: var(--caps-tracking)">NEW</span>
+    `;
+    const findings = lintArtifact(html);
+    expect(findings.find((f) => f.id === 'all-caps-no-tracking')).toBeUndefined();
+  });
 });

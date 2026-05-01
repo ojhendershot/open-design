@@ -259,6 +259,11 @@ export function lintArtifact(rawHtml) {
   // a reset block followed by a tokens/components block) and scan
   // each CSS body for an uppercase declaration whose selector body
   // is missing letter-spacing or sets it visibly too low.
+  // Token-aware tracking: collect `--name: value` declarations from
+  // global theme scopes once, then pass them to the tracking helper
+  // so a rule like `letter-spacing: var(--caps-tracking)` is judged
+  // by the token's literal value instead of being treated as missing.
+  const cssTokens = extractCssTokens(html);
   outer: for (const styleBlock of html.matchAll(
     /<style[^>]*>([\s\S]*?)<\/style>/gi,
   )) {
@@ -275,7 +280,7 @@ export function lintArtifact(rawHtml) {
     while ((m = upperRe.exec(css)) !== null) {
       const selector = (m[1] ?? '').trim();
       const body = m[2] ?? '';
-      if (!hasAdequateUppercaseTracking(body)) {
+      if (!hasAdequateUppercaseTracking(body, cssTokens)) {
         out.push({
           severity: 'P1',
           id: 'all-caps-no-tracking',
@@ -303,7 +308,7 @@ export function lintArtifact(rawHtml) {
     while ((im = inlineStyleRe.exec(html)) !== null) {
       const decl = im[2] ?? '';
       if (!/text-transform\s*:\s*uppercase/i.test(decl)) continue;
-      if (!hasAdequateUppercaseTracking(decl)) {
+      if (!hasAdequateUppercaseTracking(decl, cssTokens)) {
         out.push({
           severity: 'P1',
           id: 'all-caps-no-tracking',
@@ -503,21 +508,89 @@ function escapeRe(s) {
 //      the typical body-text default of 16px (1px / 16px ≈ 0.0625em,
 //      just over the floor) and for any smaller label (1px / 14px ≈
 //      0.071em, 1px / 12px ≈ 0.083em).
+//
+// `tokens` (optional) is a map of CSS custom properties harvested from
+// global theme scopes elsewhere in the artifact. When provided, simple
+// `var(--name)` (and `var(--name, fallback)`) references in the body
+// are expanded to their literal token values before the regexes run,
+// so a tokenized rule such as `letter-spacing: var(--caps-tracking)`
+// with `:root { --caps-tracking: 0.08em }` is judged by 0.08em rather
+// than reported as missing tracking. References without a matching
+// token but with an inline fallback (`var(--x, 0.08em)`) resolve to
+// the fallback; unresolved references with no fallback stay in place
+// so the existing "no numeric value" path returns false.
 const ROOT_FONT_PX = 16;
-function hasAdequateUppercaseTracking(body) {
+function hasAdequateUppercaseTracking(body, tokens) {
+  const resolved = tokens ? resolveCssVars(body, tokens) : body;
   const lsMatch =
-    /letter-spacing\s*:\s*(-?\d*\.?\d+)\s*(em|px|rem)/i.exec(body);
+    /letter-spacing\s*:\s*(-?\d*\.?\d+)\s*(em|px|rem)/i.exec(resolved);
   if (!lsMatch) return false;
   const v = parseFloat(lsMatch[1]);
   const unit = lsMatch[2].toLowerCase();
   if (unit === 'em') return v >= 0.06;
   const trackingPx = unit === 'rem' ? v * ROOT_FONT_PX : v;
-  const fsMatch = /font-size\s*:\s*(-?\d*\.?\d+)\s*px/i.exec(body);
+  const fsMatch = /font-size\s*:\s*(-?\d*\.?\d+)\s*px/i.exec(resolved);
   if (fsMatch) {
     const fs = parseFloat(fsMatch[1]);
     return fs > 0 && trackingPx >= fs * 0.06;
   }
   return trackingPx >= 1;
+}
+
+// Collect CSS custom properties (`--name: value`) declared in global
+// theme scopes (`:root`, `html`, theme-attribute selectors) from every
+// `<style>` block in the artifact. Tokens declared on component
+// selectors are intentionally ignored: the lint must still catch
+// indigo / under-tracking laundered through a local var, and the
+// tracking helper resolves only the global-scope tokens artifacts use
+// to express design intent. Last-write-wins when the same name is
+// declared in multiple scopes — the canonical artifact pattern is a
+// single :root block per token, so collisions are rare and the rule
+// stays a conservative lint signal regardless.
+function extractCssTokens(html) {
+  const tokens = new Map();
+  for (const styleBlock of html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)) {
+    const css = (styleBlock[1] ?? '').replace(/\/\*[\s\S]*?\*\//g, '');
+    const ruleRe = /([^{}]*)\{([^{}]*)\}/g;
+    let m;
+    while ((m = ruleRe.exec(css)) !== null) {
+      const sel = (m[1] ?? '').trim();
+      if (!selectorListIsGlobalThemeScope(sel)) continue;
+      const body = m[2] ?? '';
+      for (const decl of body.split(';').map((d) => d.trim()).filter(Boolean)) {
+        const dm = /^(--[\w-]+)\s*:\s*(.+)$/.exec(decl);
+        if (dm) tokens.set(dm[1], dm[2].trim());
+      }
+    }
+  }
+  return tokens;
+}
+
+// Replace simple `var(--name)` (and `var(--name, fallback)`) references
+// in a CSS declaration body with the literal token value. Iterates a
+// few times so a token whose value is itself another `var(--...)`
+// resolves through one or two hops; bounded depth so a cyclic
+// definition (`--a: var(--b); --b: var(--a)`) terminates instead of
+// looping forever. Only one-level fallbacks are recognised — enough
+// for the typography pattern this lint cares about, and keeps the
+// regex linear-time on artifact-sized inputs.
+const VAR_RESOLVE_MAX_DEPTH = 4;
+function resolveCssVars(body, tokens) {
+  let out = body;
+  for (let i = 0; i < VAR_RESOLVE_MAX_DEPTH; i++) {
+    const next = out.replace(
+      /var\(\s*(--[\w-]+)\s*(?:,\s*([^()]*))?\)/g,
+      (full, name, fallback) => {
+        const v = tokens.get(name);
+        if (v != null) return v;
+        if (fallback != null) return fallback.trim();
+        return full;
+      },
+    );
+    if (next === out) break;
+    out = next;
+  }
+  return out;
 }
 
 // Remove CSS rule blocks that look like design-token definitions.
