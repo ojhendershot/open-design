@@ -1,18 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { artifactRendererRegistry } from '../artifacts/renderer-registry';
+import { MarkdownRenderer, artifactRendererRegistry } from '../artifacts/renderer-registry';
+import { renderMarkdownToSafeHtml } from '../artifacts/markdown';
 import { useT } from '../i18n';
 import type { Dict } from '../i18n/types';
 import {
+  checkDeploymentLink,
+  deployProjectFile,
+  fetchDeployConfig,
+  fetchProjectDeployments,
   fetchProjectFilePreview,
   fetchProjectFileText,
   projectFileUrl,
   projectRawUrl,
+  updateDeployConfig,
 } from '../providers/registry';
 import type { ProjectFilePreview } from '../providers/registry';
 import { exportAsHtml, exportAsPdf, exportAsZip } from '../runtime/exports';
 import { buildSrcdoc } from '../runtime/srcdoc';
 import { saveTemplate } from '../state/projects';
-import type { ProjectFile } from '../types';
+import type { DeployConfigResponse, DeployProjectFileResponse, ProjectFile } from '../types';
 import { Icon } from './Icon';
 
 type TranslateFn = (key: keyof Dict, vars?: Record<string, string | number>) => string;
@@ -54,8 +60,20 @@ export function FileViewer({
       />
     );
   }
+  if (rendererMatch?.renderer.id === 'markdown') {
+    return <MarkdownViewer projectId={projectId} file={file} />;
+  }
+  if (rendererMatch?.renderer.id === 'svg') {
+    return <SvgViewer projectId={projectId} file={file} />;
+  }
   if (file.kind === 'image') {
     return <ImageViewer projectId={projectId} file={file} />;
+  }
+  if (file.kind === 'video') {
+    return <VideoViewer projectId={projectId} file={file} />;
+  }
+  if (file.kind === 'audio') {
+    return <AudioViewer projectId={projectId} file={file} />;
   }
   if (file.kind === 'sketch') {
     return <ImageViewer projectId={projectId} file={file} />;
@@ -207,6 +225,7 @@ function HtmlViewer({
   const t = useT();
   const [mode, setMode] = useState<'preview' | 'source'>('preview');
   const [source, setSource] = useState<string | null>(liveHtml ?? null);
+  const [inlinedSource, setInlinedSource] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100);
   const [presentMenuOpen, setPresentMenuOpen] = useState(false);
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
@@ -214,6 +233,18 @@ function HtmlViewer({
   // menu so the user gets feedback without a noisy toast layer.
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [templateNote, setTemplateNote] = useState<string | null>(null);
+  const [deployment, setDeployment] = useState<DeployProjectFileResponse | null>(null);
+  const [deployModalOpen, setDeployModalOpen] = useState(false);
+  const [deployConfig, setDeployConfig] = useState<DeployConfigResponse | null>(null);
+  const [deploying, setDeploying] = useState(false);
+  const [deployPhase, setDeployPhase] = useState<'idle' | 'deploying' | 'preparing-link'>('idle');
+  const [savingDeployConfig, setSavingDeployConfig] = useState(false);
+  const [deployError, setDeployError] = useState<string | null>(null);
+  const [deployResult, setDeployResult] = useState<DeployProjectFileResponse | null>(null);
+  const [copiedDeployLink, setCopiedDeployLink] = useState(false);
+  const [vercelToken, setVercelToken] = useState('');
+  const [teamId, setTeamId] = useState('');
+  const [teamSlug, setTeamSlug] = useState('');
   const [inTabPresent, setInTabPresent] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const previewStateKey = `${projectId}:${file.name}`;
@@ -242,6 +273,25 @@ function HtmlViewer({
     };
   }, [projectId, file.name, file.mtime, liveHtml, reloadKey]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setDeployResult(null);
+    setDeployError(null);
+    setCopiedDeployLink(false);
+    setDeployPhase('idle');
+    void fetchProjectDeployments(projectId).then((items) => {
+      if (cancelled) return;
+      const current = items.find(
+        (item) => item.fileName === file.name && item.providerId === 'vercel-self',
+      );
+      setDeployment(current ?? null);
+      setDeployResult(current ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, file.name]);
+
   // Detect deck-shaped HTML even when the project's skill didn't declare
   // `mode: deck`. Freeform projects often produce a deck because the user
   // asked for one in plain prose; without this, prev/next and Present
@@ -251,14 +301,27 @@ function HtmlViewer({
     return /class\s*=\s*['"][^'"]*\bslide\b/i.test(source);
   }, [source]);
   const effectiveDeck = isDeck || looksLikeDeck;
+  const previewSource = inlinedSource ?? source;
+
+  useEffect(() => {
+    setInlinedSource(null);
+    if (!source || effectiveDeck || !hasRelativeAssetRefs(source)) return;
+    let cancelled = false;
+    void inlineRelativeAssets(source, projectId, file.name).then((next) => {
+      if (!cancelled) setInlinedSource(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [source, effectiveDeck, projectId, file.name]);
 
   const srcDoc = useMemo(
-    () => (source ? buildSrcdoc(source, {
+    () => (previewSource ? buildSrcdoc(previewSource, {
       deck: effectiveDeck,
       baseHref: projectRawUrl(projectId, baseDirFor(file.name)),
       initialSlideIndex: htmlPreviewSlideState.get(previewStateKey)?.active ?? 0,
     }) : ''),
-    [source, effectiveDeck, projectId, file.name, previewStateKey],
+    [previewSource, effectiveDeck, projectId, file.name, previewStateKey],
   );
 
   useEffect(() => {
@@ -404,6 +467,119 @@ function HtmlViewer({
     }
   }
 
+  async function openDeployModal() {
+    setShareMenuOpen(false);
+    setDeployModalOpen(true);
+    setDeployError(null);
+    setCopiedDeployLink(false);
+    setDeployPhase('idle');
+    const [config, deployments] = await Promise.all([
+      fetchDeployConfig(),
+      fetchProjectDeployments(projectId),
+    ]);
+    if (config) {
+      setDeployConfig(config);
+      setVercelToken(config.tokenMask || '');
+      setTeamId(config.teamId || '');
+      setTeamSlug(config.teamSlug || '');
+    }
+    const current = deployments.find(
+      (item) => item.fileName === file.name && item.providerId === 'vercel-self',
+    );
+    setDeployment(current ?? null);
+    setDeployResult(current ?? null);
+  }
+
+  async function saveDeployConfig() {
+    setSavingDeployConfig(true);
+    setDeployError(null);
+    try {
+      const config = await updateDeployConfig({
+        token: vercelToken,
+        teamId,
+        teamSlug,
+      });
+      if (!config) throw new Error(t('fileViewer.deployConfigSaveFailed'));
+      setDeployConfig(config);
+      setVercelToken(config.tokenMask || '');
+      setTeamId(config.teamId || '');
+      setTeamSlug(config.teamSlug || '');
+      return config;
+    } catch (err) {
+      setDeployError(err instanceof Error ? err.message : t('fileViewer.deployConfigSaveFailed'));
+      return null;
+    } finally {
+      setSavingDeployConfig(false);
+    }
+  }
+
+  async function deployToVercel() {
+    setDeploying(true);
+    setDeployPhase('deploying');
+    setDeployError(null);
+    setCopiedDeployLink(false);
+    try {
+      const typedToken = vercelToken.trim();
+      const hasNewToken = typedToken && typedToken !== deployConfig?.tokenMask;
+      const needsConfigSave =
+        hasNewToken ||
+        teamId.trim() !== (deployConfig?.teamId || '') ||
+        teamSlug.trim() !== (deployConfig?.teamSlug || '') ||
+        !deployConfig?.configured;
+      if (needsConfigSave) {
+        const nextConfig = await saveDeployConfig();
+        if (!nextConfig?.configured) {
+          throw new Error(t('fileViewer.vercelTokenRequired'));
+        }
+      }
+      setDeployPhase('preparing-link');
+      const next = await deployProjectFile(projectId, file.name);
+      setDeployment(next);
+      setDeployResult(next);
+    } catch (err) {
+      setDeployError(err instanceof Error ? err.message : t('fileViewer.deployFailed'));
+    } finally {
+      setDeploying(false);
+      setDeployPhase('idle');
+    }
+  }
+
+  async function retryDeploymentLink() {
+    const current = deployResult || deployment;
+    if (!current?.id) return;
+    setDeployError(null);
+    setDeployPhase('preparing-link');
+    try {
+      const next = await checkDeploymentLink(projectId, current.id);
+      setDeployment(next);
+      setDeployResult(next);
+    } catch (err) {
+      setDeployError(err instanceof Error ? err.message : t('fileViewer.deployFailed'));
+    } finally {
+      setDeployPhase('idle');
+    }
+  }
+
+  async function copyDeployLink(url: string) {
+    const safeUrl = url.trim();
+    if (!safeUrl) return;
+    try {
+      await navigator.clipboard.writeText(safeUrl);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = safeUrl;
+      textarea.setAttribute('readonly', 'true');
+      textarea.style.position = 'fixed';
+      textarea.style.top = '-1000px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+    setCopiedDeployLink(true);
+    window.setTimeout(() => setCopiedDeployLink(false), 1800);
+  }
+
   function presentInThisTab() {
     setPresentMenuOpen(false);
     setInTabPresent(true);
@@ -433,6 +609,15 @@ function HtmlViewer({
   const exportTitle = file.name.replace(/\.html?$/i, '') || file.name;
   const canPptx = canShare && Boolean(onExportAsPptx) && !streaming;
   const previewScale = zoom / 100;
+  const activeDeployment = deployResult || deployment;
+  const activeDeployedUrl = activeDeployment?.url?.trim() || '';
+  const activeDeploymentReady = activeDeployment?.status === 'ready';
+  const activeDeploymentDelayed = activeDeployment?.status === 'link-delayed';
+  const activeDeploymentProtected = activeDeployment?.status === 'protected';
+  const activeDeploymentNeedsRetry = activeDeploymentDelayed || activeDeploymentProtected;
+  const copyDeployLabel = copiedDeployLink
+    ? t('fileViewer.copied')
+    : t('fileViewer.copyDeployLink');
 
   return (
     <div className="viewer html-viewer">
@@ -695,6 +880,37 @@ function HtmlViewer({
                           : t('fileViewer.saveAsTemplate')}
                     </span>
                   </button>
+                  <div className="share-menu-divider" />
+                  <button
+                    type="button"
+                    className="share-menu-item"
+                    role="menuitem"
+                    onClick={() => {
+                      void openDeployModal();
+                    }}
+                  >
+                    <span className="share-menu-icon"><Icon name="upload" size={14} /></span>
+                    <span>
+                      {activeDeployedUrl
+                        ? t('fileViewer.redeployToVercel')
+                        : t('fileViewer.deployToVercel')}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="share-menu-item"
+                    role="menuitem"
+                    disabled={!activeDeployedUrl}
+                    onClick={() => {
+                      setShareMenuOpen(false);
+                      void copyDeployLink(activeDeployedUrl);
+                    }}
+                  >
+                    <span className="share-menu-icon"><Icon name="copy" size={14} /></span>
+                    <span>
+                      {copyDeployLabel}
+                    </span>
+                  </button>
                 </div>
               ) : null}
             </div>
@@ -741,6 +957,155 @@ function HtmlViewer({
           <iframe title="present" sandbox="allow-scripts" srcDoc={srcDoc} />
         </div>
       ) : null}
+      {deployModalOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal deploy-modal" role="dialog" aria-modal="true">
+            <div className="modal-head">
+              <div className="kicker">VERCEL</div>
+              <h2>{t('fileViewer.deployModalTitle')}</h2>
+              <p className="subtitle">{t('fileViewer.deployModalSubtitle')}</p>
+            </div>
+            <div className="deploy-form">
+              <div className="field-label-row">
+                <label htmlFor="vercel-token">{t('fileViewer.vercelToken')}</label>
+                <a
+                  href="https://vercel.com/account/settings/tokens"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                >
+                  {t('fileViewer.vercelTokenGetLink')}
+                </a>
+              </div>
+              <input
+                id="vercel-token"
+                type="password"
+                value={vercelToken}
+                placeholder={t('fileViewer.vercelTokenPlaceholder')}
+                onChange={(e) => setVercelToken(e.target.value)}
+              />
+              <div className="deploy-config-actions">
+                <button
+                  type="button"
+                  className="ghost-link button-like"
+                  disabled={savingDeployConfig}
+                  onClick={() => {
+                    void saveDeployConfig();
+                  }}
+                >
+                  {savingDeployConfig ? t('fileViewer.savingConfig') : t('fileViewer.save')}
+                </button>
+              </div>
+              {deployConfig?.configured ? (
+                <p className="hint">{t('fileViewer.vercelTokenReuseHint')}</p>
+              ) : null}
+              <div className="deploy-field-grid">
+                <label>
+                  <span>{t('fileViewer.vercelTeamId')}</span>
+                  <input
+                    value={teamId}
+                    placeholder={t('fileViewer.optional')}
+                    onChange={(e) => setTeamId(e.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>{t('fileViewer.vercelTeamSlug')}</span>
+                  <input
+                    value={teamSlug}
+                    placeholder={t('fileViewer.optional')}
+                    onChange={(e) => setTeamSlug(e.target.value)}
+                  />
+                </label>
+              </div>
+              <p className="hint">{t('fileViewer.vercelPreviewOnly')}</p>
+              {deployError ? <p className="deploy-error">{deployError}</p> : null}
+              {activeDeployedUrl ? (
+                <div
+                  className={`deploy-result ${
+                    activeDeploymentProtected ? 'protected' : activeDeploymentDelayed ? 'delayed' : 'ready'
+                  }`}
+                >
+                  <div className="deploy-result-label">
+                    {activeDeploymentProtected
+                      ? t('fileViewer.deployLinkProtectedLabel')
+                      : activeDeploymentDelayed
+                      ? t('fileViewer.deployLinkPreparingLabel')
+                      : t('fileViewer.deployResultLabel')}
+                  </div>
+                  {activeDeploymentNeedsRetry ? (
+                    <p className="deploy-result-message">
+                      {activeDeploymentProtected
+                        ? t('fileViewer.deployLinkProtected')
+                        : t('fileViewer.deployLinkDelayed')}
+                    </p>
+                  ) : null}
+                  <a href={activeDeployedUrl} target="_blank" rel="noreferrer noopener">
+                    {activeDeployedUrl}
+                  </a>
+                  <div className="deploy-result-actions">
+                    {activeDeploymentNeedsRetry ? (
+                      <button
+                        type="button"
+                        className="viewer-action"
+                        disabled={deployPhase === 'preparing-link'}
+                        onClick={() => {
+                          void retryDeploymentLink();
+                        }}
+                      >
+                        {deployPhase === 'preparing-link'
+                          ? t('fileViewer.preparingPublicLink')
+                          : t('fileViewer.retryLink')}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="viewer-action"
+                      onClick={() => {
+                        void copyDeployLink(activeDeployedUrl);
+                      }}
+                    >
+                      <Icon name="copy" size={14} />
+                      <span>{copyDeployLabel}</span>
+                    </button>
+                    <a
+                      className={`ghost-link ${activeDeploymentReady ? '' : 'disabled'}`}
+                      href={activeDeploymentReady ? activeDeployedUrl : undefined}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      aria-disabled={!activeDeploymentReady}
+                    >
+                      <Icon name="upload" size={14} />
+                      {t('fileViewer.open')}
+                    </a>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <div className="modal-foot">
+              <button
+                type="button"
+                className="ghost-link button-like"
+                onClick={() => setDeployModalOpen(false)}
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                className="viewer-action primary"
+                disabled={deploying || savingDeployConfig || deployPhase !== 'idle'}
+                onClick={() => {
+                  void deployToVercel();
+                }}
+              >
+                {deployPhase === 'deploying'
+                  ? t('fileViewer.deployingToVercel')
+                  : deployPhase === 'preparing-link'
+                    ? t('fileViewer.preparingPublicLink')
+                    : t('fileViewer.deployToVercel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -748,6 +1113,109 @@ function HtmlViewer({
 function baseDirFor(fileName: string): string {
   const idx = fileName.lastIndexOf('/');
   return idx >= 0 ? fileName.slice(0, idx + 1) : '';
+}
+
+function hasRelativeAssetRefs(html: string): boolean {
+  const attr = /\s(?:src|href)\s*=\s*["']([^"']+)["']/gi;
+  let match: RegExpExecArray | null;
+  while ((match = attr.exec(html)) !== null) {
+    const value = match[1]?.trim();
+    if (!value) continue;
+    if (/^(?:https?:|data:|blob:|mailto:|tel:|#|\/)/i.test(value)) continue;
+    return true;
+  }
+  return false;
+}
+
+async function inlineRelativeAssets(
+  html: string,
+  projectId: string,
+  fileName: string,
+): Promise<string> {
+  const replacements: Array<Promise<{ from: string; to: string } | null>> = [];
+  const links = html.match(/<link\b[^>]*>/gi) ?? [];
+  for (const tag of links) {
+    const rel = readHtmlAttr(tag, 'rel');
+    const href = readHtmlAttr(tag, 'href');
+    if (!rel || !/\bstylesheet\b/i.test(rel) || !href) continue;
+    replacements.push(
+      fetchProjectRelativeText(projectId, fileName, href).then((css) =>
+        css == null
+          ? null
+          : {
+              from: tag,
+              to:
+                `<style data-od-inline-asset="${escapeHtmlAttr(href)}">\n` +
+                `${css.replace(/<\/style/gi, '<\\/style')}\n</style>`,
+            },
+      ),
+    );
+  }
+
+  const scripts = html.match(/<script\b[^>]*\bsrc\s*=\s*["'][^"']+["'][^>]*>\s*<\/script>/gi) ?? [];
+  for (const tag of scripts) {
+    const src = readHtmlAttr(tag, 'src');
+    if (!src) continue;
+    replacements.push(
+      fetchProjectRelativeText(projectId, fileName, src).then((js) => {
+        if (js == null) return null;
+        const open = tag.match(/^<script\b[^>]*>/i)?.[0] ?? '<script>';
+        const attrs = open
+          .replace(/^<script/i, '')
+          .replace(/>$/i, '')
+          .replace(/\ssrc\s*=\s*(['"])[\s\S]*?\1/i, '');
+        return {
+          from: tag,
+          to: `<script${attrs}>\n${js.replace(/<\/script/gi, '<\\/script')}\n</script>`,
+        };
+      }),
+    );
+  }
+
+  const resolved = (await Promise.all(replacements)).filter(
+    (item): item is { from: string; to: string } => item !== null,
+  );
+  return resolved.reduce((next, { from, to }) => next.replace(from, to), html);
+}
+
+async function fetchProjectRelativeText(
+  projectId: string,
+  ownerFileName: string,
+  assetRef: string,
+): Promise<string | null> {
+  const filePath = resolveProjectRelativePath(ownerFileName, assetRef);
+  if (!filePath) return null;
+  try {
+    const resp = await fetch(projectRawUrl(projectId, filePath));
+    if (!resp.ok) return null;
+    return await resp.text();
+  } catch {
+    return null;
+  }
+}
+
+function resolveProjectRelativePath(ownerFileName: string, assetRef: string): string | null {
+  if (/^(?:https?:|data:|blob:|mailto:|tel:|#|\/)/i.test(assetRef)) return null;
+  try {
+    const url = new URL(assetRef, `https://od.local/${baseDirFor(ownerFileName)}`);
+    if (url.origin !== 'https://od.local') return null;
+    return decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+  } catch {
+    return null;
+  }
+}
+
+function readHtmlAttr(tag: string, name: string): string | null {
+  const match = tag.match(new RegExp(`\\s${name}\\s*=\\s*(['"])([\\s\\S]*?)\\1`, 'i'));
+  return match?.[2] ?? null;
+}
+
+function escapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function ImageViewer({
@@ -789,6 +1257,178 @@ function ImageViewer({
       </div>
       <div className="viewer-body image-body">
         <img alt={file.name} src={url} />
+      </div>
+    </div>
+  );
+}
+
+function VideoViewer({
+  projectId,
+  file,
+}: {
+  projectId: string;
+  file: ProjectFile;
+}) {
+  const t = useT();
+  const url = `${projectFileUrl(projectId, file.name)}?v=${Math.round(file.mtime)}`;
+  return (
+    <div className="viewer video-viewer">
+      <div className="viewer-toolbar">
+        <div className="viewer-toolbar-left">
+          <span className="viewer-meta">
+            {t('fileViewer.videoMeta', { size: humanSize(file.size) })}
+          </span>
+        </div>
+        <FileActions projectId={projectId} file={file} />
+      </div>
+      <div className="viewer-body video-body">
+        <video src={url} controls playsInline preload="metadata" />
+      </div>
+    </div>
+  );
+}
+
+function AudioViewer({
+  projectId,
+  file,
+}: {
+  projectId: string;
+  file: ProjectFile;
+}) {
+  const t = useT();
+  const url = `${projectFileUrl(projectId, file.name)}?v=${Math.round(file.mtime)}`;
+  return (
+    <div className="viewer audio-viewer">
+      <div className="viewer-toolbar">
+        <div className="viewer-toolbar-left">
+          <span className="viewer-meta">
+            {t('fileViewer.audioMeta', { size: humanSize(file.size) })}
+          </span>
+        </div>
+        <FileActions projectId={projectId} file={file} />
+      </div>
+      <div className="viewer-body audio-body">
+        <div className="audio-card">
+          <Icon name="mic" size={28} />
+          <div className="audio-card-name">{file.name}</div>
+          <audio src={url} controls preload="metadata" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type SvgViewerMode = 'preview' | 'source';
+
+interface SvgViewerProps {
+  projectId: string;
+  file: ProjectFile;
+  initialMode?: SvgViewerMode;
+  initialSource?: string | null | undefined;
+}
+
+export function SvgViewer({
+  projectId,
+  file,
+  initialMode = 'preview',
+  initialSource,
+}: SvgViewerProps) {
+  const t = useT();
+  const [mode, setMode] = useState<SvgViewerMode>(initialMode);
+  const [source, setSource] = useState<string | null>(initialSource ?? null);
+  const [loadingSource, setLoadingSource] = useState(false);
+  const [sourceError, setSourceError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const url = `${projectFileUrl(projectId, file.name)}?v=${Math.round(file.mtime)}&r=${reloadKey}`;
+
+  useEffect(() => {
+    if (mode !== 'source') return;
+    if (initialSource !== undefined && reloadKey === 0) return;
+    let cancelled = false;
+    setLoadingSource(true);
+    setSourceError(false);
+    void fetchProjectFileText(projectId, file.name, {
+      cache: 'no-store',
+      cacheBustKey: `${Math.round(file.mtime)}-${reloadKey}`,
+    }).then((next) => {
+      if (cancelled) return;
+      if (next === null) {
+        setSource('');
+        setSourceError(true);
+      } else {
+        setSource(next);
+      }
+      setLoadingSource(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, file.name, file.mtime, initialSource, mode, reloadKey]);
+
+  return (
+    <div className="viewer svg-viewer">
+      <div className="viewer-toolbar">
+        <div className="viewer-toolbar-left">
+          <span className="viewer-meta">
+            {t('fileViewer.imageMeta', { size: humanSize(file.size) })}
+          </span>
+        </div>
+        <div className="viewer-toolbar-actions">
+          <div className="viewer-tabs">
+            <button
+              type="button"
+              className={`viewer-tab ${mode === 'preview' ? 'active' : ''}`}
+              aria-pressed={mode === 'preview'}
+              onClick={() => setMode('preview')}
+            >
+              {t('fileViewer.preview')}
+            </button>
+            <button
+              type="button"
+              className={`viewer-tab ${mode === 'source' ? 'active' : ''}`}
+              aria-pressed={mode === 'source'}
+              onClick={() => setMode('source')}
+            >
+              {t('fileViewer.source')}
+            </button>
+          </div>
+          <span className="viewer-divider" aria-hidden />
+          <button
+            type="button"
+            className="viewer-action"
+            onClick={() => setReloadKey((n) => n + 1)}
+            title={t('fileViewer.reloadDisk')}
+          >
+            <Icon name="reload" size={13} />
+            <span>{t('fileViewer.reload')}</span>
+          </button>
+          <a
+            className="ghost-link"
+            href={projectFileUrl(projectId, file.name)}
+            download={file.name}
+          >
+            {t('fileViewer.download')}
+          </a>
+          <a
+            className="ghost-link"
+            href={projectFileUrl(projectId, file.name)}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            {t('fileViewer.open')}
+          </a>
+        </div>
+      </div>
+      <div className={`viewer-body ${mode === 'preview' ? 'image-body' : ''}`}>
+        {mode === 'preview' ? (
+          <img alt={file.name} src={url} />
+        ) : loadingSource ? (
+          <div className="viewer-empty">{t('fileViewer.loading')}</div>
+        ) : sourceError ? (
+          <div className="viewer-empty">{t('fileViewer.previewUnavailable')}</div>
+        ) : (
+          <pre className="viewer-source">{source ?? ''}</pre>
+        )}
       </div>
     </div>
   );
@@ -883,6 +1523,108 @@ function TextViewer({
           <CodeWithLines text={text} />
         ) : (
           <pre className="viewer-source">{text}</pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MarkdownViewer({
+  projectId,
+  file,
+}: {
+  projectId: string;
+  file: ProjectFile;
+}) {
+  const t = useT();
+  const [text, setText] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const status = file.artifactManifest?.status ?? 'complete';
+  const isStreaming = status === 'streaming';
+  const isError = status === 'error';
+
+  useEffect(() => {
+    setText(null);
+    let cancelled = false;
+    void fetchProjectFileText(projectId, file.name).then((next) => {
+      if (!cancelled) setText(next ?? '');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, file.name, file.mtime, reloadKey]);
+
+  async function copy() {
+    if (text == null) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      } finally {
+        document.body.removeChild(ta);
+      }
+    }
+  }
+
+  const html = useMemo(() => {
+    if (text === null) return null;
+    const renderPartial = MarkdownRenderer.renderPartial ?? renderMarkdownToSafeHtml;
+    return renderPartial(text);
+  }, [text]);
+
+  return (
+    <div className="viewer text-viewer">
+      <div className="viewer-toolbar">
+        <div className="viewer-toolbar-left">
+          {isStreaming ? <span className="viewer-meta">{t('fileViewer.markdownStreamingMeta')}</span> : null}
+          {isError ? <span className="viewer-meta">{t('fileViewer.markdownErrorMeta')}</span> : null}
+        </div>
+        <div className="viewer-toolbar-actions">
+          <button
+            type="button"
+            className="viewer-action"
+            onClick={() => setReloadKey((n) => n + 1)}
+            title={t('fileViewer.reloadDisk')}
+          >
+            <Icon name="reload" size={13} />
+            <span>{t('fileViewer.reload')}</span>
+          </button>
+          <button
+            type="button"
+            className="viewer-action"
+            onClick={() => void copy()}
+            title={t('fileViewer.copyTitle')}
+          >
+            <Icon name={copied ? 'check' : 'copy'} size={13} />
+            <span>{copied ? t('fileViewer.copied') : t('fileViewer.copy')}</span>
+          </button>
+        </div>
+      </div>
+      <div className="viewer-body">
+        {html === null ? (
+          <div className="viewer-empty">{t('fileViewer.loading')}</div>
+        ) : (
+          <>
+            {isStreaming ? <div className="markdown-status">{t('fileViewer.markdownStreamingStatus')}</div> : null}
+            {isError ? <div className="markdown-status markdown-status-error">{t('fileViewer.markdownErrorStatus')}</div> : null}
+            {/* Safe by contract: renderMarkdownToSafeHtml escapes raw HTML and rejects unsafe link protocols. */}
+            <article
+              className="markdown-rendered"
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+          </>
         )}
       </div>
     </div>

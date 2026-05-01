@@ -9,6 +9,7 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import type { AppConfig, ChatMessage } from '../types';
+import { streamMessageAnthropicProxy } from './anthropic-compatible';
 import { isOpenAICompatible, streamMessageOpenAI } from './openai-compatible';
 
 // Re-export for convenience
@@ -38,6 +39,10 @@ export async function streamMessage(
   // Route to OpenAI-compatible provider for non-Anthropic models.
   if (isOpenAICompatible(cfg.model, cfg.baseUrl)) {
     return streamMessageOpenAI(cfg, system, history, signal, handlers);
+  }
+
+  if (cfg.baseUrl && cfg.baseUrl !== 'https://api.anthropic.com') {
+    return streamMessageAnthropicProxy(cfg, system, history, signal, handlers);
   }
 
   if (!cfg.apiKey) {

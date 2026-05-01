@@ -2,18 +2,34 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import type { Dict } from '../i18n/types';
 import type {
+  AudioKind,
   DesignSystemSummary,
+  MediaAspect,
   ProjectKind,
   ProjectMetadata,
   ProjectTemplate,
+  MediaProviderCredentials,
   SkillSummary,
 } from '../types';
+import {
+  AUDIO_DURATIONS_SEC,
+  AUDIO_MODELS_BY_KIND,
+  DEFAULT_AUDIO_MODEL,
+  DEFAULT_IMAGE_MODEL,
+  DEFAULT_VIDEO_MODEL,
+  findProvider,
+  IMAGE_MODELS,
+  MEDIA_ASPECTS,
+  type MediaModel,
+  VIDEO_LENGTHS_SEC,
+  VIDEO_MODELS,
+} from '../media/models';
 import { Icon } from './Icon';
 import { Skeleton } from './Loading';
 
 type TranslateFn = (key: keyof Dict, vars?: Record<string, string | number>) => string;
 
-export type CreateTab = 'prototype' | 'deck' | 'template' | 'other';
+export type CreateTab = 'prototype' | 'deck' | 'template' | 'image' | 'video' | 'audio' | 'other';
 
 export interface CreateInput {
   name: string;
@@ -29,6 +45,7 @@ interface Props {
   templates: ProjectTemplate[];
   onCreate: (input: CreateInput) => void;
   onImportClaudeDesign?: (file: File) => Promise<void> | void;
+  mediaProviders?: Record<string, MediaProviderCredentials>;
   loading?: boolean;
 }
 
@@ -36,6 +53,9 @@ const TAB_LABEL_KEYS: Record<CreateTab, keyof Dict> = {
   prototype: 'newproj.tabPrototype',
   deck: 'newproj.tabDeck',
   template: 'newproj.tabTemplate',
+  image: 'newproj.surfaceImage',
+  video: 'newproj.surfaceVideo',
+  audio: 'newproj.surfaceAudio',
   other: 'newproj.tabOther',
 };
 
@@ -46,12 +66,15 @@ export function NewProjectPanel({
   templates,
   onCreate,
   onImportClaudeDesign,
+  mediaProviders,
   loading = false,
 }: Props) {
   const t = useT();
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [importing, setImporting] = useState(false);
   const [tab, setTab] = useState<CreateTab>('prototype');
+  const tabsRef = useRef<HTMLDivElement | null>(null);
+  const [tabScroll, setTabScroll] = useState({ left: false, right: false });
   const [name, setName] = useState('');
   // Design-system selection is now an *array* internally so the same
   // component can drive both single-select and multi-select modes without
@@ -67,6 +90,16 @@ export function NewProjectPanel({
   const [speakerNotes, setSpeakerNotes] = useState(false);
   const [animations, setAnimations] = useState(false);
   const [templateId, setTemplateId] = useState<string | null>(null);
+  const [imageModel, setImageModel] = useState(DEFAULT_IMAGE_MODEL);
+  const [imageAspect, setImageAspect] = useState<MediaAspect>('1:1');
+  const [imageStyle, setImageStyle] = useState('');
+  const [videoModel, setVideoModel] = useState(DEFAULT_VIDEO_MODEL);
+  const [videoAspect, setVideoAspect] = useState<MediaAspect>('16:9');
+  const [videoLength, setVideoLength] = useState(5);
+  const [audioKind, setAudioKind] = useState<AudioKind>('speech');
+  const [audioModel, setAudioModel] = useState(DEFAULT_AUDIO_MODEL.speech);
+  const [audioDuration, setAudioDuration] = useState(10);
+  const [voice, setVoice] = useState('');
 
   // When entering the template tab, snap to the first user-saved template
   // if there is one (and we don't already have a valid pick). The template
@@ -100,11 +133,57 @@ export function NewProjectPanel({
         ?? list[0]?.id
         ?? null;
     }
+    if (tab === 'image' || tab === 'video' || tab === 'audio') {
+      const list = skills.filter((s) => s.mode === tab || s.surface === tab);
+      return list.find((s) => s.defaultFor.includes(tab))?.id
+        ?? list[0]?.id
+        ?? null;
+    }
     return null;
   }, [tab, skills]);
 
   const canCreate =
     !loading && (tab !== 'template' || templateId != null);
+
+  function updateTabScrollState() {
+    const el = tabsRef.current;
+    if (!el) return;
+    const maxLeft = el.scrollWidth - el.clientWidth;
+    setTabScroll({
+      left: el.scrollLeft > 2,
+      right: el.scrollLeft < maxLeft - 2,
+    });
+  }
+
+  function scrollTabs(direction: -1 | 1) {
+    const el = tabsRef.current;
+    if (!el) return;
+    el.scrollBy({
+      left: direction * Math.max(120, el.clientWidth * 0.65),
+      behavior: 'smooth',
+    });
+  }
+
+  useEffect(() => {
+    const el = tabsRef.current;
+    if (!el) return;
+    updateTabScrollState();
+    const onScroll = () => updateTabScrollState();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    const ro = new ResizeObserver(updateTabScrollState);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      ro.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    const el = tabsRef.current;
+    const active = el?.querySelector<HTMLButtonElement>('.newproj-tab.active');
+    active?.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' });
+    window.setTimeout(updateTabScrollState, 180);
+  }, [tab]);
 
   function handleCreate() {
     if (!canCreate) return;
@@ -117,6 +196,16 @@ export function NewProjectPanel({
       animations,
       templateId,
       templates,
+      imageModel,
+      imageAspect,
+      imageStyle,
+      videoModel,
+      videoAspect,
+      videoLength,
+      audioKind,
+      audioModel,
+      audioDuration,
+      voice,
       inspirationIds: inspirations,
     });
     onCreate({
@@ -141,19 +230,39 @@ export function NewProjectPanel({
 
   return (
     <div className="newproj" data-testid="new-project-panel">
-      <div className="newproj-tabs" role="tablist">
-        {(Object.keys(TAB_LABEL_KEYS) as CreateTab[]).map((entry) => (
-          <button
-            key={entry}
-            role="tab"
-            data-testid={`new-project-tab-${entry}`}
-            aria-selected={tab === entry}
-            className={`newproj-tab ${tab === entry ? 'active' : ''}`}
-            onClick={() => setTab(entry)}
-          >
-            {t(TAB_LABEL_KEYS[entry])}
-          </button>
-        ))}
+      <div className={`newproj-tabs-shell${tabScroll.left ? ' can-left' : ''}${tabScroll.right ? ' can-right' : ''}`}>
+        <button
+          type="button"
+          className={`newproj-tabs-arrow left${tabScroll.left ? '' : ' hidden'}`}
+          onClick={() => scrollTabs(-1)}
+          aria-label="Scroll project types left"
+          tabIndex={tabScroll.left ? 0 : -1}
+        >
+          <Icon name="chevron-left" size={16} strokeWidth={2} />
+        </button>
+        <div className="newproj-tabs" role="tablist" ref={tabsRef}>
+          {(Object.keys(TAB_LABEL_KEYS) as CreateTab[]).map((entry) => (
+            <button
+              key={entry}
+              role="tab"
+              data-testid={`new-project-tab-${entry}`}
+              aria-selected={tab === entry}
+              className={`newproj-tab ${tab === entry ? 'active' : ''}`}
+              onClick={() => setTab(entry)}
+            >
+              {t(TAB_LABEL_KEYS[entry])}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className={`newproj-tabs-arrow right${tabScroll.right ? '' : ' hidden'}`}
+          onClick={() => scrollTabs(1)}
+          aria-label="Scroll project types right"
+          tabIndex={tabScroll.right ? 0 : -1}
+        >
+          <Icon name="chevron-right" size={16} strokeWidth={2} />
+        </button>
       </div>
       <div className="newproj-body">
         <h3 className="newproj-title">{titleForTab(tab, t)}</h3>
@@ -203,6 +312,50 @@ export function NewProjectPanel({
               onChange={setAnimations}
             />
           </>
+        ) : null}
+
+        {tab === 'image' ? (
+          <MediaProjectOptions
+            surface="image"
+            imageModel={imageModel}
+            imageAspect={imageAspect}
+            imageStyle={imageStyle}
+            mediaProviders={mediaProviders}
+            onImageModel={setImageModel}
+            onImageAspect={setImageAspect}
+            onImageStyle={setImageStyle}
+          />
+        ) : null}
+
+        {tab === 'video' ? (
+          <MediaProjectOptions
+            surface="video"
+            videoModel={videoModel}
+            videoAspect={videoAspect}
+            videoLength={videoLength}
+            mediaProviders={mediaProviders}
+            onVideoModel={setVideoModel}
+            onVideoAspect={setVideoAspect}
+            onVideoLength={setVideoLength}
+          />
+        ) : null}
+
+        {tab === 'audio' ? (
+          <MediaProjectOptions
+            surface="audio"
+            audioKind={audioKind}
+            audioModel={audioModel}
+            audioDuration={audioDuration}
+            voice={voice}
+            mediaProviders={mediaProviders}
+            onAudioKind={(kind) => {
+              setAudioKind(kind);
+              setAudioModel(DEFAULT_AUDIO_MODEL[kind]);
+            }}
+            onAudioModel={setAudioModel}
+            onAudioDuration={setAudioDuration}
+            onVoice={setVoice}
+          />
         ) : null}
 
         <button
@@ -809,6 +962,298 @@ function fallbackSwatches(seed: string): string[] {
   ];
 }
 
+function MediaProjectOptions(props:
+  | {
+      surface: 'image';
+      imageModel: string;
+      imageAspect: MediaAspect;
+      imageStyle: string;
+      mediaProviders?: Record<string, MediaProviderCredentials>;
+      onImageModel: (value: string) => void;
+      onImageAspect: (value: MediaAspect) => void;
+      onImageStyle: (value: string) => void;
+    }
+  | {
+      surface: 'video';
+      videoModel: string;
+      videoAspect: MediaAspect;
+      videoLength: number;
+      mediaProviders?: Record<string, MediaProviderCredentials>;
+      onVideoModel: (value: string) => void;
+      onVideoAspect: (value: MediaAspect) => void;
+      onVideoLength: (value: number) => void;
+    }
+  | {
+      surface: 'audio';
+      audioKind: AudioKind;
+      audioModel: string;
+      audioDuration: number;
+      voice: string;
+      mediaProviders?: Record<string, MediaProviderCredentials>;
+      onAudioKind: (value: AudioKind) => void;
+      onAudioModel: (value: string) => void;
+      onAudioDuration: (value: number) => void;
+      onVoice: (value: string) => void;
+    }
+) {
+  const t = useT();
+
+  if (props.surface === 'image') {
+    return (
+      <div className="newproj-media-options">
+        <MediaModelCards
+          label={t('newproj.modelLabel')}
+          models={supportedModels('image', IMAGE_MODELS)}
+          mediaProviders={props.mediaProviders}
+          value={props.imageModel}
+          onChange={props.onImageModel}
+        />
+        <AspectCards
+          label={t('newproj.aspectLabel')}
+          value={props.imageAspect}
+          onChange={props.onImageAspect}
+        />
+        <label className="newproj-label">
+          <span>{t('newproj.imageStyleLabel')}</span>
+          <input
+            value={props.imageStyle}
+            placeholder={t('newproj.imageStylePlaceholder')}
+            onChange={(e) => props.onImageStyle(e.target.value)}
+          />
+        </label>
+      </div>
+    );
+  }
+
+  if (props.surface === 'video') {
+    return (
+      <div className="newproj-media-options">
+        <MediaModelCards
+          label={t('newproj.modelLabel')}
+          models={supportedModels('video', VIDEO_MODELS)}
+          mediaProviders={props.mediaProviders}
+          value={props.videoModel}
+          onChange={props.onVideoModel}
+        />
+        <AspectCards
+          label={t('newproj.aspectLabel')}
+          value={props.videoAspect}
+          onChange={props.onVideoAspect}
+        />
+        <label className="newproj-label">
+          <span>{t('newproj.videoLengthLabel')}</span>
+          <select value={props.videoLength} onChange={(e) => props.onVideoLength(Number(e.target.value))}>
+            {VIDEO_LENGTHS_SEC.map((sec) => (
+              <option key={sec} value={sec}>{t('newproj.videoLengthSeconds', { n: sec })}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+    );
+  }
+
+  const models = supportedModels('audio', AUDIO_MODELS_BY_KIND[props.audioKind]);
+  return (
+    <div className="newproj-media-options">
+      <OptionCards
+        label={t('newproj.audioKindLabel')}
+        options={[
+          { value: 'speech' as const, title: t('newproj.audioKindSpeech') },
+        ]}
+        value={props.audioKind}
+        onChange={props.onAudioKind}
+      />
+      <MediaModelCards
+        label={t('newproj.modelLabel')}
+        models={models}
+        mediaProviders={props.mediaProviders}
+        value={props.audioModel}
+        onChange={props.onAudioModel}
+      />
+      <label className="newproj-label">
+        <span>{t('newproj.audioDurationLabel')}</span>
+        <select value={props.audioDuration} onChange={(e) => props.onAudioDuration(Number(e.target.value))}>
+          {AUDIO_DURATIONS_SEC.map((sec) => (
+            <option key={sec} value={sec}>{t('newproj.audioDurationSeconds', { n: sec })}</option>
+          ))}
+        </select>
+      </label>
+      {props.audioKind === 'speech' ? (
+        <label className="newproj-label">
+          <span>{t('newproj.voiceLabel')}</span>
+          <input
+            value={props.voice}
+            placeholder={t('newproj.voicePlaceholder')}
+            onChange={(e) => props.onVoice(e.target.value)}
+          />
+        </label>
+      ) : null}
+    </div>
+  );
+}
+
+function supportedModels(surface: 'image' | 'video' | 'audio', models: MediaModel[]): MediaModel[] {
+  const supportedProviders: Record<'image' | 'video' | 'audio', Set<string>> = {
+    image: new Set(['openai', 'volcengine']),
+    video: new Set(['volcengine', 'hyperframes']),
+    audio: new Set(['minimax', 'fishaudio']),
+  };
+  return models.filter((model) => {
+    const provider = findProvider(model.provider);
+    return provider?.integrated === true && supportedProviders[surface].has(model.provider);
+  });
+}
+
+function MediaModelCards({
+  label,
+  models,
+  mediaProviders,
+  value,
+  onChange,
+}: {
+  label: string;
+  models: MediaModel[];
+  mediaProviders?: Record<string, MediaProviderCredentials>;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const groups: Array<{
+    providerId: string;
+    providerLabel: string;
+    status: 'configured' | 'integrated' | 'unsupported';
+    models: MediaModel[];
+  }> = [];
+  for (const model of models) {
+    const provider = findProvider(model.provider);
+    const providerId = provider?.id ?? model.provider;
+    const entry = mediaProviders?.[providerId];
+    const configured = provider?.credentialsRequired === false || Boolean(entry?.apiKey.trim() || entry?.baseUrl.trim());
+    let group = groups.find((g) => g.providerId === providerId);
+    if (!group) {
+      group = {
+        providerId,
+        providerLabel: provider?.label ?? model.provider,
+        status: configured
+          ? 'configured'
+          : provider?.integrated
+            ? 'integrated'
+            : 'unsupported',
+        models: [],
+      };
+      groups.push(group);
+    }
+    group.models.push(model);
+  }
+
+  return (
+    <div className="newproj-media-field">
+      <div className="newproj-label">{label}</div>
+      <div className="newproj-model-groups">
+        {groups.map((group) => (
+          <div className="newproj-model-group" key={group.providerId}>
+            <div className="newproj-provider-row">
+              <span>{group.providerLabel}</span>
+              <span className={`newproj-provider-badge ${group.status}`}>
+                {group.status === 'configured'
+                  ? 'Configured'
+                  : group.status === 'integrated'
+                    ? 'Integrated'
+                    : 'Unsupported'}
+              </span>
+            </div>
+            <div className="newproj-model-grid">
+              {group.models.map((model) => (
+                <button
+                  key={model.id}
+                  type="button"
+                  className={`newproj-card newproj-model-card${value === model.id ? ' active' : ''}`}
+                  onClick={() => onChange(model.id)}
+                  aria-pressed={value === model.id}
+                >
+                  <span className="newproj-model-name">{model.label}</span>
+                  <span className="newproj-model-hint">{model.hint}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AspectCards({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: MediaAspect;
+  onChange: (value: MediaAspect) => void;
+}) {
+  const labels: Record<MediaAspect, string> = {
+    '1:1': 'Square',
+    '16:9': 'Landscape',
+    '9:16': 'Portrait',
+    '4:3': 'Wide',
+    '3:4': 'Tall',
+  };
+  return (
+    <div className="newproj-media-field">
+      <div className="newproj-label">{label}</div>
+      <div className="newproj-option-grid aspect-grid">
+        {MEDIA_ASPECTS.map((aspect) => (
+          <button
+            key={aspect}
+            type="button"
+            className={`newproj-card newproj-option-card${value === aspect ? ' active' : ''}`}
+            onClick={() => onChange(aspect)}
+            aria-pressed={value === aspect}
+          >
+            <span className={`aspect-glyph aspect-${aspect.replace(':', '-')}`} aria-hidden />
+            <span className="aspect-copy">
+              <strong>{labels[aspect]}</strong>
+              <small>{aspect}</small>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OptionCards<T extends string | number>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: Array<{ value: T; title: string; hint?: string }>;
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="newproj-media-field">
+      <div className="newproj-label">{label}</div>
+      <div className="newproj-option-grid compact">
+        {options.map((option) => (
+          <button
+            key={String(option.value)}
+            type="button"
+            className={`newproj-card newproj-option-card${value === option.value ? ' active' : ''}`}
+            onClick={() => onChange(option.value)}
+            aria-pressed={value === option.value}
+          >
+            <span>{option.title}</span>
+            {option.hint ? <small>{option.hint}</small> : null}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function buildMetadata(input: {
   tab: CreateTab;
   fidelity: 'wireframe' | 'high-fidelity';
@@ -816,6 +1261,16 @@ function buildMetadata(input: {
   animations: boolean;
   templateId: string | null;
   templates: ProjectTemplate[];
+  imageModel: string;
+  imageAspect: MediaAspect;
+  imageStyle: string;
+  videoModel: string;
+  videoAspect: MediaAspect;
+  videoLength: number;
+  audioKind: AudioKind;
+  audioModel: string;
+  audioDuration: number;
+  voice: string;
   inspirationIds: string[];
 }): ProjectMetadata {
   const kind: ProjectKind = input.tab;
@@ -843,6 +1298,34 @@ function buildMetadata(input: {
       ...inspirations,
     };
   }
+  if (input.tab === 'image') {
+    return {
+      kind,
+      imageModel: input.imageModel,
+      imageAspect: input.imageAspect,
+      imageStyle: input.imageStyle.trim() || undefined,
+      ...inspirations,
+    };
+  }
+  if (input.tab === 'video') {
+    return {
+      kind,
+      videoModel: input.videoModel,
+      videoAspect: input.videoAspect,
+      videoLength: input.videoLength,
+      ...inspirations,
+    };
+  }
+  if (input.tab === 'audio') {
+    return {
+      kind,
+      audioKind: input.audioKind,
+      audioModel: input.audioModel,
+      audioDuration: input.audioDuration,
+      voice: input.voice.trim() || undefined,
+      ...inspirations,
+    };
+  }
   return { kind: 'other', ...inspirations };
 }
 
@@ -854,6 +1337,12 @@ function titleForTab(tab: CreateTab, t: TranslateFn): string {
       return t('newproj.titleDeck');
     case 'template':
       return t('newproj.titleTemplate');
+    case 'image':
+      return t('newproj.titleImage');
+    case 'video':
+      return t('newproj.titleVideo');
+    case 'audio':
+      return t('newproj.titleAudio');
     case 'other':
       return t('newproj.titleOther');
   }

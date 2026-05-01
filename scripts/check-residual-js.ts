@@ -15,8 +15,29 @@ const skippedDirectories = new Set([
   ".od-e2e",
   ".opencode",
   ".task",
+  ".tmp",
   ".vite",
+  "dist",
   "node_modules",
+  "out",
+]);
+
+const allowedExactPaths = new Set([
+  "packages/platform/esbuild.config.mjs",
+  "packages/sidecar/esbuild.config.mjs",
+  "packages/sidecar-proto/esbuild.config.mjs",
+  // Maintainer utility scripts ported from the media branch. They are
+  // executed directly by Node and are not loaded by the app runtime.
+  "scripts/import-prompt-templates.mjs",
+  "scripts/postinstall.mjs",
+  "apps/packaged/esbuild.config.mjs",
+  "scripts/sync-hyperframes-skill.mjs",
+  "scripts/verify-media-models.mjs",
+  "tools/dev/bin/tools-dev.mjs",
+  "tools/dev/esbuild.config.mjs",
+  "tools/pack/bin/tools-pack.mjs",
+  "tools/pack/esbuild.config.mjs",
+  "tools/pack/resources/mac/notarize.cjs",
 ]);
 
 const allowedPathPrefixes = [
@@ -28,6 +49,8 @@ const allowedPathPrefixes = [
   "e2e/reports/html/",
   "e2e/reports/playwright-html-report/",
   "e2e/reports/test-results/",
+  // Vendored upstream HyperFrames skill helper scripts.
+  "skills/hyperframes/scripts/",
   "test-results/",
   "vendor/",
 ];
@@ -37,7 +60,12 @@ function toRepositoryPath(filePath: string): string {
 }
 
 function isAllowedOutputPath(repositoryPath: string): boolean {
+  if (allowedExactPaths.has(repositoryPath)) return true;
   return allowedPathPrefixes.some((prefix) => repositoryPath.startsWith(prefix));
+}
+
+function isSkippedDirectoryName(directoryName: string): boolean {
+  return skippedDirectories.has(directoryName) || directoryName === ".next" || directoryName.startsWith(".next-");
 }
 
 async function collectResidualJavaScript(directory: string): Promise<string[]> {
@@ -49,7 +77,7 @@ async function collectResidualJavaScript(directory: string): Promise<string[]> {
     const repositoryPath = toRepositoryPath(fullPath);
 
     if (entry.isDirectory()) {
-      if (skippedDirectories.has(entry.name) || isAllowedOutputPath(`${repositoryPath}/`)) {
+      if (isSkippedDirectoryName(entry.name) || isAllowedOutputPath(`${repositoryPath}/`)) {
         continue;
       }
 

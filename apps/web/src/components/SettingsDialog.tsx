@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import { LOCALE_LABEL, LOCALES, useI18n } from '../i18n';
 import type { Locale } from '../i18n';
 import { AgentIcon } from './AgentIcon';
@@ -10,6 +11,8 @@ import {
 } from './modelOptions';
 import { KNOWN_PROVIDERS } from '../state/config';
 import type { AgentInfo, AppConfig, ExecMode } from '../types';
+import { MEDIA_PROVIDERS } from '../media/models';
+import type { MediaProvider } from '../media/models';
 
 interface Props {
   initial: AppConfig;
@@ -41,6 +44,7 @@ export function SettingsDialog({
   const [cfg, setCfg] = useState<AppConfig>(initial);
   const [showApiKey, setShowApiKey] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<'execution' | 'media' | 'language'>('execution');
   const [languageMenuRect, setLanguageMenuRect] = useState<DOMRect | null>(null);
   const languageRef = useRef<HTMLDivElement | null>(null);
 
@@ -114,44 +118,81 @@ export function SettingsDialog({
           )}
         </header>
 
-        <div
-          className="seg-control"
-          role="tablist"
-          aria-label={t('settings.modeAria')}
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={cfg.mode === 'daemon'}
-            className={'seg-btn' + (cfg.mode === 'daemon' ? ' active' : '')}
-            disabled={!daemonLive}
-            onClick={() => setMode('daemon')}
-            title={
-              daemonLive
-                ? t('settings.modeDaemonHelp')
-                : t('settings.modeDaemonOffline')
-            }
-          >
-            <span className="seg-title">{t('settings.modeDaemon')}</span>
-            <span className="seg-meta">
-              {daemonLive
-                ? t('settings.modeDaemonInstalledMeta', { count: installedCount })
-                : t('settings.modeDaemonOfflineMeta')}
-            </span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={cfg.mode === 'api'}
-            className={'seg-btn' + (cfg.mode === 'api' ? ' active' : '')}
-            onClick={() => setMode('api')}
-          >
-            <span className="seg-title">{t('settings.modeApi')}</span>
-            <span className="seg-meta">{t('settings.modeApiMeta')}</span>
-          </button>
-        </div>
-
         <div className="modal-body">
+          <aside className="settings-sidebar" aria-label="Settings sections">
+            <button
+              type="button"
+              className={`settings-nav-item${activeSection === 'execution' ? ' active' : ''}`}
+              onClick={() => setActiveSection('execution')}
+            >
+              <Icon name="sliders" size={18} />
+              <span>
+                <strong>{t('settings.envConfigure')}</strong>
+                <small>{t('settings.codeAgent')}</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-item${activeSection === 'media' ? ' active' : ''}`}
+              onClick={() => setActiveSection('media')}
+            >
+              <Icon name="image" size={18} />
+              <span>
+                <strong>{t('settings.mediaProviders')}</strong>
+                <small>Image / video / audio</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-item${activeSection === 'language' ? ' active' : ''}`}
+              onClick={() => setActiveSection('language')}
+            >
+              <Icon name="languages" size={18} />
+              <span>
+                <strong>{t('settings.language')}</strong>
+                <small>{t('settings.languageHint')}</small>
+              </span>
+            </button>
+          </aside>
+          <div className="settings-content">
+          {activeSection === 'execution' ? (
+            <>
+              <div
+                className="seg-control"
+                role="tablist"
+                aria-label={t('settings.modeAria')}
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={cfg.mode === 'daemon'}
+                  className={'seg-btn' + (cfg.mode === 'daemon' ? ' active' : '')}
+                  disabled={!daemonLive}
+                  onClick={() => setMode('daemon')}
+                  title={
+                    daemonLive
+                      ? t('settings.modeDaemonHelp')
+                      : t('settings.modeDaemonOffline')
+                  }
+                >
+                  <span className="seg-title">{t('settings.modeDaemon')}</span>
+                  <span className="seg-meta">
+                    {daemonLive
+                      ? t('settings.modeDaemonInstalledMeta', { count: installedCount })
+                      : t('settings.modeDaemonOfflineMeta')}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={cfg.mode === 'api'}
+                  className={'seg-btn' + (cfg.mode === 'api' ? ' active' : '')}
+                  onClick={() => setMode('api')}
+                >
+                  <span className="seg-title">{t('settings.modeApi')}</span>
+                  <span className="seg-meta">{t('settings.modeApiMeta')}</span>
+                </button>
+              </div>
           {cfg.mode === 'daemon' ? (
             <section className="settings-section">
               <div className="section-head">
@@ -394,7 +435,12 @@ export function SettingsDialog({
               <p className="hint">{t('settings.apiHint')}</p>
             </section>
           )}
+            </>
+          ) : null}
 
+          {activeSection === 'media' ? <MediaProvidersSection cfg={cfg} setCfg={setCfg} /> : null}
+
+          {activeSection === 'language' ? (
           <section className="settings-section">
             <div className="section-head">
               <div>
@@ -461,6 +507,8 @@ export function SettingsDialog({
               ) : null}
             </div>
           </section>
+          ) : null}
+          </div>
         </div>
 
         <footer className="modal-foot">
@@ -478,5 +526,106 @@ export function SettingsDialog({
         </footer>
       </div>
     </div>
+  );
+}
+
+function MediaProvidersSection({
+  cfg,
+  setCfg,
+}: {
+  cfg: AppConfig;
+  setCfg: Dispatch<SetStateAction<AppConfig>>;
+}) {
+  const { t } = useI18n();
+  const providers = MEDIA_PROVIDERS
+    .filter((p) => p.settingsVisible !== false)
+    .slice()
+    .sort((a, b) => {
+      const aEntry = cfg.mediaProviders?.[a.id];
+      const bEntry = cfg.mediaProviders?.[b.id];
+      const aConfigured = Boolean(aEntry?.apiKey.trim() || aEntry?.baseUrl.trim());
+      const bConfigured = Boolean(bEntry?.apiKey.trim() || bEntry?.baseUrl.trim());
+      if (aConfigured !== bConfigured) return aConfigured ? -1 : 1;
+      if (a.integrated !== b.integrated) return a.integrated ? -1 : 1;
+      return a.label.localeCompare(b.label);
+    });
+  const updateProvider = (
+    provider: MediaProvider,
+    patch: { apiKey?: string; baseUrl?: string },
+  ) => {
+    setCfg((curr) => {
+      const prev = curr.mediaProviders?.[provider.id] ?? { apiKey: '', baseUrl: '' };
+      const next = { ...prev, ...patch };
+      const map = { ...(curr.mediaProviders ?? {}) };
+      if (!next.apiKey.trim() && !next.baseUrl.trim()) {
+        delete map[provider.id];
+      } else {
+        map[provider.id] = next;
+      }
+      return { ...curr, mediaProviders: map };
+    });
+  };
+
+  return (
+    <section className="settings-section">
+      <div className="section-head">
+        <div>
+          <h3>{t('settings.mediaProviders')}</h3>
+          <p className="hint">{t('settings.mediaProvidersHint')}</p>
+        </div>
+      </div>
+      <div className="media-provider-list">
+        {providers.map((provider) => {
+          const entry = cfg.mediaProviders?.[provider.id] ?? { apiKey: '', baseUrl: '' };
+          const configured = Boolean(entry.apiKey.trim() || entry.baseUrl.trim());
+          const disabled = !provider.integrated;
+          return (
+            <div key={provider.id} className={`media-provider-row${provider.integrated ? '' : ' pending'}`}>
+              <div className="media-provider-head">
+                <div className="media-provider-meta">
+                  <span className="media-provider-name">{provider.label}</span>
+                  <span className="media-provider-hint">{provider.hint}</span>
+                </div>
+                <div className="media-provider-badges">
+                  <span className={`media-provider-badge ${provider.integrated ? 'integrated' : 'unsupported'}`}>
+                    {provider.integrated ? 'Integrated' : 'Unsupported'}
+                  </span>
+                  {configured ? (
+                    <span className="media-provider-badge on">
+                      {t('settings.mediaProviderConfigured')}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              <div className="media-provider-body">
+                <input
+                  type="password"
+                  value={entry.apiKey}
+                  placeholder={t('settings.mediaProviderPlaceholder')}
+                  aria-label={`${provider.label} ${t('settings.mediaProviderApiKey')}`}
+                  disabled={disabled}
+                  onChange={(e) => updateProvider(provider, { apiKey: e.target.value })}
+                />
+                <input
+                  value={entry.baseUrl}
+                  placeholder={provider.defaultBaseUrl || t('settings.mediaProviderBaseUrlPlaceholder')}
+                  aria-label={`${provider.label} ${t('settings.mediaProviderBaseUrl')}`}
+                  disabled={disabled}
+                  onChange={(e) => updateProvider(provider, { baseUrl: e.target.value })}
+                />
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={!configured}
+                  onClick={() => updateProvider(provider, { apiKey: '', baseUrl: '' })}
+                >
+                  {t('settings.mediaProviderClear')}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }

@@ -1,6 +1,32 @@
 import type { ChatMessage } from './chat';
 
-export type ProjectKind = 'prototype' | 'deck' | 'template' | 'other';
+export type ProjectKind =
+  | 'prototype'
+  | 'deck'
+  | 'template'
+  | 'other'
+  | 'image'
+  | 'video'
+  | 'audio';
+
+export type MediaAspect = '1:1' | '16:9' | '9:16' | '4:3' | '3:4';
+
+export type AudioKind = 'music' | 'speech' | 'sfx';
+
+export type ProjectDisplayStatus =
+  | 'not_started'
+  | 'queued'
+  | 'running'
+  | 'awaiting_input'
+  | 'succeeded'
+  | 'failed'
+  | 'canceled';
+
+export interface ProjectStatusInfo {
+  value: ProjectDisplayStatus;
+  updatedAt?: number;
+  runId?: string;
+}
 
 export interface ProjectMetadata {
   kind: ProjectKind;
@@ -13,6 +39,16 @@ export interface ProjectMetadata {
   importedFrom?: 'claude-design' | string;
   entryFile?: string;
   sourceFileName?: string;
+  imageModel?: string;
+  imageAspect?: MediaAspect;
+  imageStyle?: string;
+  videoModel?: string;
+  videoLength?: number;
+  videoAspect?: MediaAspect;
+  audioKind?: AudioKind;
+  audioModel?: string;
+  audioDuration?: number;
+  voice?: string;
 }
 
 export interface Project {
@@ -22,6 +58,7 @@ export interface Project {
   designSystemId: string | null;
   createdAt: number;
   updatedAt: number;
+  status?: ProjectStatusInfo;
   pendingPrompt?: string;
   metadata?: ProjectMetadata;
 }
@@ -90,3 +127,56 @@ export interface UpdateConversationRequest {
 export interface MessagesResponse {
   messages: ChatMessage[];
 }
+
+export type DeployProviderId = 'vercel-self';
+export type DeploymentStatus =
+  | 'deploying'
+  | 'preparing-link'
+  | 'ready'
+  | 'link-delayed'
+  | 'protected'
+  | 'failed';
+
+export interface DeployConfigResponse {
+  providerId: DeployProviderId;
+  configured: boolean;
+  tokenMask: string;
+  teamId: string;
+  teamSlug: string;
+  target: 'preview';
+}
+
+export interface UpdateDeployConfigRequest {
+  token?: string;
+  teamId?: string;
+  teamSlug?: string;
+}
+
+export interface DeploymentInfo {
+  id: string;
+  projectId: string;
+  fileName: string;
+  providerId: DeployProviderId;
+  url: string;
+  deploymentId?: string;
+  deploymentCount: number;
+  target: 'preview';
+  status: DeploymentStatus;
+  statusMessage?: string;
+  reachableAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ProjectDeploymentsResponse {
+  deployments: DeploymentInfo[];
+}
+
+export interface DeployProjectFileRequest {
+  fileName: string;
+  providerId?: DeployProviderId;
+}
+
+export interface DeployProjectFileResponse extends DeploymentInfo {}
+
+export interface CheckDeploymentLinkResponse extends DeploymentInfo {}
