@@ -418,12 +418,14 @@ async function ensureNsisPersianLanguageAlias(config: ToolPackConfig): Promise<b
   let updated = false;
   for (const cacheRoot of cacheRoots) {
     for (const languageDir of await findNsisLanguageDirectories(cacheRoot)) {
+      let updatedLanguageDir = false;
       const farsiNlf = join(languageDir, "Farsi.nlf");
       const farsiNsh = join(languageDir, "Farsi.nsh");
       const persianNlf = join(languageDir, "Persian.nlf");
       const persianNsh = join(languageDir, "Persian.nsh");
       if ((await pathExists(farsiNlf)) && !(await pathExists(persianNlf))) {
         await cp(farsiNlf, persianNlf);
+        updatedLanguageDir = true;
         updated = true;
       }
       if (await pathExists(farsiNsh)) {
@@ -432,8 +434,12 @@ async function ensureNsisPersianLanguageAlias(config: ToolPackConfig): Promise<b
         const existingPersianMessages = await readFile(persianNsh, "utf8").catch(() => null);
         if (existingPersianMessages !== persianMessages) {
           await writeFile(persianNsh, persianMessages, "utf8");
+          updatedLanguageDir = true;
           updated = true;
         }
+      }
+      if (updatedLanguageDir) {
+        process.stderr.write(`[tools-pack] added NSIS Persian language alias in ${languageDir}\n`);
       }
     }
   }
@@ -951,7 +957,8 @@ export async function installPackedWinApp(config: ToolPackConfig): Promise<WinIn
 async function resolveStartTarget(config: ToolPackConfig): Promise<{ executablePath: string; source: "built" | "installed" }> {
   const paths = resolveWinPaths(config);
   if (await pathExists(paths.installedExePath)) return { executablePath: paths.installedExePath, source: "installed" };
-  throw new Error(`no installed windows app executable found for namespace=${config.namespace}; run tools-pack win build and tools-pack win install first`);
+  if (await pathExists(paths.unpackedExePath)) return { executablePath: paths.unpackedExePath, source: "built" };
+  throw new Error(`no windows app executable found for namespace=${config.namespace}; run tools-pack win build first or tools-pack win install after building an NSIS installer`);
 }
 
 export async function startPackedWinApp(config: ToolPackConfig): Promise<WinStartResult> {

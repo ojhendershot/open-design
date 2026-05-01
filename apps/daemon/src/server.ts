@@ -130,8 +130,9 @@ function resolveProcessResourcesPath() {
     return process.execPath.slice(0, markerIndex + resourcesMarker.length - 1);
   }
 
-  const windowsResourceBinMarker = `${path.sep}resources${path.sep}open-design${path.sep}bin${path.sep}`;
-  const windowsMarkerIndex = process.execPath.toLowerCase().indexOf(windowsResourceBinMarker);
+  const normalizedExecPath = process.execPath.toLowerCase();
+  const windowsResourceBinMarker = `${path.sep}resources${path.sep}open-design${path.sep}bin${path.sep}`.toLowerCase();
+  const windowsMarkerIndex = normalizedExecPath.indexOf(windowsResourceBinMarker);
   if (windowsMarkerIndex !== -1) {
     return process.execPath.slice(0, windowsMarkerIndex + `${path.sep}resources`.length);
   }
