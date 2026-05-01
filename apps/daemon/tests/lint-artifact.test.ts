@@ -378,6 +378,78 @@ describe('ai-default-indigo', () => {
     expect(findings.find((f) => f.id === 'ai-default-indigo')).toBeUndefined();
   });
 
+  it('still flags indigo declared on a non-accent global token feeding a CTA', () => {
+    // Regression: the strip pass used to remove every custom-property-only
+    // global theme block, even when the indigo hid behind a non-`--accent`
+    // token like `--primary` or `--button-bg`. The craft contract's escape
+    // hatch is `--accent` specifically — encoding indigo as any other
+    // token name still launders the LLM-default color, so the rule must
+    // stay in scope of the indigo scan.
+    const html = `
+      <style>
+        :root { --primary: #6366f1; }
+        .cta { background: var(--primary); color: white; }
+      </style>
+      <button class="cta">Get started</button>
+    `;
+    const findings = lintArtifact(html);
+    expect(findings.find((f) => f.id === 'ai-default-indigo')).toBeDefined();
+  });
+
+  it('still flags indigo declared on a --button-bg global token alongside other tokens', () => {
+    // A laundered indigo token mixed with legitimate tokens in the same
+    // :root block must not be stripped — the non-`--accent` indigo
+    // declaration keeps the whole rule in scope so the literal hex is
+    // visible to the indigo scan.
+    const html = `
+      <style>
+        :root { --bg: #ffffff; --button-bg: #4f46e5; }
+        .cta { background: var(--button-bg); color: white; }
+      </style>
+    `;
+    const findings = lintArtifact(html);
+    expect(findings.find((f) => f.id === 'ai-default-indigo')).toBeDefined();
+  });
+
+  it('still flags indigo on a non-accent token inside an @media-wrapped :root block', () => {
+    // The at-rule unwrapping must not bypass the non-accent check:
+    // a media-query-wrapped :root that declares indigo on `--primary`
+    // is still laundering the LLM default through an arbitrary name.
+    const html = `
+      <style>
+        @media (prefers-color-scheme: dark) {
+          :root { --primary: #6366f1; --bg: #0b0b10; }
+        }
+      </style>
+    `;
+    const findings = lintArtifact(html);
+    expect(findings.find((f) => f.id === 'ai-default-indigo')).toBeDefined();
+  });
+
+  it('still flags indigo on a non-accent token declared via a theme-attribute selector', () => {
+    const html = `
+      <style>
+        [data-theme="dark"] { --primary: #6366f1; }
+      </style>
+    `;
+    const findings = lintArtifact(html);
+    expect(findings.find((f) => f.id === 'ai-default-indigo')).toBeDefined();
+  });
+
+  it('still exempts a :root token block that mixes --accent indigo with non-indigo tokens', () => {
+    // The non-accent check should fire only on indigo-bearing tokens;
+    // legitimate sibling tokens whose values are unrelated colors must
+    // not be misread as laundering.
+    const html = `
+      <style>
+        :root { --accent: #6366f1; --primary: #ff7700; --bg: #ffffff; }
+        .cta { background: var(--accent); color: white; }
+      </style>
+    `;
+    const findings = lintArtifact(html);
+    expect(findings.find((f) => f.id === 'ai-default-indigo')).toBeUndefined();
+  });
+
   it('still flags indigo on a component rule nested inside @media', () => {
     // The exemption only applies to global token blocks. A component
     // rule that hard-codes the indigo hex inside an at-rule wrapper

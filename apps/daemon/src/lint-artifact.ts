@@ -653,7 +653,7 @@ function resolveCssVars(body, tokens) {
 // selector capture include leading text like `<style>`, which then
 // fails the `:root` selector test.
 //
-// A rule is treated as a token block only when BOTH conditions hold:
+// A rule is treated as a token block only when ALL THREE conditions hold:
 //   1. every selector in the list is a global theme-scope selector
 //      (`:root`, `:root[data-theme="..."]`, `html`, `body`, or a bare
 //      attribute selector for a known global-theme switch —
@@ -670,6 +670,13 @@ function resolveCssVars(body, tokens) {
 //      A non-token declaration on `:root` (e.g.
 //      `:root { background: #6366f1 }`) keeps the rule in scope so
 //      the indigo check fires.
+//   3. no token in the body launders an indigo hex through a
+//      non-`--accent` name. The craft contract's escape hatch is to
+//      encode indigo as the active design system's `--accent` token;
+//      anything else (`:root { --primary: #6366f1 }`,
+//      `:root { --button-bg: #4f46e5 }`) is still the LLM-default
+//      color hidden behind an arbitrary token name and must stay in
+//      scope of the indigo scan.
 function stripTokenBlocks(input) {
   return input.replace(
     /(<style[^>]*>)([\s\S]*?)(<\/style>)/gi,
@@ -702,8 +709,25 @@ function stripTokenBlocksFromCss(css) {
     if (decls.length === 0) return full;
     const tokenShaped = decls.every(isTokenShapedDeclaration);
     if (!tokenShaped) return full;
+    // The `--accent` escape hatch is for `--accent` only. Any other
+    // global token whose value carries an AI-default indigo hex is
+    // still laundering the LLM-default color through an arbitrary
+    // name (`--primary: #6366f1`, `--button-bg: #4f46e5`, …). Keep
+    // the rule in scope so the indigo lint fires on the literal hex.
+    if (decls.some(declarationLaundersIndigo)) return full;
     return '';
   });
+}
+
+function declarationLaundersIndigo(decl) {
+  const m = /^(--[\w-]+)\s*:\s*(.+)$/.exec(decl);
+  if (!m) return false;
+  if (m[1].toLowerCase() === '--accent') return false;
+  const value = m[2].toLowerCase();
+  for (const hex of AI_DEFAULT_INDIGO) {
+    if (value.includes(hex.toLowerCase())) return true;
+  }
+  return false;
 }
 
 function isTokenShapedDeclaration(decl) {
