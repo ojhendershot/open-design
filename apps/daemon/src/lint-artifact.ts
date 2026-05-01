@@ -303,11 +303,12 @@ export function lintArtifact(rawHtml) {
   // a reset block followed by a tokens/components block) and scan
   // each CSS body for an uppercase declaration whose selector body
   // is missing letter-spacing or sets it visibly too low.
-  // Token-aware tracking: collect `--name: value` declarations from
-  // global theme scopes once, then pass them to the tracking helper
-  // so a rule like `letter-spacing: var(--caps-tracking)` is judged
-  // by the token's literal value instead of being treated as missing.
-  const cssTokens = extractCssTokens(html);
+  // Token-aware tracking: collect per-scope `--name: value` declarations
+  // from global theme scopes once, then pass them to the tracking helper
+  // so a rule like `letter-spacing: var(--caps-tracking)` is judged by
+  // the token's literal value in every applicable theme instead of being
+  // treated as missing.
+  const tokenScopes = extractCssTokens(html);
   outer: for (const styleBlock of html.matchAll(
     /<style[^>]*>([\s\S]*?)<\/style>/gi,
   )) {
@@ -318,13 +319,25 @@ export function lintArtifact(rawHtml) {
     // no rendered effect.
     const css = (styleBlock[1] ?? '').replace(/\/\*[\s\S]*?\*\//g, '');
     // Match a CSS rule body containing text-transform: uppercase.
-    // Capture the selector + body so we can inspect tracking.
-    const upperRe = /([^{}]*)\{([^}]*text-transform\s*:\s*uppercase[^}]*)\}/gi;
+    // Capture the selector + body so we can inspect tracking. The body
+    // alternation is `[^{}]*` (not `[^}]*`) so the regex matches only
+    // innermost `selector { body }` rules. With `[^}]*`, an outer
+    // `@media (...) { .display { font-size: 48px; text-transform:
+    // uppercase; … } }` matches as a single rule whose selector is the
+    // `@media (...)` wrapper and whose body begins with `.display {
+    // font-size: …` — so `parseDeclarations()` sees the first property
+    // as `.display { font-size`, not `font-size`, the same-rule
+    // font-size is lost, and `hasAdequateUppercaseTracking()` falls
+    // back to the lenient inherited-size path that accepts 1px
+    // tracking on a 48px heading. Restricting the body to `[^{}]*`
+    // makes the regex skip the wrapper and match the inner rule
+    // directly.
+    const upperRe = /([^{}]*)\{([^{}]*text-transform\s*:\s*uppercase[^{}]*)\}/gi;
     let m;
     while ((m = upperRe.exec(css)) !== null) {
       const selector = (m[1] ?? '').trim();
       const body = m[2] ?? '';
-      if (!hasAdequateUppercaseTracking(body, cssTokens)) {
+      if (!hasAdequateUppercaseTracking(body, tokenScopes)) {
         out.push({
           severity: 'P1',
           id: 'all-caps-no-tracking',
@@ -352,7 +365,7 @@ export function lintArtifact(rawHtml) {
     while ((im = inlineStyleRe.exec(html)) !== null) {
       const decl = im[2] ?? '';
       if (!/text-transform\s*:\s*uppercase/i.test(decl)) continue;
-      if (!hasAdequateUppercaseTracking(decl, cssTokens)) {
+      if (!hasAdequateUppercaseTracking(decl, tokenScopes)) {
         out.push({
           severity: 'P1',
           id: 'all-caps-no-tracking',
@@ -586,42 +599,38 @@ function detectBlueCyanTrustGradient(html) {
 //      ≈ 0.0625em, just over the floor) and for any smaller label
 //      (1px / 14px ≈ 0.071em, 1px / 12px ≈ 0.083em).
 //
-// `tokens` (optional) is a map of CSS custom properties harvested from
-// global theme scopes elsewhere in the artifact, keyed by token name to
-// the array of distinct values seen across scopes. When provided,
-// simple `var(--name)` (and `var(--name, fallback)`) references in the
-// body are expanded to their literal token values before the regexes
-// run, so a tokenized rule such as `letter-spacing: var(--caps-tracking)`
-// with `:root { --caps-tracking: 0.08em }` is judged by 0.08em rather
-// than reported as missing tracking. References without a matching
-// token but with an inline fallback (`var(--x, 0.08em)`) resolve to
-// the fallback; unresolved references with no fallback stay in place
-// so the existing "no numeric value" path returns false.
+// `scopes` (optional) is the array of per-scope token records
+// harvested from global theme scopes elsewhere in the artifact (see
+// `extractCssTokens`). Each record carries the scope's per-scope
+// last-write-wins token map plus enough metadata to identify which
+// themes the scope applies to. Per-theme effective maps are built
+// here via `buildResolvedThemes` so simple `var(--name)` (and
+// `var(--name, fallback)`) references in the body resolve to the
+// value the browser would render in that theme — keeping values
+// declared in the same scope paired together. References without a
+// matching token but with an inline fallback (`var(--x, 0.08em)`)
+// resolve to the fallback; unresolved references with no fallback
+// stay in place so the existing "no numeric value" path returns
+// false.
 //
-// When the same token name resolves to multiple distinct values
+// When a token resolves to different values in different themes
 // (e.g. `:root { --caps-tracking: 0.02em }` overridden by
 // `[data-theme="dark"] { --caps-tracking: 0.08em }`), the helper is
-// conservative: it enumerates every applicable value combination and
-// returns true only if EVERY resolution satisfies the 0.06em floor.
-// A theme-scoped override that lifts the value above the floor must
-// not silently rescue a default value that renders below it.
+// conservative: it walks every per-theme map produced by
+// `buildResolvedThemes` and returns true only if EVERY theme satisfies
+// the 0.06em floor. A theme-scoped override that lifts the value
+// above the floor must not silently rescue a default value that
+// renders below it. Crucially, theme maps preserve the scope-internal
+// relationship between tokens, so a paired declaration such as
+// `:root { --display-size: 16px; --caps-tracking: 1px }` is judged
+// against (16px, 1px) — never against the impossible cross-theme
+// pairing (48px, 1px) that an independent per-token cartesian would
+// emit.
 const ROOT_FONT_PX = 16;
-function hasAdequateUppercaseTracking(body, tokens) {
-  const tokensMap = tokens ?? new Map();
-  // Restrict the cartesian to tokens reachable from the body, so a
-  // brand with many unrelated multi-valued tokens does not blow up
-  // the combination count.
-  const relevant = collectRelevantTokens(body, tokensMap);
-  if (relevant.size === 0) {
-    // No global tokens reach the body — but body may still contain
-    // `var(--name, fallback)` refs whose fallback should resolve;
-    // pass through the resolver with an empty token map so fallbacks
-    // collapse to literal values before the regexes run.
-    return isResolvedTrackingAdequate(resolveCssVars(body, new Map()));
-  }
-  const combos = enumerateTokenCombos(relevant);
-  for (const combo of combos) {
-    const resolved = resolveCssVars(body, combo);
+function hasAdequateUppercaseTracking(body, scopes) {
+  const themes = buildResolvedThemes(scopes ?? []);
+  for (const themeMap of themes) {
+    const resolved = resolveCssVars(body, themeMap);
     if (!isResolvedTrackingAdequate(resolved)) return false;
   }
   return true;
@@ -652,53 +661,53 @@ function isResolvedTrackingAdequate(body) {
   return trackingPx >= 1;
 }
 
-// Walk the body's `var(--name)` references transitively through token
-// values, collecting only the tokens that can actually affect the
-// resolved body. Returns a Map<name, string[]> of distinct values.
-function collectRelevantTokens(body, tokens) {
-  const out = new Map();
-  const queue = [];
-  const seen = new Set();
-  for (const m of body.matchAll(/var\(\s*(--[\w-]+)/g)) {
-    if (!seen.has(m[1])) {
-      seen.add(m[1]);
-      queue.push(m[1]);
-    }
+// Build per-theme effective token maps from the per-scope records
+// produced by `extractCssTokens`. A "theme" is the default rendering
+// (no theme attribute set) plus one entry per distinct theme-attribute
+// selector seen across scopes. Default-applying scopes (whose selector
+// list contains a bare `:root` / `html` / `body`) apply to every theme
+// as a baseline; variant scopes apply only to the themes their
+// selector targets. Within a single theme, scopes are applied in
+// source order so the final value reflects the cascade the browser
+// would render.
+//
+// Returned as an array — one map per theme. The lint passes only when
+// every theme map satisfies the rule, so a default-theme value below
+// the floor flags even if a variant overrides it above the floor (and
+// vice versa). Building per-theme maps preserves the scope-internal
+// relationship between tokens, so values declared together in the
+// same scope (e.g. `--display-size` and `--caps-tracking` both on
+// `:root`) stay paired during evaluation. The previous design merged
+// values by token name across scopes and then took an independent
+// per-token cartesian product, which generated impossible cross-theme
+// pairings such as `(default-size, dark-track)` and emitted false
+// positives on legitimate light/dark theme variants.
+function buildResolvedThemes(scopes) {
+  const themeKeys = new Set(['default']);
+  for (const scope of scopes) {
+    for (const k of scope.themeKeys) themeKeys.add(k);
   }
-  while (queue.length > 0) {
-    const name = queue.shift();
-    const values = tokens.get(name);
-    if (!values || values.length === 0) continue;
-    out.set(name, values);
-    for (const value of values) {
-      for (const m of value.matchAll(/var\(\s*(--[\w-]+)/g)) {
-        if (!seen.has(m[1])) {
-          seen.add(m[1]);
-          queue.push(m[1]);
+  const themes = new Map();
+  for (const k of themeKeys) themes.set(k, new Map());
+  for (const scope of scopes) {
+    if (scope.isDefault) {
+      for (const map of themes.values()) {
+        for (const [k, v] of scope.tokens) map.set(k, v);
+      }
+    } else {
+      for (const themeKey of scope.themeKeys) {
+        const map = themes.get(themeKey);
+        if (map) {
+          for (const [k, v] of scope.tokens) map.set(k, v);
         }
       }
     }
   }
-  return out;
+  return Array.from(themes.values());
 }
 
-// Cartesian product over the relevant tokens. Yields one
-// `Map<name, value>` per combination so the existing single-value
-// resolver can be reused unchanged.
-function enumerateTokenCombos(relevant) {
-  let combos = [new Map()];
-  for (const [name, values] of relevant.entries()) {
-    const next = [];
-    for (const c of combos) {
-      for (const v of values) {
-        const copy = new Map(c);
-        copy.set(name, v);
-        next.push(copy);
-      }
-    }
-    combos = next;
-  }
-  return combos;
+function isBareGlobalSelector(s) {
+  return /^(?::root|html|body)$/.test(s);
 }
 
 function findLastDecl(decls, prop) {
@@ -757,30 +766,30 @@ function resolveFontSizePx(decls) {
 // tracking helper resolves only the global-scope tokens artifacts use
 // to express design intent.
 //
-// Returns a `Map<name, string[]>` of distinct values seen across
-// scopes — preserving every conflicting value rather than collapsing
-// to last-write-wins. A scoped override that bumps the token above the
-// 0.06em floor must not silently rescue the default-theme value that
-// renders below it: e.g.
-// `:root { --caps-tracking: 0.02em }` paired with
-// `[data-theme="dark"] { --caps-tracking: 0.08em }` is two distinct
-// values, and the tracking helper enumerates both before deciding the
-// rule passes (it must satisfy the floor under EVERY applicable
-// theme). The canonical single-`:root`-per-token artifact pattern still
-// produces a single-element array, so the existing tests are
-// unaffected.
+// Returns an array of per-scope records:
+//   `{ selectors, tokens, isDefault, themeKeys }`
+// where `tokens` is the per-scope last-write-wins map of CSS custom
+// properties, `selectors` lists the parsed selectors from the rule,
+// `isDefault` is true if any selector is a bare global
+// (`:root` / `html` / `body` without an attribute suffix), and
+// `themeKeys` is the set of theme-attribute selector strings the rule
+// targets. Per-theme effective maps are derived downstream from these
+// records by `buildResolvedThemes`, which preserves the scope-internal
+// relationship between values so a paired declaration like
+// `:root { --display-size: 16px; --caps-tracking: 1px }` is judged
+// as `(16px, 1px)` together, not against the impossible cross-theme
+// pairing `(48px, 1px)` that an independent per-token cartesian over
+// distinct values would emit.
 //
 // Within a single rule body, CSS cascade is last-write-wins: a block
 // like `:root { --caps-tracking: 0.02em; --caps-tracking: 0.08em; }`
 // renders the second value, and the first never reaches any element.
-// Treating both as simultaneous theme alternatives would feed the
-// stale 0.02em into the tracking helper and emit a spurious P1 on
-// what is normal CSS source-order overriding. So per-scope, we keep
-// only the LAST value declared for each token name; only after that
-// per-scope cascade do we merge into the cross-scope distinct-value
-// map.
+// Per-scope, we keep only the LAST value declared for each token
+// name; cross-scope merging happens later in `buildResolvedThemes`,
+// where the same source-order cascade is applied between scopes that
+// target the same theme.
 function extractCssTokens(html) {
-  const tokens = new Map();
+  const scopes = [];
   for (const styleBlock of html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)) {
     const css = (styleBlock[1] ?? '').replace(/\/\*[\s\S]*?\*\//g, '');
     const ruleRe = /([^{}]*)\{([^{}]*)\}/g;
@@ -788,22 +797,24 @@ function extractCssTokens(html) {
     while ((m = ruleRe.exec(css)) !== null) {
       const sel = (m[1] ?? '').trim();
       if (!selectorListIsGlobalThemeScope(sel)) continue;
+      const selectors = sel.split(',').map((s) => s.trim()).filter(Boolean);
+      const isDefault = selectors.some(isBareGlobalSelector);
+      const themeKeys = new Set(
+        selectors.filter((s) => !isBareGlobalSelector(s)),
+      );
       const body = m[2] ?? '';
-      const perScope = new Map();
+      const tokens = new Map();
       for (const decl of body.split(';').map((d) => d.trim()).filter(Boolean)) {
         const dm = /^(--[\w-]+)\s*:\s*(.+)$/.exec(decl);
         if (dm) {
-          perScope.set(dm[1], dm[2].trim());
+          tokens.set(dm[1], dm[2].trim());
         }
       }
-      for (const [name, value] of perScope.entries()) {
-        const arr = tokens.get(name) ?? [];
-        if (!arr.includes(value)) arr.push(value);
-        tokens.set(name, arr);
-      }
+      if (tokens.size === 0) continue;
+      scopes.push({ selectors, tokens, isDefault, themeKeys });
     }
   }
-  return tokens;
+  return scopes;
 }
 
 // Replace simple `var(--name)` (and `var(--name, fallback)`) references

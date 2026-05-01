@@ -1067,6 +1067,97 @@ describe('all-caps-no-tracking', () => {
     const findings = lintArtifact(html);
     expect(findings.find((f) => f.id === 'all-caps-no-tracking')).toBeUndefined();
   });
+
+  it('flags a 48px heading with 1px tracking nested inside @media (innermost-rule scan)', () => {
+    // Regression: `upperRe` used `[^}]*` for the rule body, so an
+    // outer `@media (...) { .display { font-size: 48px; text-transform:
+    // uppercase; letter-spacing: 1px; } }` matched as one rule whose
+    // selector was `@media (...)` and whose body began with
+    // `.display { font-size: 48px`. `parseDeclarations` then read the
+    // first property as `.display { font-size`, lost the same-rule
+    // font-size, and `hasAdequateUppercaseTracking` fell back to the
+    // lenient inherited-size path that accepts 1px on a 48px heading.
+    // Restricting the body alternation to `[^{}]*` makes the regex
+    // skip the `@media` wrapper and match the inner rule directly,
+    // restoring the strict per-element 0.06em floor (48 * 0.06 =
+    // 2.88px), so 1px tracking is correctly flagged.
+    const html = `
+      <style>
+        @media (min-width: 768px) {
+          .display { font-size: 48px; text-transform: uppercase; letter-spacing: 1px; }
+        }
+      </style>
+      <h1 class="display">Headline</h1>
+    `;
+    const findings = lintArtifact(html);
+    expect(findings.find((f) => f.id === 'all-caps-no-tracking')).toBeDefined();
+  });
+
+  it('flags a 48px heading with 1px tracking nested inside @supports', () => {
+    // Same regression reproduced through @supports, the other
+    // common at-rule wrapper that previously hid noncompliant
+    // tracking from the lint.
+    const html = `
+      <style>
+        @supports (color: oklch(0 0 0)) {
+          .display { font-size: 48px; text-transform: uppercase; letter-spacing: 1px; }
+        }
+      </style>
+      <h1 class="display">Headline</h1>
+    `;
+    const findings = lintArtifact(html);
+    expect(findings.find((f) => f.id === 'all-caps-no-tracking')).toBeDefined();
+  });
+
+  it('passes paired light/dark token values that are each compliant in their own scope', () => {
+    // Regression: `extractCssTokens` merged token values by name across
+    // scopes (`--caps-tracking = [1px, 3px]`, `--display-size = [16px,
+    // 48px]`), and the tracking helper then took an independent
+    // per-token cartesian product. The impossible cross-theme pairing
+    // `(--display-size: 48px, --caps-tracking: 1px)` failed the
+    // 0.06em floor (48 * 0.06 = 2.88px > 1px) and emitted a false
+    // `all-caps-no-tracking` even though the artifact is compliant
+    // under both real themes:
+    //   default: 16px size + 1px tracking — 1 / 16 ≈ 0.0625em ≥ 0.06em
+    //   dark:    48px size + 3px tracking — 3 / 48 ≈ 0.0625em ≥ 0.06em
+    // The fix preserves per-scope token maps and evaluates per-theme
+    // effective maps so paired declarations stay paired.
+    const html = `
+      <style>
+        :root { --caps-tracking: 1px; --display-size: 16px; }
+        [data-theme="dark"] { --caps-tracking: 3px; --display-size: 48px; }
+        .display {
+          font-size: var(--display-size);
+          text-transform: uppercase;
+          letter-spacing: var(--caps-tracking);
+        }
+      </style>
+      <h1 class="display">Headline</h1>
+    `;
+    const findings = lintArtifact(html);
+    expect(findings.find((f) => f.id === 'all-caps-no-tracking')).toBeUndefined();
+  });
+
+  it('flags paired theme tokens when one scope is internally noncompliant', () => {
+    // The per-theme evaluation must not silently rescue a scope whose
+    // own paired values fall below the floor. Default theme here is
+    // 48px size + 1px tracking — 1 / 48 ≈ 0.021em, well below the
+    // 0.06em rule — and must flag, even though the dark scope is
+    // internally compliant.
+    const html = `
+      <style>
+        :root { --caps-tracking: 1px; --display-size: 48px; }
+        [data-theme="dark"] { --caps-tracking: 3px; --display-size: 48px; }
+        .display {
+          font-size: var(--display-size);
+          text-transform: uppercase;
+          letter-spacing: var(--caps-tracking);
+        }
+      </style>
+    `;
+    const findings = lintArtifact(html);
+    expect(findings.find((f) => f.id === 'all-caps-no-tracking')).toBeDefined();
+  });
 });
 
 describe('trust-gradient', () => {
