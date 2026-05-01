@@ -8,7 +8,10 @@ will read it as part of its system prompt.
 
 - **`default/`** — Neutral Modern. Hand-authored starter for the OD spec.
 - **`warm-editorial/`** — Warm Editorial. Hand-authored serif starter.
-- **69 product systems**, imported from
+- **57 design skills**, sourced from
+  [`bergside/awesome-design-skills`](https://github.com/bergside/awesome-design-skills)
+  and added directly as normalized 9-section `DESIGN.md` files.
+- **70 product systems**, imported from
   [`VoltAgent/awesome-design-md`](https://github.com/VoltAgent/awesome-design-md)
   (the [`getdesign@latest`](https://www.npmjs.com/package/getdesign) npm
   package, MIT-licensed). One folder per brand:
@@ -22,7 +25,7 @@ will read it as part of its system prompt.
   | Design & Creative | airtable · clay · figma · framer · miro · webflow |
   | Fintech & Crypto | binance · coinbase · kraken · mastercard · revolut · stripe · wise |
   | E-Commerce & Retail | airbnb · meta · nike · shopify · starbucks |
-  | Media & Consumer | apple · ibm · nvidia · pinterest · playstation · spacex · spotify · theverge · uber · vodafone · wired |
+  | Media & Consumer | apple · ibm · nvidia · pinterest · playstation · spacex · spotify · theverge · uber · vodafone · wired · xiaohongshu |
   | Automotive | bmw · bugatti · ferrari · lamborghini · renault · tesla |
 
 Folders use ASCII slugs — dotted brands are normalized (`linear.app` →
@@ -55,7 +58,7 @@ any new label and it lands at the bottom of the dropdown.
 
 ## Refreshing the bundled set
 
-The 69 product systems are pulled from the upstream npm package. To re-sync
+The 70 product systems are pulled from the upstream npm package. To re-sync
 to the latest hashes:
 
 ```bash
@@ -69,7 +72,10 @@ For now, the original importer lives at the top of the
 
 ## Attribution
 
-The 69 product systems are sourced from
+The 70 product systems are sourced from
 [`VoltAgent/awesome-design-md`](https://github.com/VoltAgent/awesome-design-md)
 (MIT, © VoltAgent contributors). They are aesthetic *inspirations* — none
 of them are official assets of the brands they reference.
+
+The 57 design skills are sourced from
+[`bergside/awesome-design-skills`](https://github.com/bergside/awesome-design-skills).

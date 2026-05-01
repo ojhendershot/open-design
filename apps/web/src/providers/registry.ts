@@ -6,6 +6,8 @@ import type {
 } from '@open-design/contracts';
 import type {
   AgentInfo,
+  AppVersionInfo,
+  AppVersionResponse,
   ChatAttachment,
   DeployConfigResponse,
   DeployProjectFileResponse,
@@ -159,6 +161,29 @@ export async function disconnectConnector(connectorId: string): Promise<Connecto
     if (!resp.ok) return null;
     const json = (await resp.json()) as ConnectorDetailResponse;
     return json.connector ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function isAppVersionInfo(value: unknown): value is AppVersionInfo {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<AppVersionInfo>;
+  return (
+    typeof candidate.version === 'string' &&
+    typeof candidate.channel === 'string' &&
+    typeof candidate.packaged === 'boolean' &&
+    typeof candidate.platform === 'string' &&
+    typeof candidate.arch === 'string'
+  );
+}
+
+export async function fetchAppVersionInfo(): Promise<AppVersionInfo | null> {
+  try {
+    const resp = await fetch('/api/version');
+    if (!resp.ok) return null;
+    const json = (await resp.json()) as Partial<AppVersionResponse>;
+    return isAppVersionInfo(json.version) ? json.version : null;
   } catch {
     return null;
   }
@@ -427,12 +452,37 @@ export async function fetchProjectFilePreview(
 export async function fetchProjectFileText(
   projectId: string,
   name: string,
+  options?: { cache?: RequestCache; cacheBustKey?: string | number },
 ): Promise<string | null> {
+  const url = projectFileUrl(projectId, name);
+  const cacheBustKey = options?.cacheBustKey;
+  const requestUrl =
+    cacheBustKey == null
+      ? url
+      : `${url}${url.includes('?') ? '&' : '?'}cacheBust=${encodeURIComponent(String(cacheBustKey))}`;
+  const init: RequestInit = {};
+  if (options?.cache) init.cache = options.cache;
+
   try {
-    const resp = await fetch(projectFileUrl(projectId, name));
-    if (!resp.ok) return null;
+    const resp = await fetch(requestUrl, init);
+    if (!resp.ok) {
+      console.warn('[fetchProjectFileText] failed:', {
+        name,
+        projectId,
+        status: resp.status,
+        statusText: resp.statusText,
+        url: requestUrl,
+      });
+      return null;
+    }
     return await resp.text();
-  } catch {
+  } catch (err) {
+    console.warn('[fetchProjectFileText] failed:', {
+      error: err,
+      name,
+      projectId,
+      url: requestUrl,
+    });
     return null;
   }
 }

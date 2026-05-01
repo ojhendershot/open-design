@@ -9,8 +9,11 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { de } from './locales/de';
 import { en } from './locales/en';
+import { esES } from './locales/es-ES';
 import { fa } from './locales/fa';
+import { ja } from './locales/ja';
 import { ptBR } from './locales/pt-BR';
 import { ru } from './locales/ru';
 import { zhCN } from './locales/zh-CN';
@@ -24,11 +27,14 @@ type DictKey = keyof Dict;
 
 const DICTS: Record<Locale, Dict> = {
   'en': en,
+  'de': de,
   'zh-CN': zhCN,
   'zh-TW': zhTW,
   'pt-BR': ptBR,
+  'es-ES': esES,
   'ru': ru,
   'fa': fa,
+  'ja': ja,
 };
 
 const LS_KEY = 'open-design:locale';

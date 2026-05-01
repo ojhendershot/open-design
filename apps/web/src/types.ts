@@ -1,5 +1,7 @@
 import type {
   AgentInfo,
+  AppVersionInfo,
+  AppVersionResponse,
   AudioKind,
   ChatAttachment,
   ChatMessage,
@@ -195,6 +197,8 @@ export interface PromptTemplateDetail extends PromptTemplateSummary {
 
 export type {
   AgentInfo,
+  AppVersionInfo,
+  AppVersionResponse,
   AudioKind,
   Conversation,
   DeployConfigResponse,

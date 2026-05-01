@@ -362,7 +362,9 @@ async function writeAssembledApp(
   await runNpmInstall(paths.assembledAppRoot);
 }
 
-function resolveElectronBuilderTargets(to: ToolPackBuildOutput): ElectronBuilderTarget[] {
+type MacBuildOutput = Extract<ToolPackBuildOutput, "all" | "app" | "dmg" | "zip">;
+
+function resolveElectronBuilderTargets(to: MacBuildOutput): ElectronBuilderTarget[] {
   switch (to) {
     case "app":
       return ["dir"];
@@ -553,7 +555,7 @@ export async function packMac(config: ToolPackConfig): Promise<MacPackResult> {
   await copyResourceTree(config, paths);
   const tarballs = await collectWorkspaceTarballs(config, paths);
   await writeAssembledApp(config, paths, tarballs);
-  await runElectronBuilder(config, paths, resolveElectronBuilderTargets(config.to));
+  await runElectronBuilder(config, paths, resolveElectronBuilderTargets(config.to as MacBuildOutput));
   await clearQuarantine(paths.appPath);
   const artifacts = await finalizeMacArtifacts(config, paths);
 

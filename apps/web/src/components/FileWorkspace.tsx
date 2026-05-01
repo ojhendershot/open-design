@@ -453,7 +453,6 @@ export function FileWorkspace({
         type="file"
         multiple
         data-testid="design-files-upload-input"
-        accept="image/*"
         style={{ display: 'none' }}
         onChange={handleFilePicked}
       />
