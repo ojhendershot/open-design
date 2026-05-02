@@ -137,6 +137,8 @@ export const esES: Dict = {
   'promptTemplates.openSource': 'Ver original',
   'promptTemplates.openFullscreen': 'Abrir vista previa en pantalla completa',
   'promptTemplates.closeFullscreen': 'Cerrar vista previa en pantalla completa',
+  'promptTemplates.allSources': 'Todas las fuentes',
+  'promptTemplates.sourceFilterAria': 'Filtrar por fuente',
 
   'newproj.tabPrototype': 'Prototipo',
   'newproj.tabDeck': 'Presentación',

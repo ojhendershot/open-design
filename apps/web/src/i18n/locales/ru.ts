@@ -135,6 +135,8 @@ export const ru: Dict = {
   'promptTemplates.openSource': 'Открыть оригинал',
   'promptTemplates.openFullscreen': 'Открыть полноэкранный предпросмотр',
   'promptTemplates.closeFullscreen': 'Закрыть полноэкранный предпросмотр',
+  'promptTemplates.allSources': 'Все источники',
+  'promptTemplates.sourceFilterAria': 'Фильтр по источнику',
 
   'newproj.tabPrototype': 'Прототип',
   'newproj.tabDeck': 'Презентация',

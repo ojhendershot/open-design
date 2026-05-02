@@ -135,6 +135,8 @@ export const ptBR: Dict = {
   'promptTemplates.openSource': 'Ver original',
   'promptTemplates.openFullscreen': 'Abrir prévia em tela cheia',
   'promptTemplates.closeFullscreen': 'Fechar prévia em tela cheia',
+  'promptTemplates.allSources': 'Todas as fontes',
+  'promptTemplates.sourceFilterAria': 'Filtrar por fonte',
 
   'newproj.tabPrototype': 'Protótipo',
   'newproj.tabDeck': 'Apresentação',

@@ -137,6 +137,8 @@ export const fa: Dict = {
   'promptTemplates.openSource': 'دیدن منبع اصلی',
   'promptTemplates.openFullscreen': 'باز کردن پیش‌نمایش تمام‌صفحه',
   'promptTemplates.closeFullscreen': 'بستن پیش‌نمایش تمام‌صفحه',
+  'promptTemplates.allSources': 'همهٔ منابع',
+  'promptTemplates.sourceFilterAria': 'فیلتر بر اساس منبع',
 
   'newproj.tabPrototype': 'نمونه اولیه',
   'newproj.tabDeck': 'ارائه اسلاید',
