@@ -29,6 +29,7 @@ import { importClaudeDesignZip } from './claude-design-import.js';
 import { listPromptTemplates, readPromptTemplate } from './prompt-templates.js';
 import { buildDocumentPreview } from './document-preview.js';
 import { lintArtifact, renderFindingsForAgent } from './lint-artifact.js';
+import { loadCraftSections } from './craft.js';
 import { generateMedia } from './media.js';
 import {
   AUDIO_DURATIONS_SEC,
@@ -52,6 +53,7 @@ import {
   writeProjectFile,
 } from './projects.js';
 import { validateArtifactManifestInput } from './artifact-manifest.js';
+import { readCurrentAppVersionInfo } from './app-version.js';
 import {
   deleteConversation,
   deleteProject as dbDeleteProject,
@@ -126,9 +128,18 @@ function resolveProcessResourcesPath() {
   // Infer the macOS app Resources directory from that bundled Node path.
   const resourcesMarker = `${path.sep}Contents${path.sep}Resources${path.sep}`;
   const markerIndex = process.execPath.indexOf(resourcesMarker);
-  if (markerIndex === -1) return null;
+  if (markerIndex !== -1) {
+    return process.execPath.slice(0, markerIndex + resourcesMarker.length - 1);
+  }
 
-  return process.execPath.slice(0, markerIndex + resourcesMarker.length - 1);
+  const normalizedExecPath = process.execPath.toLowerCase();
+  const windowsResourceBinMarker = `${path.sep}resources${path.sep}open-design${path.sep}bin${path.sep}`.toLowerCase();
+  const windowsMarkerIndex = normalizedExecPath.indexOf(windowsResourceBinMarker);
+  if (windowsMarkerIndex !== -1) {
+    return process.execPath.slice(0, windowsMarkerIndex + `${path.sep}resources`.length);
+  }
+
+  return null;
 }
 
 export function resolveDaemonResourceRoot({
@@ -169,6 +180,11 @@ const DESIGN_SYSTEMS_DIR = resolveDaemonResourceDir(
   DAEMON_RESOURCE_ROOT,
   'design-systems',
   path.join(PROJECT_ROOT, 'design-systems'),
+);
+const CRAFT_DIR = resolveDaemonResourceDir(
+  DAEMON_RESOURCE_ROOT,
+  'craft',
+  path.join(PROJECT_ROOT, 'craft'),
 );
 const FRAMES_DIR = resolveDaemonResourceDir(
   DAEMON_RESOURCE_ROOT,
@@ -455,6 +471,7 @@ export function createSseResponse(res, { keepAliveIntervalMs = SSE_KEEPALIVE_INT
 }
 
 export async function startServer({ port = 7456, returnServer = false } = {}) {
+  let resolvedPort = port;
   const app = express();
   app.use(express.json({ limit: '4mb' }));
   const db = openDatabase(PROJECT_ROOT, { dataDir: RUNTIME_DATA_DIR });
@@ -472,8 +489,14 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     app.use(express.static(STATIC_DIR));
   }
 
-  app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, version: '0.1.0' });
+  app.get('/api/health', async (_req, res) => {
+    const versionInfo = await readCurrentAppVersionInfo();
+    res.json({ ok: true, version: versionInfo.version });
+  });
+
+  app.get('/api/version', async (_req, res) => {
+    const version = await readCurrentAppVersionInfo();
+    res.json({ version });
   });
 
   // ---- Projects (DB-backed) -------------------------------------------------
@@ -1343,7 +1366,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
   });
 
   app.post('/api/projects/:id/media/generate', async (req, res) => {
-    if (!isLocalSameOrigin(req, port)) {
+    if (!isLocalSameOrigin(req, resolvedPort)) {
       return res.status(403).json({
         error: 'cross-origin request rejected: media generation is restricted to the local UI / CLI',
       });
@@ -1425,7 +1448,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
   });
 
   app.post('/api/media/tasks/:id/wait', async (req, res) => {
-    if (!isLocalSameOrigin(req, port)) {
+    if (!isLocalSameOrigin(req, resolvedPort)) {
       return res.status(403).json({ error: 'cross-origin request rejected' });
     }
     const taskId = req.params.id;
@@ -1475,7 +1498,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
   });
 
   app.get('/api/projects/:id/media/tasks', (req, res) => {
-    if (!isLocalSameOrigin(req, port)) {
+    if (!isLocalSameOrigin(req, resolvedPort)) {
       return res.status(403).json({ error: 'cross-origin request rejected' });
     }
     const projectId = req.params.id;
@@ -1551,12 +1574,24 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     let skillBody;
     let skillName;
     let skillMode;
+    let skillCraftRequires = [];
     if (effectiveSkillId) {
       const skill = (await listSkills(SKILLS_DIR)).find((s) => s.id === effectiveSkillId);
       if (skill) {
         skillBody = skill.body;
         skillName = skill.name;
         skillMode = skill.mode;
+        if (Array.isArray(skill.craftRequires)) skillCraftRequires = skill.craftRequires;
+      }
+    }
+
+    let craftBody;
+    let craftSections;
+    if (skillCraftRequires.length > 0) {
+      const loaded = await loadCraftSections(CRAFT_DIR, skillCraftRequires);
+      if (loaded.body) {
+        craftBody = loaded.body;
+        craftSections = loaded.sections;
       }
     }
 
@@ -1579,6 +1614,8 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
       skillMode,
       designSystemBody,
       designSystemTitle,
+      craftBody,
+      craftSections,
       metadata,
       template,
     });
@@ -1815,7 +1852,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
       process.platform === 'win32' && CMD_BAT_RE.test(resolvedBin);
     const odMediaEnv = {
       OD_BIN,
-      OD_DAEMON_URL: `http://127.0.0.1:${port}`,
+      OD_DAEMON_URL: `http://127.0.0.1:${resolvedPort}`,
       ...(typeof projectId === 'string' && projectId && cwd
         ? {
             OD_PROJECT_ID: projectId,
@@ -1847,7 +1884,15 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
       // OS command-line length limit (Windows CreateProcess caps at ~32 KB)
       // which causes `spawn ENAMETOOLONG` for any non-trivial prompt.
       const stdinMode = def.promptViaStdin || def.streamFormat === 'acp-json-rpc' || needsFilePrompt ? 'pipe' : 'ignore';
-      child = spawn(resolvedBin, args, {
+      // With shell:true on Windows, Node.js builds `cmd.exe /d /s /c "<bin> <args>"`
+      // and escapes argv items but does NOT quote the bin path itself. If
+      // `resolvedBin` contains spaces (e.g. an npm shim under a user directory
+      // like `C:\Users\First Last\AppData\...\claude.CMD`), cmd.exe parses up
+      // to the first space as the command and the rest as arguments, yielding
+      // "The system cannot find the file 'C:\Users\First'". Quote the bin so
+      // the entire path is treated as one token.
+      const spawnBin = useShell ? `"${resolvedBin}"` : resolvedBin;
+      child = spawn(spawnBin, args, {
         env: { ...process.env, ...odMediaEnv },
         stdio: [stdinMode, 'pipe', 'pipe'],
         cwd: cwd || undefined,
@@ -2252,6 +2297,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     const server = app.listen(port, '127.0.0.1', () => {
       const address = server.address();
       const actualPort = typeof address === 'object' && address ? address.port : port;
+      resolvedPort = actualPort;
       const url = `http://127.0.0.1:${actualPort}`;
       resolve(returnServer ? { url, server } : url);
     });
