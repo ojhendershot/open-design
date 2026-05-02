@@ -120,8 +120,10 @@ async function runMedia(args) {
     voice: flags.voice,
     audioKind: flags['audio-kind'],
   };
-  if (flags.length != null) body.length = Number(flags.length);
-  if (flags.duration != null) body.duration = Number(flags.duration);
+  if (flags.length != null) body.length = parsePositiveNumber(flags.length, '--length');
+  if (flags.duration != null) {
+    body.duration = parsePositiveNumber(flags.duration, '--duration');
+  }
 
   const url = `${daemonUrl.replace(/\/$/, '')}/api/projects/${encodeURIComponent(projectId)}/media/generate`;
   let resp;
@@ -142,6 +144,20 @@ async function runMedia(args) {
   }
   // Print the JSON response as one line so the agent can parse it.
   process.stdout.write(text.trim() + '\n');
+}
+
+// Reject `--length=banana` and `--length=-5` up front so the daemon never
+// sees `NaN`/negatives in the request body. The dispatcher checks
+// `typeof === 'number'` but `Number('banana')` IS `'number'` (NaN), so
+// without this guard a junk flag would flow through and either render
+// 0-second media or trip an opaque downstream error.
+function parsePositiveNumber(raw, flagName) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    console.error(`${flagName} must be a positive number, got: ${raw}`);
+    process.exit(2);
+  }
+  return n;
 }
 
 function parseFlags(argv) {

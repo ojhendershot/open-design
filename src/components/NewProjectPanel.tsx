@@ -362,15 +362,22 @@ function pickDefaultSkill(
   skills: SkillSummary[],
   surface: Surface,
 ): string | null {
-  // Prefer a skill that explicitly declares `od.surface: <surface>` AND
-  // matches the corresponding mode. Fall back to mode-only match so even
-  // legacy skills authored without `surface` still get picked up.
-  const surfaceMatch = skills.find(
+  // Prefer a skill that explicitly declares both `od.surface: <surface>`
+  // AND a matching mode. Fall back to either-field match so a legacy
+  // skill authored without `surface` (mode-only) AND a mis-authored
+  // skill where `surface` and `mode` disagree (e.g. `mode: prototype,
+  // surface: image` from a copy-paste error) both still resolve to the
+  // user's chosen surface — the picker is a default-helper, not a
+  // validator, so being generous here beats silently returning null and
+  // forcing the user to scroll through every skill.
+  const exact = skills.find(
     (s) => s.surface === surface && s.mode === surface,
   );
-  if (surfaceMatch) return surfaceMatch.id;
-  const modeMatch = skills.find((s) => s.mode === surface);
-  if (modeMatch) return modeMatch.id;
+  if (exact) return exact.id;
+  const eitherField = skills.find(
+    (s) => s.surface === surface || s.mode === surface,
+  );
+  if (eitherField) return eitherField.id;
   return null;
 }
 

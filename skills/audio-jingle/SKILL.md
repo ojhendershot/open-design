@@ -57,6 +57,15 @@ audio-jingle/
 `voice`. Branch by `audioKind` and use the values verbatim — no
 clarifying form unless something is marked `(unknown — ask)`.
 
+**Tiebreaker (metadata vs the user's current message).** Metadata is
+authoritative. Override only if the user's *current chat message*
+explicitly contradicts a field — e.g. metadata pins `audioModel:
+suno-v5` but the user just said "switch to Udio" or "make it Udio
+style". In that case use the contradiction (and call it out in your
+hand-off so the user can re-pin metadata if they want it sticky). A
+generic stylistic note ("more upbeat", "darker") is **not** a
+contradiction — keep the pinned model.
+
 ### Step 1 — Plan
 
 **Music**

@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../i18n';
+import {
+  DEFAULT_AUDIO_MODEL,
+  DEFAULT_IMAGE_MODEL,
+  DEFAULT_VIDEO_MODEL,
+} from '../media/models';
 import type {
   AgentInfo,
   AppConfig,
@@ -330,18 +335,19 @@ function metadataForSkill(skill: SkillSummary): ProjectMetadata {
         typeof skill.animations === 'boolean' ? skill.animations : false,
     };
   }
-  // Media surfaces — defaults match the new-project form so the
-  // 'Use this prompt' fast-create produces sensible metadata even
-  // when the SKILL.md doesn't pin a specific model. Skills can pin
-  // a model later via `od.image_model` etc.; for now we fall back to
-  // the surface's first default.
+  // Media surfaces — pull defaults from the shared media-models registry
+  // (src/media/models.ts) so when models.data.json reorders or renames an
+  // ID, fast-create projects don't get stamped with a stale literal that
+  // the daemon's surface-aware validator later rejects. Skills can still
+  // pin a specific model later via `od.image_model` etc.; this is the
+  // fallback path when SKILL.md doesn't.
   if (kind === 'image') {
-    return { kind, imageModel: 'gpt-image-2', imageAspect: '1:1' };
+    return { kind, imageModel: DEFAULT_IMAGE_MODEL, imageAspect: '1:1' };
   }
   if (kind === 'video') {
     return {
       kind,
-      videoModel: 'seedance-2',
+      videoModel: DEFAULT_VIDEO_MODEL,
       videoLength: 5,
       videoAspect: '16:9',
     };
@@ -350,7 +356,7 @@ function metadataForSkill(skill: SkillSummary): ProjectMetadata {
     return {
       kind,
       audioKind: 'music',
-      audioModel: 'suno-v5',
+      audioModel: DEFAULT_AUDIO_MODEL.music,
       audioDuration: 30,
     };
   }

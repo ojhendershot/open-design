@@ -16,7 +16,7 @@
 // without API keys — real provider integrations slot in later by
 // replacing the handler.
 
-import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, open, stat } from 'node:fs/promises';
 import path from 'node:path';
 import {
   findMediaModel,
@@ -38,6 +38,23 @@ const DEFAULT_OUTPUT_BY_SURFACE = {
 
 const SURFACES = new Set(['image', 'video', 'audio']);
 const AUDIO_KINDS = new Set(['music', 'speech', 'sfx']);
+
+// Per-surface filename extension allowlist. The agent can pass --output with
+// any of these and the dispatcher routes the right kind/mime back through
+// FileViewer. Anything else (or a missing extension) is normalised to the
+// surface default below; otherwise a stray --output poster.html on an image
+// surface would land successfully but FileViewer would route it as HTML.
+const ALLOWED_EXT_BY_SURFACE = {
+  image: new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif', '.svg']),
+  video: new Set(['.mp4', '.m4v', '.webm', '.mov']),
+  audio: new Set(['.mp3', '.wav', '.ogg', '.oga', '.m4a', '.flac', '.aac']),
+};
+
+const DEFAULT_EXT_BY_SURFACE = {
+  image: '.png',
+  video: '.mp4',
+  audio: '.mp3',
+};
 
 // Defensive caps on agent-supplied strings. The /api/projects/:id/media/generate
 // route also caps the JSON body via express.json's limit, but a runaway agent
@@ -133,18 +150,11 @@ export async function generateMedia(args) {
   }
 
   const dir = await ensureProject(projectsRoot, projectId);
-  const requestedName = sanitizeName(
-    output || autoOutputName(surface, model, audioKind),
+  const requestedName = normaliseOutputForSurface(
+    sanitizeName(output || autoOutputName(surface, model, audioKind)),
+    surface,
   );
-  // Collision-safe filename: if the agent re-runs `od media generate
-  // --output poster.png` twice, we don't silently overwrite the first
-  // generation. We auto-suffix `poster.png` → `poster-2.png` and surface
-  // the actual chosen name in the response so the agent narrates the
-  // right file. The contract still recommends explicit unique names —
-  // this is a safety net, not a license to be sloppy.
-  const safeOut = await uniqueFilename(dir, requestedName);
-  const target = path.join(dir, safeOut);
-  await mkdir(path.dirname(target), { recursive: true });
+  await mkdir(dir, { recursive: true });
 
   const ctx = {
     surface,
@@ -160,14 +170,21 @@ export async function generateMedia(args) {
   let bytes;
   let providerNote;
   if (surface === 'image') {
-    ({ bytes, providerNote } = await renderImage(ctx, safeOut));
+    ({ bytes, providerNote } = await renderImage(ctx, requestedName));
   } else if (surface === 'video') {
-    ({ bytes, providerNote } = await renderVideo(ctx, safeOut));
+    ({ bytes, providerNote } = await renderVideo(ctx, requestedName));
   } else {
-    ({ bytes, providerNote } = await renderAudio(ctx, safeOut));
+    ({ bytes, providerNote } = await renderAudio(ctx, requestedName));
   }
 
-  await writeFile(target, bytes);
+  // Atomic collision-safe write. If two concurrent `od media generate`
+  // calls pick the same name in the same millisecond, exclusive-create
+  // (`wx`) makes sure only one wins each slot — the loser sees EEXIST
+  // and tries the next suffix. Replaces the prior check-then-write that
+  // had a TOCTOU race in the millisecond between `pathExists` and
+  // `writeFile`.
+  const safeOut = await writeUniquely(dir, requestedName, bytes);
+  const target = path.join(dir, safeOut);
   const st = await stat(target);
   return {
     name: safeOut,
@@ -179,6 +196,28 @@ export async function generateMedia(args) {
     surface,
     providerNote,
   };
+}
+
+// Make sure the agent-supplied --output extension matches the requested
+// surface. Otherwise the bytes land successfully but `kindFor`/`mimeFor`
+// (which key off extension) route the file through the wrong viewer:
+// `--surface image --output poster` would return kind=binary, and
+// `--output poster.html` would return kind=html even though we wrote
+// PNG/SVG bytes. Missing extensions get the surface default; mismatched
+// extensions reject with a clear error so the agent re-plans rather
+// than narrating "I generated poster.html" for a PNG payload.
+function normaliseOutputForSurface(name, surface) {
+  const allowed = ALLOWED_EXT_BY_SURFACE[surface];
+  if (!allowed) return name;
+  const ext = path.extname(name).toLowerCase();
+  if (!ext) return name + DEFAULT_EXT_BY_SURFACE[surface];
+  if (!allowed.has(ext)) {
+    const list = [...allowed].join(', ');
+    throw new Error(
+      `output extension "${ext}" is not valid for surface "${surface}". Use one of: ${list}.`,
+    );
+  }
+  return name;
 }
 
 function autoOutputName(surface, model, audioKind) {
@@ -197,33 +236,44 @@ function defaultAspectFor(surface) {
   return undefined;
 }
 
-// Auto-suffix on collision so a second `od media generate --output X.png`
-// doesn't overwrite the first generation. Returns the original name when
-// nothing exists at that path; otherwise tries `name-2.ext`, `name-3.ext`,
-// … until an unused slot opens (or we hit the safety cap).
-async function uniqueFilename(dir, name) {
-  const target = path.join(dir, name);
-  if (!(await pathExists(target))) return name;
+// Atomic collision-safe write. Tries the requested name first via
+// exclusive-create (`wx`); on EEXIST falls through to `name-2.ext`,
+// `name-3.ext`, … each time exclusive-creating, so two concurrent
+// callers can't both think the same slot is free. Returns the actual
+// name written so the caller can echo it back to the agent.
+async function writeUniquely(dir, name, bytes) {
   const dot = name.lastIndexOf('.');
   const stem = dot > 0 ? name.slice(0, dot) : name;
   const ext = dot > 0 ? name.slice(dot) : '';
-  for (let i = 2; i <= MAX_FILENAME_COLLISION_TRIES; i++) {
-    const candidate = `${stem}-${i}${ext}`;
-    if (!(await pathExists(path.join(dir, candidate)))) return candidate;
+  for (let i = 1; i <= MAX_FILENAME_COLLISION_TRIES; i++) {
+    const candidate = i === 1 ? name : `${stem}-${i}${ext}`;
+    const written = await tryExclusiveWrite(path.join(dir, candidate), bytes);
+    if (written) return candidate;
   }
-  // Extreme fallback: append a base36 timestamp. This effectively never
-  // collides; we only get here if 100 numbered variants already exist.
-  return `${stem}-${Date.now().toString(36)}${ext}`;
+  // Extreme fallback: append a base36 timestamp. Effectively never
+  // collides; we only get here if 100 numbered variants already exist
+  // AND the timestamp slot also races. The final write below is also
+  // exclusive so we still cannot silently overwrite.
+  const candidate = `${stem}-${Date.now().toString(36)}${ext}`;
+  const written = await tryExclusiveWrite(path.join(dir, candidate), bytes);
+  if (written) return candidate;
+  throw new Error(`could not find a free filename slot for ${name}`);
 }
 
-async function pathExists(p) {
+async function tryExclusiveWrite(target, bytes) {
+  let fh;
   try {
-    await stat(p);
-    return true;
+    fh = await open(target, 'wx');
   } catch (err) {
-    if (err && err.code === 'ENOENT') return false;
+    if (err && err.code === 'EEXIST') return false;
     throw err;
   }
+  try {
+    await fh.writeFile(bytes);
+  } finally {
+    await fh.close();
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------

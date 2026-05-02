@@ -716,10 +716,11 @@ export async function startServer({ port = 7456 } = {}) {
     });
   });
 
-  // The 64kb body-size cap for this route is applied by the dispatching
-  // JSON middleware in startServer() above, before request parsing. We
-  // also cap individual string lengths inside generateMedia() as a second
-  // line of defence against a runaway prompt slipping under the JSON cap.
+  // Body size cap: see the `jsonSmall` middleware ~600 lines up (search for
+  // `const jsonSmall = express.json({ limit: '64kb' })`), applied per-route
+  // before parsing. We also cap individual string lengths inside
+  // generateMedia() as a second line of defence against a runaway prompt
+  // slipping under the JSON cap.
   app.post('/api/projects/:id/media/generate', async (req, res) => {
     try {
       const projectId = req.params.id;

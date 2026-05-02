@@ -64,6 +64,17 @@ Write the shotlist BEFORE calling the model:
 | Motion | What moves, at what pace? Subject motion vs camera motion. |
 | Sound | Ambient bed? (only if the model supports audio) |
 
+**Motion budget (load-bearing).** Current text-to-video models
+(Seedance 2, Kling 3 / 4, Veo 3, Sora 2) handle **1–2 distinct motion
+elements** per shot reliably. A third element starts to drift and a
+fourth almost always freezes one of the subjects or warps the scene.
+"Character walks left while car drives right while leaves blow while
+camera pushes in" is a four-element ask — pick the *one* motion that
+carries the idea (usually the subject) and let the rest stay still.
+If the user really wants multi-element motion, suggest splitting it
+into two shots and stitching them in a hyperframes / interactive-video
+project.
+
 Show this to the user as a one-sentence plan before dispatching — they
 can redirect cheaply.
 

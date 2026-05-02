@@ -47,7 +47,9 @@ write image/video/audio bytes by hand. Always call out to the dispatcher.
 
 ### Environment the daemon injected for you
 
-The daemon spawns you with these env vars set (verify with \`echo\`):
+The daemon spawns you with these env vars set (verify with \`echo "$VAR"\`,
+quoted so the shell expands the variable rather than printing the literal
+name — e.g. \`echo "$OD_PROJECT_ID"\` should print the project's UUID):
 
 - \`OD_BIN\`         — absolute path to the \`od\` CLI script. Run with \`node "$OD_BIN" …\`.
 - \`OD_PROJECT_ID\`  — the active project's id. Pass it as \`--project "$OD_PROJECT_ID"\`.

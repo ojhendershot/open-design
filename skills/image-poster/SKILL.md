@@ -68,6 +68,13 @@ Plan in this exact order before calling any tool:
 5. **What to avoid** — common AI-slop patterns ("no extra fingers, no
    warped text, no logo placeholders").
 
+**Length budget.** Aim for **1–2 sentences per point, ~100–150 words
+total**. Going past ~200 words doesn't help most current image models
+(gpt-image-2, Flux, Imagen, Midjourney) and often hurts adherence —
+the model picks one or two anchors and ignores the rest. If you can't
+say it tersely, drop the least-load-bearing point (often #4 unless the
+user asked for photo realism).
+
 ### Step 2 — Dispatch via the media contract
 
 Use the unified dispatcher — do **not** call upstream provider APIs by
