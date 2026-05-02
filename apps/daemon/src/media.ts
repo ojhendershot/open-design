@@ -1153,10 +1153,30 @@ async function renderGrokVideo(ctx, credentials, onProgress) {
         throw new Error(`grok task ${lastStatus}: ${reason}`);
       }
     }
+    // Loop exited without a videoUrl. Distinguish the two reachable
+    // cases so operators know which lever to pull: bumping the poll
+    // ceiling (timeout) vs filing a bug against the upstream contract
+    // (status=done but no video.url).
+    if (!videoUrl) {
+      const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
+      const ceilingSec = Math.round(maxMs / 1000);
+      throw new Error(
+        `grok video timed out after ${elapsedSec}s waiting for status=done `
+        + `(last status: ${lastStatus || 'pending'}, ceiling ${ceilingSec}s). `
+        + `If your jobs legitimately need longer, raise OD_GROK_VIDEO_MAX_POLL_MS.`,
+      );
+    }
   }
 
   if (!videoUrl) {
-    throw new Error(`grok task did not return a video url (last status: ${lastStatus || 'unknown'})`);
+    // Submit returned neither an inline video.url nor a request_id —
+    // upstream broke its own contract. Surfacing the last status helps
+    // pinpoint whether it was a transient API blip or a malformed
+    // response we should add a parser branch for.
+    throw new Error(
+      `grok video submit returned no inline video and no request_id to poll `
+      + `(status=${lastStatus || 'unknown'})`,
+    );
   }
 
   const dlResp = await fetch(videoUrl);

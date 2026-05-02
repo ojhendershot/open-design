@@ -32,9 +32,10 @@ const ENV_KEYS = {
     'AZURE_OPENAI_API_KEY',
   ],
   volcengine: ['OD_VOLCENGINE_API_KEY', 'ARK_API_KEY', 'VOLCENGINE_API_KEY'],
-  // xAI canonical env is XAI_API_KEY (per docs.x.ai quickstart). We
-  // honour that ahead of any reserved OD_* override so users who already
-  // export it for the official SDK don't have to re-paste into Settings.
+  // OD_GROK_API_KEY first (the project-reserved override, same shape as
+  // every other provider above), then XAI_API_KEY as the canonical
+  // upstream env per docs.x.ai quickstart — so users who already export
+  // it for the official SDK don't have to re-paste into Settings.
   grok: ['OD_GROK_API_KEY', 'XAI_API_KEY'],
   bfl: ['OD_BFL_API_KEY', 'BFL_API_KEY'],
   fal: ['OD_FAL_KEY', 'FAL_KEY'],
