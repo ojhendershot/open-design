@@ -6,7 +6,7 @@ import path from 'node:path';
 import { ensureProject, projectDir } from '../projects.js';
 import { DEFAULT_LIVE_ARTIFACT_TOTAL_TIMEOUT_MS } from './refresh.js';
 import { renderHtmlTemplateV1 } from './render.js';
-import type { BoundedJsonObject, LiveArtifact, LiveArtifactCreateInput, LiveArtifactProvenance, LiveArtifactRefreshErrorRecord, LiveArtifactRefreshLogEntry, LiveArtifactRefreshSourceMetadata, LiveArtifactRefreshStepStatus, LiveArtifactTileSource, LiveArtifactUpdateInput, LiveArtifactValidationIssue } from './schema.js';
+import type { BoundedJsonObject, LiveArtifact, LiveArtifactCreateInput, LiveArtifactProvenance, LiveArtifactRefreshErrorRecord, LiveArtifactRefreshLogEntry, LiveArtifactRefreshSourceMetadata, LiveArtifactRefreshStepStatus, LiveArtifactUpdateInput, LiveArtifactValidationIssue } from './schema.js';
 import { validateBoundedJsonObject, validateLiveArtifactCreateInput, validateLiveArtifactRefreshLogEntry, validateLiveArtifactUpdateInput, validatePersistedLiveArtifact } from './schema.js';
 
 export type LiveArtifactSummary = Omit<LiveArtifact, 'document' | 'tiles'> & {
@@ -604,55 +604,6 @@ function artifactWithDataJson(artifact: LiveArtifact, dataJson: BoundedJsonObjec
   return { ...artifact, document: { ...artifact.document, dataJson } };
 }
 
-function artifactWithInitialRefreshPermission(artifact: LiveArtifact): LiveArtifact {
-  const normalized: LiveArtifact = {
-    ...artifact,
-    tiles: artifact.tiles.map((tile) => {
-      if (tile.sourceJson === undefined) return tile;
-      return {
-        ...tile,
-        sourceJson: {
-          ...tile.sourceJson,
-          refreshPermission: 'manual_refresh_granted_for_read_only',
-        },
-      };
-    }),
-  };
-  if (artifact.document !== undefined) {
-    normalized.document = artifact.document.sourceJson === undefined
-      ? artifact.document
-      : {
-          ...artifact.document,
-          sourceJson: {
-            ...artifact.document.sourceJson,
-            refreshPermission: 'manual_refresh_granted_for_read_only',
-          },
-        };
-  }
-  return normalized;
-}
-
-function artifactWithDefaultConnectorRefreshPermission(artifact: LiveArtifact): LiveArtifact {
-  const withDefaultPermission = (sourceJson: LiveArtifactTileSource): LiveArtifactTileSource => {
-    if (sourceJson?.type !== 'connector_tool') return sourceJson;
-    return { ...sourceJson, refreshPermission: 'manual_refresh_granted_for_read_only' };
-  };
-  const normalized: LiveArtifact = {
-    ...artifact,
-    tiles: artifact.tiles.map((tile) => (
-      tile.sourceJson === undefined
-        ? tile
-        : { ...tile, sourceJson: withDefaultPermission(tile.sourceJson) }
-    )),
-  };
-  if (artifact.document !== undefined) {
-    normalized.document = artifact.document.sourceJson === undefined
-      ? artifact.document
-      : { ...artifact.document, sourceJson: withDefaultPermission(artifact.document.sourceJson) };
-  }
-  return normalized;
-}
-
 async function readLiveArtifactWithDataJsonCache(paths: LiveArtifactStorePaths): Promise<LiveArtifact> {
   const artifact = await readPersistedLiveArtifact(paths);
   if (artifact.document?.format !== 'html_template_v1') return artifact;
@@ -750,9 +701,7 @@ export async function createLiveArtifact(options: CreateLiveArtifactOptions): Pr
   if (input.sessionId !== undefined) artifactBase.sessionId = input.sessionId;
   if (options.createdByRunId !== undefined) artifactBase.createdByRunId = options.createdByRunId;
   if (input.document !== undefined) artifactBase.document = input.document;
-  const artifact = artifactWithInitialRefreshPermission(artifactBase);
-
-  const persisted = validatePersistedLiveArtifact(artifact);
+  const persisted = validatePersistedLiveArtifact(artifactBase);
   if (!persisted.ok) throw new LiveArtifactStoreValidationError(persisted.error, persisted.issues);
 
   await ensureProject(options.projectsRoot, options.projectId);
@@ -1298,7 +1247,7 @@ export async function updateLiveArtifact(options: UpdateLiveArtifactOptions): Pr
   };
   if (input.document !== undefined) updated.document = input.document;
 
-  const persisted = validatePersistedLiveArtifact(artifactWithDefaultConnectorRefreshPermission(updated));
+  const persisted = validatePersistedLiveArtifact(updated);
   if (!persisted.ok) throw new LiveArtifactStoreValidationError(persisted.error, persisted.issues);
 
   const templateHtml = options.templateHtml ?? await readTextFileOrDefault(paths.templateHtmlPath, defaultTemplateHtml(persisted.value.title));

@@ -286,7 +286,7 @@ describe('live artifact tool routes', () => {
     expect(refresh.body.error).toMatchObject({ code: 'LIVE_ARTIFACT_REFRESH_UNAVAILABLE' });
   });
 
-  it('defaults updated connector sources to refreshable', async () => {
+  it('preserves revoked connector refresh permission during updates', async () => {
     const projectId = uniqueProjectId();
     const token = mintToolToken(projectId, 'run-route-test-refresh-default');
     const executeConnector = vi.spyOn(connectorService, 'execute').mockResolvedValueOnce({
@@ -328,14 +328,14 @@ describe('live artifact tool routes', () => {
       }),
     });
     expect(update.status).toBe(200);
-    expect(update.body.artifact.document.sourceJson.refreshPermission).toBe('manual_refresh_granted_for_read_only');
+    expect(update.body.artifact.document.sourceJson.refreshPermission).toBe('none');
 
     const refresh = await jsonFetch(`${baseUrl}/api/live-artifacts/${create.body.artifact.id}/refresh?projectId=${encodeURIComponent(projectId)}`, {
       method: 'POST',
     });
-    expect(refresh.status).toBe(200);
-    expect(refresh.body.artifact.document.dataJson).toMatchObject({ title: 'Default refresh', owner: '9' });
-    expect(executeConnector).toHaveBeenCalledTimes(1);
+    expect(refresh.status).toBe(400);
+    expect(refresh.body.error).toMatchObject({ code: 'LIVE_ARTIFACT_REFRESH_UNAVAILABLE' });
+    expect(executeConnector).not.toHaveBeenCalled();
   });
 
   it('rejects refresh requests when no refresh source exists', async () => {
@@ -383,7 +383,7 @@ describe('live artifact tool routes', () => {
                 toolName: 'monet.metrics',
                 approvalPolicy: 'read_only_auto',
               },
-              refreshPermission: 'none',
+              refreshPermission: 'manual_refresh_granted_for_read_only',
             },
           },
         },

@@ -286,6 +286,52 @@ describe('live artifact store layout', () => {
     );
   });
 
+  it('preserves requested refresh permission when creating live artifact sources', async () => {
+    const projectsRoot = await makeProjectsRoot();
+    const baseInput = validCreateInput();
+    const input = {
+      ...baseInput,
+      tiles: [
+        {
+          ...baseInput.tiles[0]!,
+          sourceJson: {
+            type: 'connector_tool' as const,
+            toolName: 'gmail.search_messages',
+            input: { query: 'from:alerts' },
+            connector: {
+              connectorId: 'gmail',
+              toolName: 'gmail.search_messages',
+              approvalPolicy: 'manual_refresh_granted_for_read_only' as const,
+            },
+            refreshPermission: 'none' as const,
+          },
+        },
+      ],
+      document: {
+        ...baseInput.document,
+        sourceJson: {
+          type: 'daemon_tool' as const,
+          toolName: 'project_files.read_json',
+          input: { path: 'metrics.json' },
+          refreshPermission: 'none' as const,
+        },
+      },
+    };
+
+    const record = await createLiveArtifact({
+      projectsRoot,
+      projectId: 'project-1',
+      input,
+    });
+
+    expect(record.artifact.tiles[0]?.sourceJson?.refreshPermission).toBe('none');
+    expect(record.artifact.document?.sourceJson?.refreshPermission).toBe('none');
+    expect(JSON.parse(await readFile(record.paths.artifactJsonPath, 'utf8'))).toMatchObject({
+      tiles: [{ sourceJson: { refreshPermission: 'none' } }],
+      document: { sourceJson: { refreshPermission: 'none' } },
+    });
+  });
+
   it('lists compact live artifact summaries without exposing implementation files', async () => {
     const projectsRoot = await makeProjectsRoot();
     const older = await createLiveArtifact({
@@ -1101,8 +1147,14 @@ describe('live artifact store layout', () => {
       title: 'Updated Revenue',
       renderJson: { type: 'metric' as const, label: 'Updated Revenue', value: 42, tone: 'good' as const },
       sourceJson: {
-        type: 'local_file' as const,
-        input: { path: 'metrics.json' },
+        type: 'connector_tool' as const,
+        toolName: 'gmail.search_messages',
+        input: { query: 'from:alerts' },
+        connector: {
+          connectorId: 'gmail',
+          toolName: 'gmail.search_messages',
+          approvalPolicy: 'manual_refresh_granted_for_read_only' as const,
+        },
         refreshPermission: 'none' as const,
       },
     };
@@ -1110,9 +1162,14 @@ describe('live artifact store layout', () => {
       ...created.artifact.document!,
       dataJson: { title: 'Updated <Title>', owner: 'Ops' },
       sourceJson: {
-        type: 'daemon_tool' as const,
-        toolName: 'project_files.read_json',
-        input: { file: 'metrics.json' },
+        type: 'connector_tool' as const,
+        toolName: 'gmail.search_messages',
+        input: { query: 'to:reports' },
+        connector: {
+          connectorId: 'gmail',
+          toolName: 'gmail.search_messages',
+          approvalPolicy: 'manual_refresh_granted_for_read_only' as const,
+        },
         refreshPermission: 'none' as const,
       },
     };
@@ -1149,9 +1206,7 @@ describe('live artifact store layout', () => {
       document: updatedDocument,
     });
     expect(await readFile(record.paths.dataJsonPath, 'utf8')).toBe(`${JSON.stringify(updatedDocument.dataJson, null, 2)}\n`);
-    expect(await readFile(liveArtifactTilePath(record.paths, updatedTile.id), 'utf8')).toBe(
-      `${JSON.stringify(updatedTile, null, 2)}\n`,
-    );
+    expect(JSON.parse(await readFile(liveArtifactTilePath(record.paths, updatedTile.id), 'utf8'))).toEqual(updatedTile);
     expect(await readFile(record.paths.generatedPreviewHtmlPath, 'utf8')).toContain('Updated &lt;Title&gt;');
   });
 
