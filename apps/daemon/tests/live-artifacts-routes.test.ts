@@ -72,7 +72,7 @@ async function textFetch(url, init) {
   return { status: response.status, headers: response.headers, body: await response.text() };
 }
 
-async function rawHttpJsonFetch(url, { headers = {} } = {}) {
+async function rawHttpJsonFetch(url, { headers = {}, method = 'GET' } = {}) {
   const parsed = new URL(url);
   return new Promise((resolve, reject) => {
     const req = http.request(
@@ -80,7 +80,7 @@ async function rawHttpJsonFetch(url, { headers = {} } = {}) {
         hostname: parsed.hostname,
         port: parsed.port,
         path: `${parsed.pathname}${parsed.search}`,
-        method: 'GET',
+        method,
         headers,
       },
       (res) => {
@@ -284,6 +284,55 @@ describe('live artifact tool routes', () => {
     });
     expect(refresh.status).toBe(400);
     expect(refresh.body.error).toMatchObject({ code: 'LIVE_ARTIFACT_REFRESH_UNAVAILABLE' });
+  });
+
+  it('rejects manual refresh requests with non-loopback host before refresh side effects', async () => {
+    const projectId = uniqueProjectId();
+    const token = mintToolToken(projectId, 'run-route-test-refresh-local-security');
+    const executeConnector = vi.spyOn(connectorService, 'execute').mockResolvedValue({
+      ok: true,
+      connectorId: 'monet',
+      toolName: 'monet.metrics',
+      safety: { sideEffect: 'read', approval: 'auto' },
+      output: { title: 'Should not refresh', owner: '0' },
+    });
+
+    const create = await jsonFetch(`${baseUrl}/api/tools/live-artifacts/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        input: {
+          ...validCreateInput('Refresh Local Security'),
+          document: {
+            ...validCreateInput('Refresh Local Security').document,
+            sourceJson: {
+              type: 'connector_tool',
+              toolName: 'monet.metrics',
+              input: { report: 'bugs' },
+              connector: {
+                connectorId: 'monet',
+                toolName: 'monet.metrics',
+                approvalPolicy: 'read_only_auto',
+              },
+              refreshPermission: 'manual_refresh_granted_for_read_only',
+            },
+          },
+        },
+      }),
+    });
+    expect(create.status).toBe(200);
+
+    const refresh = await rawHttpJsonFetch(`${baseUrl}/api/live-artifacts/${create.body.artifact.id}/refresh?projectId=${encodeURIComponent(projectId)}`, {
+      method: 'POST',
+      headers: { Host: 'attacker.example' },
+    });
+
+    expect(refresh.status).toBe(403);
+    expect(refresh.body.error).toMatchObject({
+      code: 'FORBIDDEN',
+      details: { header: 'host' },
+    });
+    expect(executeConnector).not.toHaveBeenCalled();
   });
 
   it('preserves revoked connector refresh permission during updates', async () => {

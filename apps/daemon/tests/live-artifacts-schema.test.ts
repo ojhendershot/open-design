@@ -260,6 +260,30 @@ describe('live artifact schema validation', () => {
     }
   });
 
+  it('requires toolName for daemon_tool sources', () => {
+    const result = validateLiveArtifactCreateInput({
+      ...validCreateInput(),
+      document: {
+        ...validCreateInput().document,
+        sourceJson: {
+          type: 'daemon_tool',
+          input: { query: 'launch' },
+          refreshPermission: 'none',
+        },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          path: 'input.document.sourceJson.toolName',
+          message: 'input.document.sourceJson.toolName is required for daemon_tool sources',
+        }),
+      ]));
+    }
+  });
+
   it('rejects oversized bounded JSON payloads', () => {
     const oversized = Object.fromEntries(Array.from({ length: 100 }, (_, index) => [`field${index}`, 'x'.repeat(3_000)]));
     const result = validateBoundedJsonObject(oversized, 'data');

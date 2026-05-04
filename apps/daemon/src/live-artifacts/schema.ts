@@ -642,6 +642,9 @@ function validateSource(value: unknown, path: string, issues: LiveArtifactValida
   if (type === 'connector_tool' && toolName !== undefined && connector !== undefined && toolName !== connector.toolName) {
     issues.push({ path: `${path}.toolName`, message: `${path}.toolName must match ${path}.connector.toolName` });
   }
+  if (type === 'daemon_tool' && toolName === undefined) {
+    issues.push({ path: `${path}.toolName`, message: `${path}.toolName is required for daemon_tool sources` });
+  }
   if (type === undefined || !inputResult.ok || refreshPermission === undefined) return undefined;
   const source: LiveArtifactTileSource = { type, input: inputResult.value, refreshPermission };
   if (toolName !== undefined) source.toolName = toolName;
