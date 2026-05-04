@@ -45,7 +45,7 @@ import type {
 } from '@open-design/contracts';
 
 export type ExecMode = 'daemon' | 'api';
-export type ApiProtocol = 'anthropic' | 'openai';
+export type ApiProtocol = 'anthropic' | 'openai' | 'azure' | 'google';
 
 export type LiveArtifactTabId = `live:${string}`;
 export type ProjectWorkspaceTabId = string | LiveArtifactTabId;
@@ -227,6 +227,7 @@ export interface AppConfig {
   baseUrl: string;
   model: string;
   apiProtocol?: ApiProtocol;
+  apiVersion?: string;
   /** Internal config schema/migration version for localStorage upgrades. */
   configMigrationVersion?: number;
   /** Base URL of the selected known provider; cleared once the user customizes provider fields. */
