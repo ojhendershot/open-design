@@ -32,8 +32,8 @@ const NBSP = '\u00A0';
 //
 // `data-github-version` invariant: every wrapper must contain ONLY the version
 // string (e.g. `v0.3.0`), never any surrounding label or punctuation. The
-// hydration script in `app/pages/index.astro` swaps the slot's textContent
-// outright, so any extra text inside the wrapper would be clobbered.
+// inline enhancement script in `app/pages/index.astro` assigns `textContent`
+// on each slot, so any extra text inside the wrapper would be clobbered.
 const REPO = 'https://github.com/nexu-io/open-design';
 const REPO_RELEASES = `${REPO}/releases`;
 const REPO_ISSUES = `${REPO}/issues`;

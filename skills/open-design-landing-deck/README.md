@@ -100,10 +100,11 @@ npx tsx ../open-design-landing/scripts/placeholder.ts ../open-design-landing/ass
 This skill replaces the older `editorial-collage-deck` skill. The renames
 are mechanical:
 
-| Old                          | New                            |
-| ---------------------------- | ------------------------------ |
-| skill folder `editorial-collage-deck` | `open-design-landing-deck` |
-| TS type `EditorialCollageDeckInputs`  | `OpenDesignLandingDeckInputs` |
+| Old | New |
+| --- | --- |
+| skill folder `editorial-collage-deck/` | `open-design-landing-deck/` |
+| shared assets `../editorial-collage/assets/` | `../open-design-landing/assets/` |
+| TS type `EditorialCollageDeckInputs` | `OpenDesignLandingDeckInputs` |
 
 The `EditorialCollageDeckInputs` alias re-exported from
 [`schema.ts`](./schema.ts) is a temporary bridge: it is kept for the
