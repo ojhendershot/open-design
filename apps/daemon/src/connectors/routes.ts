@@ -401,7 +401,7 @@ export function registerConnectorRoutes(app: Express, options: RegisterConnector
     }
   });
 
-  app.delete('/api/connectors/:connectorId/connection', async (req: Request, res: Response) => {
+  app.delete('/api/connectors/:connectorId/connection', requireLocalDaemonRequest, async (req: Request, res: Response) => {
     try {
       const connectorId = req.params.connectorId;
       if (!connectorId) return options.sendApiError(res, 400, 'CONNECTOR_NOT_FOUND', 'connectorId is required');
