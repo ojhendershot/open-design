@@ -554,6 +554,16 @@ function isLoopbackHostname(hostname) {
   return false;
 }
 
+function isLoopbackPeerAddress(address) {
+  if (typeof address !== 'string') return false;
+  const normalized = address.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!normalized) return false;
+  if (normalized.startsWith('::ffff:')) return isLoopbackPeerAddress(normalized.slice('::ffff:'.length));
+  if (normalized === '::1' || normalized === '0:0:0:0:0:0:0:1') return true;
+  if (net.isIP(normalized) === 4) return normalized === '127.0.0.1' || normalized.startsWith('127.');
+  return false;
+}
+
 function localOriginFromHeader(value) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -571,6 +581,14 @@ function localOriginFromHeader(value) {
 }
 
 function validateLocalDaemonRequest(req) {
+  if (!isLoopbackPeerAddress(req.socket?.remoteAddress)) {
+    return {
+      ok: false,
+      message: 'request peer must be a loopback address',
+      details: { peer: 'remoteAddress' },
+    };
+  }
+
   const host = normalizeLocalAuthority(req.get('host'));
   if (!host || !isLoopbackHostname(host.hostname)) {
     return {
@@ -3035,6 +3053,8 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     const agentOptions = { model: safeModel, reasoning: safeReasoning };
     const mcpServers = buildLiveArtifactsMcpServersForAgent(def, {
       enabled: Boolean(toolTokenGrant?.token),
+      command: process.execPath,
+      argsPrefix: [OD_BIN],
     });
 
     const resolvedBin = resolveAgentBin(agentId);

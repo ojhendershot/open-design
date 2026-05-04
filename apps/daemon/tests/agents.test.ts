@@ -142,6 +142,22 @@ test('live artifact MCP discovery is disabled when run-scoped tool auth is unava
   assert.deepEqual(buildLiveArtifactsMcpServersForAgent(hermes, { enabled: false }), []);
 });
 
+test('live artifact MCP discovery can use daemon-resolved CLI command', () => {
+  assert.deepEqual(
+    buildLiveArtifactsMcpServersForAgent(hermes, {
+      command: process.execPath,
+      argsPrefix: ['/workspace/apps/daemon/dist/cli.js'],
+    }),
+    [
+      {
+        name: 'open-design-live-artifacts',
+        command: process.execPath,
+        args: ['/workspace/apps/daemon/dist/cli.js', 'mcp', 'live-artifacts'],
+      },
+    ],
+  );
+});
+
 test('MCP-capable agents can discover equivalent live artifact and connector tools', async () => {
   const tools = createLiveArtifactsMcpTools();
   assert.deepEqual(tools.map((tool) => tool.name), [

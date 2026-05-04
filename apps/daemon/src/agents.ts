@@ -805,13 +805,13 @@ export function getAgentDef(id) {
   return AGENT_DEFS.find((a) => a.id === id) || null;
 }
 
-export function buildLiveArtifactsMcpServersForAgent(def, { enabled = true } = {}) {
+export function buildLiveArtifactsMcpServersForAgent(def, { enabled = true, command = 'od', argsPrefix = [] } = {}) {
   if (!enabled || def?.mcpDiscovery !== 'mature-acp') return [];
   return [
     {
       name: 'open-design-live-artifacts',
-      command: 'od',
-      args: ['mcp', 'live-artifacts'],
+      command,
+      args: [...argsPrefix, 'mcp', 'live-artifacts'],
     },
   ];
 }
