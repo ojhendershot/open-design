@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { isTrustedConnectorCallbackOrigin, sortConnectorsForDisplay } from './EntryView';
+import {
+  isTrustedConnectorCallbackOrigin,
+  sortConnectorsForDisplay,
+  sortConnectorsForSearch,
+} from './EntryView';
 
 describe('connector OAuth callback origin', () => {
   it('accepts the app origin', () => {
@@ -34,6 +38,58 @@ describe('connector display sorting', () => {
       'airtable',
       'calendar',
       'zapi',
+    ]);
+  });
+
+  it('ranks exact and prefix name/provider matches above description matches', () => {
+    const sorted = sortConnectorsForSearch([
+      {
+        id: 'linear',
+        name: 'Linear',
+        provider: 'Composio',
+        category: 'Project management',
+        status: 'connected',
+        description: 'Sync issues from GitHub repositories.',
+        tools: [],
+      },
+      {
+        id: 'github-enterprise',
+        name: 'GitHub Enterprise',
+        provider: 'Composio',
+        category: 'Code',
+        status: 'available',
+        tools: [],
+      },
+      {
+        id: 'github',
+        name: 'GitHub',
+        provider: 'Composio',
+        category: 'Code',
+        status: 'available',
+        tools: [],
+      },
+      {
+        id: 'slack',
+        name: 'Slack',
+        provider: 'Composio',
+        category: 'Communication',
+        status: 'connected',
+        tools: [
+          {
+            title: 'Post GitHub release',
+            name: 'post_github_release',
+            safety: { sideEffect: 'write', approval: 'confirm', reason: 'Posts a message.' },
+            refreshEligible: false,
+          },
+        ],
+      },
+    ], 'github');
+
+    expect(sorted.map((connector) => connector.id)).toEqual([
+      'github',
+      'github-enterprise',
+      'slack',
+      'linear',
     ]);
   });
 });

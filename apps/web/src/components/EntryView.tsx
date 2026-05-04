@@ -135,6 +135,78 @@ export function sortConnectorsForDisplay(connectors: ConnectorDetail[]): Connect
   });
 }
 
+function normalizedSearchValue(value: string | undefined): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function scoreConnectorText(value: string | undefined, query: string, baseScore: number): number | null {
+  const normalized = normalizedSearchValue(value);
+  if (!normalized) return null;
+  if (normalized === query) return baseScore;
+  if (normalized.startsWith(query)) return baseScore + 1;
+  if (normalized.includes(query)) return baseScore + 2;
+  return null;
+}
+
+export function getConnectorSearchScore(connector: ConnectorDetail, query: string): number | null {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return 0;
+
+  const scores: number[] = [];
+  const collect = (value: string | undefined, baseScore: number) => {
+    const score = scoreConnectorText(value, normalizedQuery, baseScore);
+    if (score !== null) scores.push(score);
+  };
+
+  // Connector identity fields carry the most intent: exact and prefix
+  // name/provider matches should beat incidental mentions elsewhere.
+  collect(connector.name, 0);
+  collect(connector.provider, 0);
+
+  // Secondary connector metadata is still searchable, but lower priority.
+  collect(connector.category, 3);
+  collect(connector.accountLabel, 3);
+
+  // Tool names/titles are more relevant than prose descriptions, but below
+  // connector-level identity matches.
+  for (const tool of connector.tools) {
+    collect(tool.title, 5);
+    collect(tool.name, 5);
+  }
+
+  // Prose descriptions are broad and often mention other products, so they
+  // are intentionally down-ranked rather than excluded.
+  collect(connector.description, 8);
+  for (const tool of connector.tools) {
+    collect(tool.description, 8);
+  }
+
+  return scores.length ? Math.min(...scores) : null;
+}
+
+export function sortConnectorsForSearch(
+  connectors: ConnectorDetail[],
+  query: string,
+): ConnectorDetail[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return sortConnectorsForDisplay(connectors);
+
+  return [...connectors]
+    .map((connector) => ({ connector, score: getConnectorSearchScore(connector, normalizedQuery) }))
+    .filter((entry): entry is { connector: ConnectorDetail; score: number } => entry.score !== null)
+    .sort((a, b) => {
+      if (a.score !== b.score) return a.score - b.score;
+      const aConnected = a.connector.status === 'connected';
+      const bConnected = b.connector.status === 'connected';
+      if (aConnected !== bConnected) return aConnected ? -1 : 1;
+      return (
+        a.connector.name.localeCompare(b.connector.name, undefined, { sensitivity: 'base' }) ||
+        a.connector.id.localeCompare(b.connector.id)
+      );
+    })
+    .map((entry) => entry.connector);
+}
+
 function loadPetRailHidden(): boolean {
   if (typeof window === 'undefined') return false;
   try {
@@ -651,28 +723,11 @@ function ConnectorsTab({
   );
   const needsComposioKey = !composioConfigured && !anyComposioAuthConfigured;
 
-  // Filter connectors by user-visible fields (name, description, provider,
-  // category, and tool name/title). We match a normalized lowercase query
-  // against each haystack with a simple substring check — avoiding a
-  // regex so special characters in the query are treated literally.
+  // Filter and rank connectors by user-visible fields. Exact/prefix matches
+  // on connector name/provider are strongest; broad description matches stay
+  // searchable but are down-ranked.
   const filteredConnectors = useMemo(() => {
-    const query = filter.trim().toLowerCase();
-    const matchingConnectors = !query ? connectors : connectors.filter((connector) => {
-      const haystacks: Array<string | undefined> = [
-        connector.name,
-        connector.description,
-        connector.provider,
-        connector.category,
-        connector.accountLabel,
-      ];
-      for (const tool of connector.tools) {
-        haystacks.push(tool.title, tool.name, tool.description);
-      }
-      return haystacks.some((value) =>
-        typeof value === 'string' && value.toLowerCase().includes(query),
-      );
-    });
-    return sortConnectorsForDisplay(matchingConnectors);
+    return sortConnectorsForSearch(connectors, filter);
   }, [connectors, filter]);
 
   const hasQuery = filter.trim().length > 0;
