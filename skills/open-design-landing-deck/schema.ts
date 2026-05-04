@@ -1,17 +1,17 @@
 /**
- * editorial-collage-deck — input schema.
+ * open-design-landing-deck — input schema.
  *
- * Sister skill to `editorial-collage`. Produces a single-file slide
- * deck (scroll-snap pagination + arrow-key nav) in the Atelier Zero
- * visual language, reusing the same `styles.css` + the same 16-slot
- * image library.
+ * Sister skill to `open-design-landing`. Produces a single-file slide
+ * deck (horizontal swipe pagination, magazine-style) in the Atelier
+ * Zero visual language, reusing the same `styles.css` + the same
+ * 16-slot image library.
  *
  * The schema is intentionally smaller than the landing page schema:
  * a deck is an ordered array of typed slides, each driving one
- * viewport-height frame. Brand identity is shared across slides.
+ * viewport-height/width frame. Brand identity is shared across slides.
  */
 
-import type { MixedText, BrandBlock, ImageryConfig } from '../editorial-collage/schema';
+import type { MixedText, BrandBlock, ImageryConfig } from '../open-design-landing/schema';
 
 export type { MixedText, BrandBlock, ImageryConfig };
 
@@ -109,7 +109,7 @@ export type Slide =
 
 /* ---------- top-level ---------- */
 
-export interface EditorialCollageDeckInputs {
+export interface OpenDesignLandingDeckInputs {
   $schema?: string;
   brand: BrandBlock;
   /** Deck-wide title shown in the HUD — `'Open Design · Vol. 01'`. */
@@ -117,3 +117,6 @@ export interface EditorialCollageDeckInputs {
   slides: Slide[];
   imagery: ImageryConfig;
 }
+
+/** @deprecated Use `OpenDesignLandingDeckInputs`. Kept for one release for backwards compat. */
+export type EditorialCollageDeckInputs = OpenDesignLandingDeckInputs;

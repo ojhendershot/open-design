@@ -1,17 +1,7 @@
-<!DOCTYPE html>
-<html lang='en'>
-<head>
-<meta charset='utf-8' />
-<meta name='viewport' content='width=device-width, initial-scale=1' />
-<title>Open Design · Vol. 01 / Issue Nº 26</title>
-<meta name='description' content='Open Design pitch deck — Vol. 01.' />
-<link rel='preconnect' href='https://fonts.googleapis.com' />
-<link rel='preconnect' href='https://fonts.gstatic.com' crossorigin />
-<link href='https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800;900&family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,500;0,600;1,400;1,500;1,600;1,700&family=JetBrains+Mono:wght@400;500&display=swap' rel='stylesheet' />
-<style>/*
+/*
  * Atelier Zero — canonical landing-page stylesheet.
  *
- * This file is the SINGLE SOURCE OF TRUTH for the editorial-collage
+ * This file is the SINGLE SOURCE OF TRUTH for the open-design-landing
  * skill's visual system. It is consumed by:
  *
  *   1. `scripts/compose.ts` — inlined into the standalone HTML output.
@@ -285,6 +275,12 @@ body::before {
   font-size: 13px;
   font-weight: 500;
   text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.nav-cta [data-github-stars],
+.nav-cta [data-github-version] {
+  font-variant-numeric: tabular-nums;
 }
 .nav-cta::after {
   content: '★';
@@ -423,9 +419,12 @@ body::before {
   padding: 0;
   min-height: calc(100vh - 140px);
   display: flex;
+  flex-direction: column;
   align-items: stretch;
   border-bottom: 1px solid var(--line);
 }
+.hero > .container { flex: 0 0 auto; }
+.hero > .container.hero-grid { flex: 1 1 auto; }
 .hero::before {
   content: '';
   position: absolute;
@@ -611,6 +610,156 @@ section.tight { padding: 90px 0; }
   max-width: 22ch;
 }
 .section-header .lead { margin-top: 22px; }
+
+/* ---------- WIRE / GLOBAL TICKER ----------
+ *
+ * Slim editorial strip between the hero and the About section. Two
+ * counter-scrolling marquees (cities → and contributors ←) signal that
+ * the project is global and community-driven, without disrupting the
+ * existing roman-numeral section count. Pure CSS animation; the track
+ * content is duplicated in markup so the loop wraps seamlessly.
+ */
+.wire {
+  border-bottom: 1px solid var(--line);
+  padding: 26px 0 28px;
+  background: var(--paper);
+  position: relative;
+  overflow: hidden;
+}
+.wire-inner {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  gap: 32px;
+  align-items: center;
+}
+.wire-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  border-right: 1px solid var(--line);
+  padding-right: 24px;
+  min-height: 56px;
+}
+.wire-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.wire-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--coral);
+  display: inline-block;
+  animation: pulse 2.4s ease-in-out infinite;
+}
+.wire-title {
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.4;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.wire-title b {
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.wire-title span {
+  color: var(--ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.wire-rows {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.wire-row {
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, black 5%, black 95%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, black 5%, black 95%, transparent);
+}
+.marquee-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 36px;
+  width: max-content;
+  white-space: nowrap;
+  animation: marquee-x 52s linear infinite;
+  will-change: transform;
+}
+.wire-row.reverse .marquee-track {
+  animation-direction: reverse;
+  animation-duration: 64s;
+}
+.wire-row:hover .marquee-track {
+  animation-play-state: paused;
+}
+@keyframes marquee-x {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.wire-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--ink-mute);
+  text-decoration: none;
+  flex-shrink: 0;
+}
+.wire-item .wire-dot {
+  color: var(--coral);
+  font-size: 16px;
+  line-height: 0;
+  position: relative;
+  top: -1px;
+  margin-right: 2px;
+}
+.wire-item .wire-coord {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  letter-spacing: 0;
+}
+.wire-item .wire-name {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--ink);
+  font-weight: 500;
+}
+.wire-item .wire-handle {
+  font-family: var(--mono);
+  color: var(--ink);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.wire-item .wire-role {
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--coral);
+  font-size: 10px;
+}
+.wire-item.is-link {
+  transition: color 160ms ease;
+}
+.wire-item.is-link:hover .wire-handle {
+  color: var(--coral);
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track { animation: none; }
+}
 
 /* ---------- ABOUT ---------- */
 .about-grid {
@@ -1315,8 +1464,8 @@ section.tight { padding: 90px 0; }
 }
 .partners {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 26px;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 22px;
   align-items: end;
 }
 .partner {
@@ -1623,6 +1772,7 @@ footer {
 .partners > .partner[data-reveal]:nth-child(3) { --reveal-delay: 140ms; }
 .partners > .partner[data-reveal]:nth-child(4) { --reveal-delay: 210ms; }
 .partners > .partner[data-reveal]:nth-child(5) { --reveal-delay: 280ms; }
+.partners > .partner[data-reveal]:nth-child(6) { --reveal-delay: 350ms; }
 
 /* hero copy — let label, headline, lead, actions, stats arrive in sequence
  * so the headline isn't waiting on a single block-level reveal. */
@@ -1655,12 +1805,20 @@ footer {
 @media (max-width: 1200px) {
   .topbar-inner .mid { display: none; }
 }
+/* nav: between 1080 and 1180 the brand tail + 5 nav links + 2 CTAs + dot
+ * crowd the row. Drop the brand sub-meta first, then tighten link spacing,
+ * so the Star CTA never has to compress. */
+@media (max-width: 1180px) {
+  .nav-inner { gap: 18px; }
+  .brand-meta { display: none; }
+  .nav-links { gap: 28px; }
+}
 @media (max-width: 1080px) {
   .container { padding: 0 32px; }
   .hero h1 { font-size: clamp(36px, 4.6vw, 54px); }
   .section-header h2 { font-size: clamp(32px, 4vw, 50px); }
   .labs-grid { grid-template-columns: repeat(5, 1fr); gap: 14px; }
-  .partners { grid-template-columns: repeat(5, 1fr); gap: 16px; }
+  .partners { grid-template-columns: repeat(3, 1fr); gap: 18px; row-gap: 28px; }
   .foot-grid { grid-template-columns: 2fr 1fr 1fr; }
   .foot-grid .foot-col:nth-child(4),
   .foot-grid .foot-col:nth-child(5) { display: none; }
@@ -1679,6 +1837,15 @@ footer {
   .work-grid { grid-template-columns: 1fr; }
   .partners { grid-template-columns: repeat(3, 1fr); gap: 18px; }
   .nav-links, .brand-meta, .nav-cta { display: none; }
+  /* wire — stack the field label above the marquee rows */
+  .wire-inner { grid-template-columns: 1fr; gap: 14px; }
+  .wire-left {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    padding-right: 0;
+    padding-bottom: 12px;
+    min-height: 0;
+  }
 }
 @media (max-width: 560px) {
   .container { padding: 0 16px; }
@@ -1689,578 +1856,3 @@ footer {
   section { padding: 80px 0; }
   .topbar-inner { font-size: 9px; }
 }
-
-/* deck container — scroll-snap pagination */
-html, body { height: 100%; }
-body { overflow: hidden; }
-.deck {
-  height: 100vh;
-  overflow-y: scroll;
-  scroll-snap-type: y mandatory;
-  scroll-behavior: smooth;
-  position: relative;
-}
-.slide {
-  height: 100vh;
-  scroll-snap-align: start;
-  scroll-snap-stop: always;
-  display: grid;
-  align-items: stretch;
-  position: relative;
-  padding: 0;
-  border-bottom: 1px solid var(--line-soft);
-  /* Clip art / oversized content so it cannot bleed into adjacent slides
-   * at narrow / tall viewports (1/1 aspect-ratio art often exceeds 100vh
-   * minus padding). */
-  overflow: hidden;
-}
-.slide-inner {
-  max-width: 1360px;
-  margin: 0 auto;
-  padding: 80px 80px 64px;
-  width: 100%;
-  height: 100%;
-  display: grid;
-  align-content: center;
-  gap: 28px;
-  position: relative;
-  min-height: 0;
-}
-/* Cap art panels so they fit inside the slide minus the inner padding. */
-.s-cover .art,
-.s-content .art,
-.s-quote .art {
-  max-height: calc(100vh - 160px);
-  min-height: 0;
-}
-
-/* HUD — fixed top bar + slide counter + keyboard hint */
-.deck-hud {
-  position: fixed;
-  top: 18px;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 32px;
-  z-index: 50;
-  font-family: var(--sans);
-  font-size: 10.5px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-  pointer-events: none;
-}
-.deck-hud .left { display: inline-flex; gap: 14px; align-items: center; pointer-events: auto; }
-.deck-hud .right { display: inline-flex; gap: 14px; align-items: center; pointer-events: auto; }
-.deck-hud .mark {
-  width: 24px; height: 24px; border-radius: 50%;
-  border: 1px solid var(--ink); display: inline-flex;
-  align-items: center; justify-content: center;
-  font-family: var(--serif); font-style: italic; font-size: 12px;
-  color: var(--ink); background: rgba(239,231,210,0.85);
-  backdrop-filter: blur(2px);
-}
-.deck-hud .counter {
-  font-family: var(--mono);
-  letter-spacing: 0.04em;
-  color: var(--ink);
-  background: rgba(239,231,210,0.85);
-  padding: 4px 8px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  backdrop-filter: blur(2px);
-}
-.deck-hud .keys {
-  background: rgba(239,231,210,0.85);
-  padding: 4px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  backdrop-filter: blur(2px);
-}
-
-/* progress bar at bottom */
-.deck-progress {
-  position: fixed;
-  left: 0; right: 0; bottom: 0;
-  height: 2px;
-  background: var(--line-soft);
-  z-index: 50;
-}
-.deck-progress .bar {
-  height: 100%;
-  background: var(--coral);
-  width: 0%;
-  transition: width 240ms ease;
-}
-
-/* ---------- COVER slide ---------- */
-.s-cover .slide-inner {
-  grid-template-columns: 1.1fr 0.9fr;
-  align-content: center;
-  gap: 60px;
-}
-.s-cover .copy {
-  display: flex; flex-direction: column; gap: 22px;
-}
-.s-cover .eyebrow {
-  font-family: var(--sans); font-size: 11px; font-weight: 600;
-  letter-spacing: 0.22em; text-transform: uppercase;
-  color: var(--coral); display: inline-flex; align-items: center; gap: 12px;
-}
-.s-cover .eyebrow::before {
-  content: ''; width: 18px; height: 1px;
-  background: var(--coral); display: inline-block;
-}
-.s-cover h1 {
-  font-family: var(--sans);
-  font-weight: 800;
-  font-size: clamp(40px, 5.2vw, 80px);
-  line-height: 1.02;
-  letter-spacing: -0.028em;
-  color: var(--ink);
-  margin: 0;
-}
-.s-cover h1 em {
-  font-family: var(--serif);
-  font-style: italic; font-weight: 500;
-  letter-spacing: -0.018em;
-}
-.s-cover h1 .dot { color: var(--coral); }
-.s-cover .subtitle {
-  font-family: var(--serif); font-style: italic; font-weight: 500;
-  font-size: 22px; color: var(--ink-soft); margin-top: -8px;
-}
-.s-cover .lead {
-  font-family: var(--body); font-size: 17px;
-  color: var(--ink-soft); max-width: 42ch; line-height: 1.55;
-}
-.s-cover .meta {
-  margin-top: 32px;
-  font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
-  color: var(--ink-faint);
-}
-.s-cover .art {
-  position: relative; aspect-ratio: 1 / 1; max-width: 620px;
-  margin-left: auto; margin-right: 0;
-  border: 1px solid var(--line-soft); border-radius: 14px;
-  overflow: hidden; background: var(--bone);
-}
-.s-cover .art img { width: 100%; height: 100%; object-fit: contain; }
-
-/* ---------- SECTION divider slide ---------- */
-.s-section .slide-inner {
-  grid-template-columns: 1fr;
-  align-content: center;
-  text-align: center;
-  gap: 32px;
-}
-.s-section .roman {
-  font-family: var(--serif); font-style: italic; font-weight: 500;
-  font-size: clamp(80px, 10vw, 160px);
-  color: var(--coral); line-height: 1; letter-spacing: -0.02em;
-}
-.s-section h2 {
-  font-family: var(--sans); font-weight: 800;
-  font-size: clamp(54px, 6.6vw, 100px);
-  letter-spacing: -0.028em; line-height: 1.0; color: var(--ink);
-  max-width: 18ch; margin: 0 auto;
-}
-.s-section h2 em {
-  font-family: var(--serif); font-style: italic; font-weight: 500;
-}
-.s-section h2 .dot { color: var(--coral); }
-.s-section .lead {
-  font-family: var(--body); font-size: 17px;
-  color: var(--ink-soft); max-width: 50ch; margin: 0 auto;
-}
-
-/* ---------- CONTENT slide ---------- */
-.s-content .slide-inner { gap: 48px; }
-.s-content.layout-left .slide-inner { grid-template-columns: 1fr 0.9fr; }
-.s-content.layout-right .slide-inner { grid-template-columns: 0.9fr 1fr; }
-.s-content.layout-right .copy { order: 2; }
-.s-content.layout-right .art { order: 1; }
-.s-content.layout-full .slide-inner { grid-template-columns: 1fr; max-width: 980px; }
-.s-content .copy { display: flex; flex-direction: column; gap: 22px; }
-.s-content .eyebrow {
-  font-family: var(--sans); font-size: 11px; font-weight: 600;
-  letter-spacing: 0.22em; text-transform: uppercase; color: var(--coral);
-  display: inline-flex; align-items: center; gap: 12px;
-}
-.s-content .eyebrow::before {
-  content: ''; width: 18px; height: 1px;
-  background: var(--coral); display: inline-block;
-}
-.s-content h2 {
-  font-family: var(--sans); font-weight: 800;
-  font-size: clamp(40px, 4.6vw, 64px);
-  letter-spacing: -0.024em; line-height: 1.05;
-  color: var(--ink); margin: 0;
-}
-.s-content h2 em { font-family: var(--serif); font-style: italic; font-weight: 500; }
-.s-content h2 .dot { color: var(--coral); }
-.s-content .body {
-  font-family: var(--body); font-size: 16px;
-  color: var(--ink-soft); max-width: 56ch; line-height: 1.55;
-}
-.s-content .body code { font-family: var(--mono); font-size: 14px; background: var(--bone); padding: 1px 6px; border-radius: 4px; }
-.s-content ul {
-  list-style: none; padding: 0; margin: 0;
-  display: flex; flex-direction: column; gap: 12px;
-}
-.s-content li {
-  font-family: var(--sans); font-size: 15px;
-  color: var(--ink-soft); display: flex; gap: 14px; align-items: flex-start;
-}
-.s-content li::before {
-  content: ''; width: 12px; height: 1px;
-  background: var(--coral); margin-top: 11px; flex-shrink: 0;
-}
-.s-content .art {
-  position: relative; aspect-ratio: 1 / 1;
-  border: 1px solid var(--line-soft); border-radius: 14px;
-  overflow: hidden; background: var(--bone);
-}
-.s-content .art img { width: 100%; height: 100%; object-fit: contain; }
-
-/* ---------- STATS slide ---------- */
-.s-stats .slide-inner { grid-template-columns: 1fr; gap: 60px; }
-.s-stats .head { display: flex; flex-direction: column; gap: 22px; }
-.s-stats .eyebrow {
-  font-family: var(--sans); font-size: 11px; font-weight: 600;
-  letter-spacing: 0.22em; text-transform: uppercase; color: var(--coral);
-  display: inline-flex; align-items: center; gap: 12px;
-}
-.s-stats .eyebrow::before { content: ''; width: 18px; height: 1px; background: var(--coral); display: inline-block; }
-.s-stats h2 {
-  font-family: var(--sans); font-weight: 800;
-  font-size: clamp(44px, 5vw, 72px);
-  letter-spacing: -0.026em; line-height: 1.05; max-width: 18ch; margin: 0;
-}
-.s-stats h2 em { font-family: var(--serif); font-style: italic; font-weight: 500; }
-.s-stats h2 .dot { color: var(--coral); }
-.s-stats .grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 36px;
-  border-top: 1px solid var(--line);
-  padding-top: 36px;
-}
-.s-stats .stat { display: flex; flex-direction: column; gap: 10px; }
-.s-stats .stat .num {
-  font-family: var(--sans); font-weight: 800;
-  font-size: clamp(80px, 9vw, 140px); line-height: 1;
-  letter-spacing: -0.04em; color: var(--ink);
-}
-.s-stats .stat .num em { color: var(--coral); font-family: var(--serif); font-style: italic; font-weight: 500; }
-.s-stats .stat .label {
-  font-family: var(--sans); font-size: 12px;
-  letter-spacing: 0.18em; text-transform: uppercase;
-  color: var(--ink); font-weight: 600;
-}
-.s-stats .stat .sub {
-  font-family: var(--body); font-size: 13px;
-  color: var(--ink-mute); max-width: 26ch; line-height: 1.5;
-}
-.s-stats .caption {
-  font-family: var(--mono); font-size: 11px;
-  color: var(--ink-faint); letter-spacing: 0.04em;
-}
-
-/* ---------- QUOTE slide ---------- */
-.s-quote .slide-inner { grid-template-columns: 1.4fr 0.8fr; gap: 60px; align-items: center; }
-.s-quote.no-art .slide-inner { grid-template-columns: 1fr; max-width: 980px; }
-.s-quote blockquote {
-  font-family: var(--sans); font-weight: 700;
-  font-size: clamp(36px, 4vw, 56px);
-  letter-spacing: -0.022em; line-height: 1.15;
-  color: var(--ink); margin: 0;
-  position: relative;
-}
-.s-quote blockquote em { font-family: var(--serif); font-style: italic; font-weight: 500; }
-.s-quote .author {
-  margin-top: 38px; display: flex; align-items: center; gap: 16px;
-}
-.s-quote .author .avatar {
-  width: 48px; height: 48px; border-radius: 50%; background: var(--ink);
-  color: var(--paper); font-family: var(--serif); font-style: italic; font-size: 22px;
-  display: inline-flex; align-items: center; justify-content: center;
-}
-.s-quote .author p { font-family: var(--sans); font-size: 14px; font-weight: 600; }
-.s-quote .author p span { display: block; color: var(--ink-mute); font-weight: 400; }
-.s-quote .art {
-  position: relative; aspect-ratio: 1 / 1;
-  border: 1px solid var(--line-soft); border-radius: 14px;
-  overflow: hidden; background: var(--bone);
-}
-.s-quote .art img { width: 100%; height: 100%; object-fit: contain; }
-
-/* ---------- CTA slide ---------- */
-.s-cta .slide-inner { grid-template-columns: 1fr; max-width: 980px; gap: 32px; text-align: left; }
-.s-cta .eyebrow {
-  font-family: var(--sans); font-size: 11px; font-weight: 600;
-  letter-spacing: 0.22em; text-transform: uppercase; color: var(--coral);
-  display: inline-flex; align-items: center; gap: 12px;
-}
-.s-cta .eyebrow::before { content: ''; width: 18px; height: 1px; background: var(--coral); display: inline-block; }
-.s-cta h2 {
-  font-family: var(--sans); font-weight: 800;
-  font-size: clamp(54px, 6.4vw, 96px);
-  letter-spacing: -0.028em; line-height: 1.0; color: var(--ink); margin: 0;
-}
-.s-cta h2 em { font-family: var(--serif); font-style: italic; font-weight: 500; }
-.s-cta h2 .dot { color: var(--coral); }
-.s-cta .body { font-family: var(--body); font-size: 17px; color: var(--ink-soft); max-width: 50ch; line-height: 1.55; }
-.s-cta .actions { display: inline-flex; gap: 14px; margin-top: 12px; }
-
-/* ---------- END slide ---------- */
-.s-end .slide-inner {
-  grid-template-columns: 1fr;
-  align-content: end;
-  padding-bottom: 72px;
-  text-align: left;
-  gap: 16px;
-  max-width: none;
-  padding-left: 64px; padding-right: 64px;
-}
-.s-end .word {
-  font-family: var(--sans); font-weight: 900;
-  font-size: clamp(80px, 14vw, 220px);
-  letter-spacing: -0.04em; line-height: 1.05;
-  color: var(--ink); white-space: nowrap;
-  overflow-x: hidden;
-  padding-bottom: 0.18em;
-}
-.s-end .word em { font-family: var(--serif); font-style: italic; font-weight: 500; color: var(--coral); }
-.s-end .footer {
-  border-top: 1px solid var(--line);
-  padding-top: 22px;
-  font-family: var(--sans); font-size: 11px;
-  letter-spacing: 0.18em; text-transform: uppercase;
-  color: var(--ink-faint);
-}
-
-/* responsive */
-@media (max-width: 1080px) {
-  .slide-inner { padding: 48px 56px; }
-  .s-cover .slide-inner,
-  .s-content.layout-left .slide-inner,
-  .s-content.layout-right .slide-inner,
-  .s-quote .slide-inner { grid-template-columns: 1fr; gap: 36px; }
-  .s-content.layout-right .copy { order: 1; }
-  .s-content.layout-right .art { order: 2; }
-}
-@media (max-width: 640px) {
-  .slide-inner { padding: 36px 24px; }
-  .deck-hud { padding: 0 16px; font-size: 9.5px; letter-spacing: 0.14em; }
-  .deck-hud .keys { display: none; }
-}
-</style>
-</head>
-<body>
-<div class='deck-hud'>
-  <div class='left'>
-    <span class='mark'>Ø</span>
-    <span>Open Design · Vol. 01 / Issue Nº 26</span>
-  </div>
-  <div class='right'>
-    <span class='keys'>← / → · Space</span>
-    <span class='counter'>01 / 11</span>
-  </div>
-</div>
-<div class='deck'>
-  <section class='slide s-cover' data-slide-kind='cover'>
-  <div class='slide-inner'>
-    <div class='copy'>
-      <span class='eyebrow'>Open-source design studio · Nº 01</span>
-      <h1>Designing <em>intelligence</em> with skills, <em>taste,</em> and <em>code</em><span class='dot'>.</span></h1>
-      <div class='subtitle'>The open-source alternative to Anthropic's Claude Design.</div>
-      <p class='lead'>12 coding agents drive 31 composable skills and 72 brand-grade design systems. Local-first, web-deployable, BYOK at every layer.</p>
-      <div class='meta'>Berlin · MMXXVI · 52.5200° N · 13.4050° E</div>
-    </div>
-    <div class='art'><img src='../editorial-collage/assets/hero.png' alt='' /></div>
-  </div>
-</section>
-  <section class='slide s-section' data-slide-kind='section'>
-  <div class='slide-inner'>
-    <div class='roman'>I.</div>
-    <h2>Why <em>another</em> design tool<span class='dot'>?</span></h2>
-    <p class='lead'>Because the strongest agents already live on your laptop — and they deserve a real workflow.</p>
-  </div>
-</section>
-  <section class='slide s-content layout-right' data-slide-kind='content'>
-  <div class='slide-inner'>
-    <div class='copy'>
-      <span class='eyebrow'>About the studio · Nº 02</span>
-      <h2>We treat <em>your agent</em> as a creative <em>collaborator</em><span class='dot'>.</span></h2>
-      <p class='body'>We don't ship one — we wire whichever you trust into a skill-driven design workflow that runs locally with <code>pnpm tools-dev</code>, deploys to Vercel, and stays BYOK at every layer.</p>
-      <ul><li>Files, not opaque prompts — every skill is a folder of Markdown.</li><li>Deterministic visual directions, not random generation.</li><li>Sandboxed iframe preview, real cwd, exportable artifacts.</li></ul>
-    </div>
-    <div class='art'><img src='../editorial-collage/assets/about.png' alt='' /></div>
-  </div>
-</section>
-  <section class='slide s-content layout-left' data-slide-kind='content'>
-  <div class='slide-inner'>
-    <div class='copy'>
-      <span class='eyebrow'>Capabilities · Nº 03</span>
-      <h2>Skills, systems, surfaces — <em>for creative</em> intelligence<span class='dot'>.</span></h2>
-      <p class='body'>Four composable surfaces, one feedback loop. Skills supply behavior. Systems supply taste. Adapters bridge agents. BYOK respects your wallet.</p>
-      <ul><li>31 file-based SKILL.md bundles — drop in, restart, appears.</li><li>72 portable DESIGN.md systems — Linear, Vercel, Stripe, Apple…</li><li>12 agent adapters — Claude · Codex · Gemini · Cursor · …</li><li>OpenAI-compatible proxy — paste a baseUrl + key, ship.</li></ul>
-    </div>
-    <div class='art'><img src='../editorial-collage/assets/capabilities.png' alt='' /></div>
-  </div>
-</section>
-  <section class='slide s-stats' data-slide-kind='stats'>
-  <div class='slide-inner'>
-    <div class='head'>
-      <span class='eyebrow'>By the numbers · Nº 04</span>
-      <h2>Composable, <em>shippable,</em> portable<span class='dot'>.</span></h2>
-    </div>
-    <div class='grid'>
-      <div class='stat'>
-          <div class='num'>31</div>
-          <div class='label'>Skills</div>
-          <div class='sub'>file-based, shippable today</div>
-        </div>
-      <div class='stat'>
-          <div class='num'>72</div>
-          <div class='label'>Systems</div>
-          <div class='sub'>design tokens you already trust</div>
-        </div>
-      <div class='stat'>
-          <div class='num'>12</div>
-          <div class='label'>Agents</div>
-          <div class='sub'>auto-detected on your $PATH</div>
-        </div>
-      <div class='stat'>
-          <div class='num'>3</div>
-          <div class='label'>Commands</div>
-          <div class='sub'>from clone to first artifact</div>
-        </div>
-    </div>
-    <div class='caption'>Open Design v0.2.0 · Apache-2.0 · MMXXVI</div>
-  </div>
-</section>
-  <section class='slide s-section' data-slide-kind='section'>
-  <div class='slide-inner'>
-    <div class='roman'>II.</div>
-    <h2>How it <em>feels</em> to use it<span class='dot'>.</span></h2>
-    
-  </div>
-</section>
-  <section class='slide s-content layout-right' data-slide-kind='content'>
-  <div class='slide-inner'>
-    <div class='copy'>
-      <span class='eyebrow'>Method · Nº 05</span>
-      <h2>From <em>signals</em> to systems<span class='dot'>.</span></h2>
-      <p class='body'>Every project moves through four iterative stages. The agent picks each stage's tools deterministically; you stay in control.</p>
-      <ul><li>01 · Detect — daemon scans $PATH, auto-loads skills + systems.</li><li>02 · Discover — 30s question form locks brand · audience · scale.</li><li>03 · Direct — pick one of 5 visual directions in OKLch + type stack.</li><li>04 · Deliver — write to disk, preview in sandbox, export anywhere.</li></ul>
-    </div>
-    <div class='art'><img src='../editorial-collage/assets/method-1.png' alt='' /></div>
-  </div>
-</section>
-  <section class='slide s-content layout-left' data-slide-kind='content'>
-  <div class='slide-inner'>
-    <div class='copy'>
-      <span class='eyebrow'>Selected work · Nº 06</span>
-      <h2>Skills that turn briefs into <em>memorable</em> artifacts<span class='dot'>.</span></h2>
-      <p class='body'>From editorial decks to consumer dashboards — the same loop, different surface. Every output is a real file you can hand to a client tomorrow.</p>
-      
-    </div>
-    <div class='art'><img src='../editorial-collage/assets/work-1.png' alt='' /></div>
-  </div>
-</section>
-  <section class='slide s-quote' data-slide-kind='quote'>
-  <div class='slide-inner'>
-    <div>
-      <blockquote>&ldquo;Open Design helped us turn vague <em>AI ideas</em> into a visual system that felt <em>sharp, believable,</em> and genuinely new.&rdquo;</blockquote>
-      <div class='author'>
-        <span class='avatar'>m</span>
-        <p>Mina Kovac<br/><span>Creative Director · North Form</span></p>
-      </div>
-    </div>
-    <div class='art'><img src='../editorial-collage/assets/testimonial.png' alt='' /></div>
-  </div>
-</section>
-  <section class='slide s-cta' data-slide-kind='cta'>
-  <div class='slide-inner'>
-    <span class='eyebrow'>Start a conversation · Nº 07</span>
-    <h2>Let's build something <em>open</em> and <em>visually</em> unforgettable<span class='dot'>.</span></h2>
-    <p class='body'>Star us on GitHub, drop into the issues, or run pnpm tools-dev tonight. Three commands and the loop is yours.</p>
-    <div class='actions'>
-      <a class='btn btn-primary' href='https://github.com/nexu-io/open-design' target='_blank' rel='noreferrer noopener'>
-        Star on GitHub
-        <span class='arrow'><svg viewBox='0 0 24 24'><path d='M5 19L19 5M19 5H8M19 5v11'/></svg></span>
-      </a>
-      <a class='btn btn-ghost' href='https://github.com/nexu-io/open-design/issues' target='_blank' rel='noreferrer noopener'>
-              Open an issue
-              <span class='arrow'><svg viewBox='0 0 24 24'><path d='M5 19L19 5M19 5H8M19 5v11'/></svg></span>
-            </a>
-    </div>
-  </div>
-</section>
-  <section class='slide s-end' data-slide-kind='end'>
-  <div class='slide-inner'>
-    <div class='word'>Open <em>Design</em>.</div>
-    <div class='footer'>Apache-2.0 · MMXXVI · Berlin · 52.5200° N · 13.4050° E</div>
-  </div>
-</section>
-</div>
-<div class='deck-progress'><div class='bar'></div></div>
-
-<script>
-  /*
-   * Deck runtime — keyboard nav, counter update, progress bar.
-   *
-   * • ←/PageUp/k  → previous slide
-   * • →/PageDown/Space/j → next slide
-   * • Home/End    → first / last slide
-   * • Updates .deck-hud .counter and .deck-progress .bar live as the
-   *   user scrolls or paginates.
-   */
-  (function () {
-    var deck = document.querySelector('.deck');
-    if (!deck) return;
-    var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
-    var counter = document.querySelector('.deck-hud .counter');
-    var bar = document.querySelector('.deck-progress .bar');
-    var total = slides.length;
-
-    function indexFromScroll() {
-      var y = deck.scrollTop;
-      var h = deck.clientHeight;
-      var i = Math.round(y / h);
-      if (i < 0) i = 0;
-      if (i > total - 1) i = total - 1;
-      return i;
-    }
-    function update() {
-      var i = indexFromScroll();
-      if (counter) counter.textContent = String(i + 1).padStart(2, '0') + ' / ' + String(total).padStart(2, '0');
-      if (bar) bar.style.width = ((i + 1) / total * 100) + '%';
-    }
-    function goto(i) {
-      if (i < 0) i = 0;
-      if (i > total - 1) i = total - 1;
-      slides[i].scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-    deck.addEventListener('scroll', update, { passive: true });
-    document.addEventListener('keydown', function (e) {
-      var i = indexFromScroll();
-      if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ' || e.key === 'j') {
-        e.preventDefault(); goto(i + 1);
-      } else if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'k') {
-        e.preventDefault(); goto(i - 1);
-      } else if (e.key === 'Home') {
-        e.preventDefault(); goto(0);
-      } else if (e.key === 'End') {
-        e.preventDefault(); goto(total - 1);
-      }
-    });
-    update();
-  })();
-</script>
-</body>
-</html>
