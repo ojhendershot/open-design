@@ -33,17 +33,24 @@ export function renderDesignSystemShowcase(id, raw) {
     pickColor(colors, ['primary background', 'background', 'canvas', 'paper'])
     ?? firstLightish(colors)
     ?? '#ffffff';
+  // Exclude `bg` so a token whose hex matches the page background (for
+  // example Warp's "Warm Parchment" doubling as primary text *and* the
+  // firstLightish bg fallback) doesn't make body copy invisible.
   const fg =
-    pickColor(colors, [
-      'primary text',
-      'body text',
-      'foreground',
-      'ink primary',
-      'heading',
-      'ink',
-      'graphite',
-      'navy',
-    ])
+    pickColor(
+      colors,
+      [
+        'primary text',
+        'body text',
+        'foreground',
+        'ink primary',
+        'heading',
+        'ink',
+        'graphite',
+        'navy',
+      ],
+      [bg],
+    )
     ?? pickReadableForeground(bg)
     ?? '#0a0a0a';
   const accent =
@@ -747,16 +754,25 @@ function matchesHint(text, hint) {
   return re.test(text);
 }
 
-function pickColor(colors, hints) {
+function pickColor(colors, hints, exclude = []) {
   // Two-pass lookup: each hint is first checked against every color's role
   // description (the prose authors use to explain how the color is used)
   // and only then against the bare name. This ensures a `**Snow** … Primary
   // background.` line is recognised as the page background even though the
   // name "Snow" doesn't contain the word "background".
+  // `exclude` skips colors whose hex equals an already-chosen role (e.g.
+  // pass `[bg]` when picking `fg`) so two roles can't collapse to the same
+  // hex and erase contrast.
+  const blocked = new Set(
+    exclude
+      .map((v) => (v == null ? '' : String(v).toLowerCase()))
+      .filter((v) => v.length > 0),
+  );
+  const isAllowed = (c) => !blocked.has(c.value.toLowerCase());
   for (const hint of hints) {
-    const byRole = colors.find((c) => matchesHint(c.role, hint));
+    const byRole = colors.find((c) => isAllowed(c) && matchesHint(c.role, hint));
     if (byRole) return byRole.value;
-    const byName = colors.find((c) => matchesHint(c.name, hint));
+    const byName = colors.find((c) => isAllowed(c) && matchesHint(c.name, hint));
     if (byName) return byName.value;
   }
   return null;
