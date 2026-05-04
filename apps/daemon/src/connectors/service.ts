@@ -343,6 +343,12 @@ export class ConnectorStatusService {
     return { status: 'available' };
   }
 
+  listStatuses(): Record<string, ConnectorConnectionStatus> {
+    return Object.fromEntries(
+      Array.from(this.statuses.entries()).map(([connectorId, status]) => [connectorId, cloneStatus(status)]),
+    );
+  }
+
   connect(definition: ConnectorCatalogDefinition, accountLabel?: string, credentials?: ConnectorCredentialMaterial): ConnectorConnectionStatus {
     if (definition.disabled) return { status: 'disabled' };
 
@@ -536,7 +542,10 @@ export class ConnectorService {
   }
 
   listConnectorStatuses(): Record<string, ConnectorConnectionStatus> {
-    return Object.fromEntries(this.listFastDefinitions().map((definition) => [definition.id, this.getStatus(definition)]));
+    return {
+      ...this.statusService.listStatuses(),
+      ...Object.fromEntries(this.listFastDefinitions().map((definition) => [definition.id, this.getStatus(definition)])),
+    };
   }
 
   async listConnectorDiscovery(options: { refresh?: boolean; signal?: AbortSignal } = {}): Promise<ConnectorDiscoveryResult> {

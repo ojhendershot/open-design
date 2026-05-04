@@ -125,6 +125,15 @@ function applyConnectorStatuses(
   });
 }
 
+export function sortConnectorsForDisplay(connectors: ConnectorDetail[]): ConnectorDetail[] {
+  return [...connectors].sort((a, b) => {
+    const aConnected = a.status === 'connected';
+    const bConnected = b.status === 'connected';
+    if (aConnected !== bConnected) return aConnected ? -1 : 1;
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.id.localeCompare(b.id);
+  });
+}
+
 function loadPetRailHidden(): boolean {
   if (typeof window === 'undefined') return false;
   try {
@@ -165,6 +174,7 @@ export function EntryView({
   const [connectors, setConnectors] = useState<ConnectorDetail[]>([]);
   const [connectorsLoading, setConnectorsLoading] = useState(false);
   const [connectorDiscoveryLoading, setConnectorDiscoveryLoading] = useState(false);
+  const [connectorDiscoveryLoaded, setConnectorDiscoveryLoaded] = useState(false);
   const [petRailHidden, setPetRailHiddenState] = useState<boolean>(() => loadPetRailHidden());
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
   const avatarMenuRef = useRef<HTMLDivElement | null>(null);
@@ -287,6 +297,7 @@ export function EntryView({
 
   useEffect(() => {
     if (topTab !== 'connectors') return;
+    if (connectorDiscoveryLoaded) return;
     let cancelled = false;
     // Slow Composio discovery is only needed for enriched toolkit metadata
     // and auth configuration. Keep the initial catalog/status path fast.
@@ -295,13 +306,14 @@ export function EntryView({
       const next = await fetchConnectorDiscovery();
       if (cancelled) return;
       setConnectors((curr) => mergeConnectors(curr, next));
+      setConnectorDiscoveryLoaded(true);
       setConnectorDiscoveryLoading(false);
     })();
     return () => {
       cancelled = true;
       setConnectorDiscoveryLoading(false);
     };
-  }, [topTab]);
+  }, [connectorDiscoveryLoaded, topTab]);
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -548,6 +560,7 @@ export function EntryView({
                   connectors={connectors}
                   loading={connectorsLoading}
                   toolsLoading={connectorDiscoveryLoading}
+                  toolsLoaded={connectorDiscoveryLoaded}
                   composioConfigured={Boolean(config.composio?.apiKeyConfigured)}
                   onOpenSettings={onOpenSettings}
                   onConnect={async (connectorId) => updateConnector(await connectConnector(connectorId))}
@@ -601,6 +614,7 @@ function ConnectorsTab({
   connectors,
   loading,
   toolsLoading,
+  toolsLoaded,
   composioConfigured,
   onOpenSettings,
   onConnect,
@@ -609,6 +623,7 @@ function ConnectorsTab({
   connectors: ConnectorDetail[];
   loading: boolean;
   toolsLoading: boolean;
+  toolsLoaded: boolean;
   composioConfigured: boolean;
   onOpenSettings: (section?: 'execution' | 'media' | 'composio' | 'language' | 'about') => void;
   onConnect: (connectorId: string) => Promise<void> | void;
@@ -641,8 +656,7 @@ function ConnectorsTab({
   // regex so special characters in the query are treated literally.
   const filteredConnectors = useMemo(() => {
     const query = filter.trim().toLowerCase();
-    if (!query) return connectors;
-    return connectors.filter((connector) => {
+    const matchingConnectors = !query ? connectors : connectors.filter((connector) => {
       const haystacks: Array<string | undefined> = [
         connector.name,
         connector.description,
@@ -657,6 +671,7 @@ function ConnectorsTab({
         typeof value === 'string' && value.toLowerCase().includes(query),
       );
     });
+    return sortConnectorsForDisplay(matchingConnectors);
   }, [connectors, filter]);
 
   const hasQuery = filter.trim().length > 0;
@@ -774,6 +789,7 @@ function ConnectorsTab({
                       : null
                   }
                   toolsLoading={toolsLoading}
+                  toolsLoaded={toolsLoaded}
                   onConnect={(connectorId) => runConnectorAction(connectorId, 'connect')}
                   onDisconnect={(connectorId) => runConnectorAction(connectorId, 'disconnect')}
                   onOpenDetails={(connectorId) => setDetailConnectorId(connectorId)}
@@ -817,6 +833,7 @@ function ConnectorsTab({
               : null
           }
           toolsLoading={toolsLoading}
+          toolsLoaded={toolsLoaded}
           onClose={() => setDetailConnectorId(null)}
           onConnect={(connectorId) => runConnectorAction(connectorId, 'connect')}
           onDisconnect={(connectorId) => runConnectorAction(connectorId, 'disconnect')}
@@ -831,6 +848,7 @@ function ConnectorCard({
   disabled = false,
   pendingAction,
   toolsLoading,
+  toolsLoaded,
   onConnect,
   onDisconnect,
   onOpenDetails,
@@ -839,6 +857,7 @@ function ConnectorCard({
   disabled?: boolean;
   pendingAction: 'connect' | 'disconnect' | null;
   toolsLoading: boolean;
+  toolsLoaded: boolean;
   onConnect: (connectorId: string) => Promise<void> | void;
   onDisconnect: (connectorId: string) => Promise<void> | void;
   onOpenDetails: (connectorId: string) => void;
@@ -851,8 +870,8 @@ function ConnectorCard({
   const canConnect = !disabled && !isPending && connector.status === 'available';
   const canDisconnect = !disabled && !isPending && isConnected;
   const toolCount = connector.tools.length;
-  const isLoadingTools = toolsLoading && toolCount === 0;
-  const toolsBadgeLabel = isLoadingTools ? t('connectors.toolsLoading') : formatToolsBadge(toolCount, t);
+  const showToolsBadge = toolsLoaded;
+  const toolsBadgeLabel = formatToolsBadge(toolCount, t);
 
   function openDetails() {
     if (disabled) return;
@@ -869,8 +888,7 @@ function ConnectorCard({
   }
 
   // Any click on an interactive child (button, link) must not bubble up to
-  // the card-level open handler. We use onClickCapture on the buttons to
-  // stop the event before the card handler fires.
+  // the card-level open handler.
   function stop(event: SyntheticEvent) {
     event.stopPropagation();
   }
@@ -892,10 +910,12 @@ function ConnectorCard({
           <div className="connector-meta">
             <span className="connector-meta-item">{connector.category}</span>
             <span className="connector-meta-dot" aria-hidden>·</span>
-            <span className="connector-tools-badge" title={toolsBadgeLabel}>
-              <Icon name={isLoadingTools ? 'spinner' : 'settings'} size={10} />
-              <span>{toolsBadgeLabel}</span>
-            </span>
+            {showToolsBadge ? (
+              <span className="connector-tools-badge is-ready" title={toolsBadgeLabel}>
+                <Icon name="settings" size={10} />
+                <span>{toolsBadgeLabel}</span>
+              </span>
+            ) : null}
           </div>
         </div>
         {isConnected ? (
@@ -923,7 +943,6 @@ function ConnectorCard({
             disabled={!canDisconnect}
             aria-busy={isDisconnecting || undefined}
             tabIndex={disabled ? -1 : undefined}
-            onClickCapture={stop}
             onMouseDown={stop}
             onKeyDown={stop}
             onClick={(e) => {
@@ -941,7 +960,6 @@ function ConnectorCard({
             disabled={!canConnect}
             aria-busy={isConnecting || undefined}
             tabIndex={disabled ? -1 : undefined}
-            onClickCapture={stop}
             onMouseDown={stop}
             onKeyDown={stop}
             onClick={(e) => {
@@ -982,6 +1000,7 @@ function ConnectorDetailDrawer({
   disabled,
   pendingAction,
   toolsLoading,
+  toolsLoaded,
   onClose,
   onConnect,
   onDisconnect,
@@ -990,6 +1009,7 @@ function ConnectorDetailDrawer({
   disabled: boolean;
   pendingAction: 'connect' | 'disconnect' | null;
   toolsLoading: boolean;
+  toolsLoaded: boolean;
   onClose: () => void;
   onConnect: (connectorId: string) => Promise<void> | void;
   onDisconnect: (connectorId: string) => Promise<void> | void;
@@ -1003,7 +1023,8 @@ function ConnectorDetailDrawer({
   const canDisconnect = !disabled && !isPending && isConnected;
   const accountLabel = getDisplayableConnectorAccountLabel(connector);
   const toolCount = connector.tools.length;
-  const isLoadingTools = toolsLoading && toolCount === 0;
+  const isLoadingTools = !toolsLoaded || (toolsLoading && toolCount === 0);
+  const showToolsBadge = toolsLoaded;
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
 
   // ESC to close; focus the close button on mount for keyboard users.
@@ -1056,10 +1077,12 @@ function ConnectorDetailDrawer({
                 <span className="connector-status-dot" aria-hidden />
                 {statusLabel(connector.status, t)}
               </span>
-              <span className="connector-tools-badge" title={isLoadingTools ? t('connectors.toolsLoading') : formatToolsBadge(toolCount, t)}>
-                <Icon name={isLoadingTools ? 'spinner' : 'settings'} size={10} />
-                <span>{isLoadingTools ? t('connectors.toolsLoading') : formatToolsBadge(toolCount, t)}</span>
-              </span>
+              {showToolsBadge ? (
+                <span className="connector-tools-badge is-ready" title={formatToolsBadge(toolCount, t)}>
+                  <Icon name="settings" size={10} />
+                  <span>{formatToolsBadge(toolCount, t)}</span>
+                </span>
+              ) : null}
             </div>
           </div>
           <button

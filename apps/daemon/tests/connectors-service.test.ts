@@ -132,6 +132,25 @@ describe('connector status service', () => {
     await service.disconnect('external_docs');
     await expect(service.getConnector('external_docs')).resolves.toMatchObject({ status: 'available' });
   });
+
+  it('includes connected dynamically discovered connectors in status snapshots', async () => {
+    const statusService = new ConnectorStatusService();
+    const definition = externalConnector({ id: 'dynamic_mail', name: 'Dynamic Mail', provider: 'composio' });
+    const service = new TestConnectorService(definition, statusService);
+
+    await service.connect('dynamic_mail', {
+      accountLabel: 'user@example.com',
+      credentials: { providerConnectionId: 'ca_dynamic_mail' },
+    });
+
+    expect(service.listFastDefinitions().some((connector) => connector.id === 'dynamic_mail')).toBe(false);
+    expect(service.listConnectorStatuses()).toMatchObject({
+      dynamic_mail: {
+        status: 'connected',
+        accountLabel: 'user@example.com',
+      },
+    });
+  });
 });
 
 describe('connector read-only safety classification', () => {
