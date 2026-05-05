@@ -1210,7 +1210,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     const hints: string[] = [];
     if (!cliExists) {
       hints.push(
-        'apps/daemon/dist/cli.js is missing. Run `pnpm --filter @open-design/daemon build` (or just `pnpm build`) and refresh.',
+        'apps/daemon/dist/cli.js is missing. Run `pnpm --filter @open-design/daemon build` and refresh.',
       );
     }
     if (!nodeExists) {
@@ -3853,10 +3853,23 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
 
   const appendVersionedApiPath = (baseUrl, path) => {
     const url = new URL(baseUrl);
-    const pathname = url.pathname.replace(/\/+$/, '');
-    url.pathname = /\/v\d+$/.test(pathname)
-      ? `${pathname}${path}`
-      : `${pathname}/v1${path}`;
+    // `URL.pathname` setter normalizes an empty string back to "/", so
+    // we work in a local string to detect the no-path and no-version
+    // cases.
+    const trimmed = url.pathname.replace(/\/+$/, '');
+    // Auto-inject `/v1` whenever the supplied path doesn't already
+    // contain a `/vN` segment. This handles all four preset shapes:
+    //   bare host                            → /v1/<route>            (api.openai.com, api.anthropic.com)
+    //   ends in /vN                          → no inject              (api.openai.com/v1, /v1)
+    //   /vN sub-path                         → no inject              (api.deepinfra.com/v1/openai, openrouter.ai/api/v1)
+    //   non-versioned compat sub-path        → /v1/<route>            (api.deepseek.com/anthropic, api.minimaxi.com/anthropic)
+    // Previously the check was end-of-path only, which broke the
+    // /v1/openai sub-path case. A naive "non-empty path → respect"
+    // would break the /anthropic sub-path case. Matching `/vN` as a
+    // segment anywhere in the path threads both correctly.
+    url.pathname = /\/v\d+(\/|$)/.test(trimmed)
+      ? `${trimmed}${path}`
+      : `${trimmed}/v1${path}`;
     return url.toString();
   };
 
