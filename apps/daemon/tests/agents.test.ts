@@ -2,6 +2,15 @@
 import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';
 import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
   AGENT_DEFS,
   buildLiveArtifactsMcpServersForAgent,
   checkPromptArgvBudget,
@@ -15,13 +24,11 @@ import { createLiveArtifactsMcpTools, handleLiveArtifactsMcpRequest } from '../s
 const codex = AGENT_DEFS.find((agent) => agent.id === 'codex');
 const hermes = AGENT_DEFS.find((agent) => agent.id === 'hermes');
 const kimi = AGENT_DEFS.find((agent) => agent.id === 'kimi');
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
 const copilot = AGENT_DEFS.find((agent) => agent.id === 'copilot');
 const cursorAgent = AGENT_DEFS.find((agent) => agent.id === 'cursor-agent');
 const kiro = AGENT_DEFS.find((agent) => agent.id === 'kiro');
+const kilo = AGENT_DEFS.find((agent) => agent.id === 'kilo');
 const vibe = AGENT_DEFS.find((agent) => agent.id === 'vibe');
 const claude = AGENT_DEFS.find((agent) => agent.id === 'claude');
 const devin = AGENT_DEFS.find((agent) => agent.id === 'devin');
@@ -65,20 +72,42 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
+test('AGENT_DEFS ids are unique', () => {
+  const ids = AGENT_DEFS.map((a) => a.id);
+  const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
+  assert.deepEqual(dupes, [], `duplicate agent ids: ${JSON.stringify(dupes)}`);
+});
+
 test('codex args disable plugins when OD_CODEX_DISABLE_PLUGINS is 1', () => {
   process.env.OD_CODEX_DISABLE_PLUGINS = '1';
 
   const args = codex.buildArgs('', [], [], {}, { cwd: '/tmp/od-project' });
 
-  assert.deepEqual(args.slice(0, 8), [
+  assert.deepEqual(args.slice(0, 9), [
     'exec',
     '--json',
     '--skip-git-repo-check',
-    '--full-auto',
+    '--sandbox',
+    'workspace-write',
     '-c',
     'sandbox_workspace_write.network_access=true',
     '--disable',
     'plugins',
+  ]);
+});
+
+test('codex args use workspace-write sandbox instead of deprecated full-auto', () => {
+  delete process.env.OD_CODEX_DISABLE_PLUGINS;
+
+  const args = codex.buildArgs('', [], [], {}, { cwd: '/tmp/od-project' });
+
+  assert.equal(args.includes('--full-auto'), false);
+  assert.deepEqual(args.slice(0, 5), [
+    'exec',
+    '--json',
+    '--skip-git-repo-check',
+    '--sandbox',
+    'workspace-write',
   ]);
 });
 
@@ -110,14 +139,32 @@ test('codex args do not include the literal `-` stdin sentinel (regression of #2
   const baseArgs = codex.buildArgs('', [], [], {}, { cwd: '/tmp/od-project' });
   assert.equal(baseArgs.includes('-'), false);
 
-  const withModel = codex.buildArgs('', [], [], { model: 'gpt-5-codex' }, { cwd: '/tmp/od-project' });
+  const withModel = codex.buildArgs(
+    '',
+    [],
+    [],
+    { model: 'gpt-5-codex' },
+    { cwd: '/tmp/od-project' },
+  );
   assert.equal(withModel.includes('-'), false);
 
-  const withReasoning = codex.buildArgs('', [], [], { reasoning: 'high' }, { cwd: '/tmp/od-project' });
+  const withReasoning = codex.buildArgs(
+    '',
+    [],
+    [],
+    { reasoning: 'high' },
+    { cwd: '/tmp/od-project' },
+  );
   assert.equal(withReasoning.includes('-'), false);
 
   process.env.OD_CODEX_DISABLE_PLUGINS = '1';
-  const withDisablePlugins = codex.buildArgs('', [], [], {}, { cwd: '/tmp/od-project' });
+  const withDisablePlugins = codex.buildArgs(
+    '',
+    [],
+    [],
+    {},
+    { cwd: '/tmp/od-project' },
+  );
   assert.equal(withDisablePlugins.includes('-'), false);
 });
 
@@ -235,7 +282,13 @@ test('live artifact MCP update preserves nested input for daemon tool updates', 
 });
 
 test('cursor-agent args deliver prompts via stdin without passing a literal dash prompt', () => {
-  const args = cursorAgent.buildArgs('', [], [], {}, { cwd: '/tmp/od-project' });
+  const args = cursorAgent.buildArgs(
+    '',
+    [],
+    [],
+    {},
+    { cwd: '/tmp/od-project' },
+  );
 
   assert.deepEqual(args, [
     '--print',
@@ -249,39 +302,38 @@ test('cursor-agent args deliver prompts via stdin without passing a literal dash
   ]);
 });
 
-// `-p -` puts Copilot in prompt mode and tells it to read the body from
-// stdin. Without this pair the daemon writes the prompt to the child's
-// stdin pipe (because `promptViaStdin: true`) but Copilot stays
-// interactive, ignores stdin, and rejects the run with
-// `error: too many arguments. Expected 0 arguments but got N`. Pin the
-// pair as the leading argv elements so the regression in #350 can't
-// drift back. Also pin the order — Copilot expects `-p` before any other
+// Copilot does NOT treat `-` as a stdin sentinel — it reads it as a
+// literal one-character prompt. The prompt must be passed directly as the
+// value of `-p`. Pin the argv shape so the regression can't drift back.
+// Also pin the order — Copilot expects `-p <prompt>` before any other
 // flag, including model / add-dir extensions.
-test('copilot args lead with `-p -` so the stdin prompt is actually consumed (regression of #350)', () => {
-  const baseArgs = copilot.buildArgs('', [], [], {});
+test('copilot args pass the prompt directly as the -p value (not via stdin sentinel)', () => {
+  const prompt = 'design a landing page';
+  const baseArgs = copilot.buildArgs(prompt, [], [], {});
   assert.equal(baseArgs[0], '-p');
-  assert.equal(baseArgs[1], '-');
+  assert.equal(baseArgs[1], prompt);
   assert.deepEqual(baseArgs, [
     '-p',
-    '-',
+    prompt,
     '--allow-all-tools',
     '--output-format',
     'json',
   ]);
 });
 
-test('copilot args keep `-p -` at the front when model and extra dirs are added', () => {
+test('copilot args keep `-p <prompt>` at the front when model and extra dirs are added', () => {
+  const prompt = 'design a landing page';
   const args = copilot.buildArgs(
-    '',
+    prompt,
     [],
     ['/tmp/od-skills', '/tmp/od-design-systems'],
     { model: 'claude-sonnet-4.6' },
   );
   assert.equal(args[0], '-p');
-  assert.equal(args[1], '-');
+  assert.equal(args[1], prompt);
   assert.deepEqual(args, [
     '-p',
-    '-',
+    prompt,
     '--allow-all-tools',
     '--output-format',
     'json',
@@ -294,10 +346,16 @@ test('copilot args keep `-p -` at the front when model and extra dirs are added'
   ]);
 });
 
-test('copilot drops empty / non-string entries from extraAllowedDirs without breaking the `-p -` lead', () => {
-  const args = copilot.buildArgs('', [], ['', null, '/tmp/od-skills', undefined], {});
+test('copilot drops empty / non-string entries from extraAllowedDirs without breaking the `-p <prompt>` lead', () => {
+  const prompt = 'design a landing page';
+  const args = copilot.buildArgs(
+    prompt,
+    [],
+    ['', null, '/tmp/od-skills', undefined],
+    {},
+  );
   assert.equal(args[0], '-p');
-  assert.equal(args[1], '-');
+  assert.equal(args[1], prompt);
   // Only the one valid path survives.
   const addDirIndex = args.indexOf('--add-dir');
   assert.equal(args[addDirIndex + 1], '/tmp/od-skills');
@@ -347,11 +405,29 @@ test('gemini args preserve custom model selection', () => {
 test('kiro fetchModels falls back to fallbackModels when detection fails', async () => {
   // fetchModels rejects when the binary doesn't exist; the daemon's
   // probe() catches this and uses fallbackModels instead.
-  const result = await kiro.fetchModels('/nonexistent/kiro-cli').catch(() => null);
+  const result = await kiro
+    .fetchModels('/nonexistent/kiro-cli')
+    .catch(() => null);
 
   assert.equal(result, null);
   assert.ok(Array.isArray(kiro.fallbackModels));
   assert.equal(kiro.fallbackModels[0].id, 'default');
+});
+
+test('kilo args use acp subcommand for json-rpc streaming', () => {
+  const args = kilo.buildArgs('', [], [], {});
+
+  assert.deepEqual(args, ['acp']);
+  assert.equal(kilo.streamFormat, 'acp-json-rpc');
+});
+
+test('kilo fetchModels falls back to fallbackModels when detection fails', async () => {
+  const result = await kilo.fetchModels('/nonexistent/kilo').catch(() => null);
+
+  assert.equal(result, null);
+  assert.ok(Array.isArray(kilo.fallbackModels));
+  assert.equal(kilo.fallbackModels[0].id, 'default');
+  assert.equal(kilo.fallbackModels.length, 1);
 });
 
 // ---- reasoning-effort clamp ------------------------------------------------
@@ -364,31 +440,37 @@ test('codex buildArgs clamps reasoning effort per model', () => {
     // [model, reasoning, expected wire-level effort]
     // gpt-5.5 family (and unknown / 'default' which we treat as 5.5):
     // minimal -> low, others pass through.
-    [undefined,            'minimal', 'low'],
-    ['default',            'minimal', 'low'],
-    ['gpt-5.2',            'minimal', 'low'],
-    ['gpt-5.3',            'minimal', 'low'],
-    ['gpt-5.4',            'minimal', 'low'],
-    ['gpt-5.5',            'minimal', 'low'],
-    ['gpt-5.5',            'low',     'low'],
-    ['gpt-5.5',            'medium',  'medium'],
-    ['gpt-5.5',            'high',    'high'],
-    ['vendor/gpt-5.5-foo', 'minimal', 'low'],     // path-style id
+    [undefined, 'minimal', 'low'],
+    ['default', 'minimal', 'low'],
+    ['gpt-5.2', 'minimal', 'low'],
+    ['gpt-5.3', 'minimal', 'low'],
+    ['gpt-5.4', 'minimal', 'low'],
+    ['gpt-5.5', 'minimal', 'low'],
+    ['gpt-5.5', 'low', 'low'],
+    ['gpt-5.5', 'medium', 'medium'],
+    ['gpt-5.5', 'high', 'high'],
+    ['vendor/gpt-5.5-foo', 'minimal', 'low'], // path-style id
     // gpt-5.1: xhigh isn't supported, others pass through.
-    ['gpt-5.1',            'xhigh',   'high'],
-    ['gpt-5.1',            'high',    'high'],
+    ['gpt-5.1', 'xhigh', 'high'],
+    ['gpt-5.1', 'high', 'high'],
     // gpt-5.1-codex-mini: caps at medium / high only.
     ['gpt-5.1-codex-mini', 'minimal', 'medium'],
-    ['gpt-5.1-codex-mini', 'low',     'medium'],
-    ['gpt-5.1-codex-mini', 'medium',  'medium'],
-    ['gpt-5.1-codex-mini', 'high',    'high'],
-    ['gpt-5.1-codex-mini', 'xhigh',   'high'],
+    ['gpt-5.1-codex-mini', 'low', 'medium'],
+    ['gpt-5.1-codex-mini', 'medium', 'medium'],
+    ['gpt-5.1-codex-mini', 'high', 'high'],
+    ['gpt-5.1-codex-mini', 'xhigh', 'high'],
     // Unknown / future families: pass through; let the API surface its error
     // as the signal a new rule belongs in clampCodexReasoning.
-    ['gpt-6',              'minimal', 'minimal'],
+    ['gpt-6', 'minimal', 'minimal'],
   ];
   for (const [model, reasoning, expected] of cases) {
-    const args = codex.buildArgs('', [], [], { model, reasoning }, { cwd: '/tmp/od-project' });
+    const args = codex.buildArgs(
+      '',
+      [],
+      [],
+      { model, reasoning },
+      { cwd: '/tmp/od-project' },
+    );
     assert.ok(
       args.includes(`model_reasoning_effort="${expected}"`),
       `(model=${model ?? '<none>'}, reasoning=${reasoning}) → expected ${expected}; args=${JSON.stringify(args)}`,
@@ -397,10 +479,18 @@ test('codex buildArgs clamps reasoning effort per model', () => {
 });
 
 test('codex buildArgs omits model_reasoning_effort when reasoning is "default"', () => {
-  const args = codex.buildArgs('', [], [], { reasoning: 'default' }, { cwd: '/tmp/od-project' });
+  const args = codex.buildArgs(
+    '',
+    [],
+    [],
+    { reasoning: 'default' },
+    { cwd: '/tmp/od-project' },
+  );
 
   assert.equal(
-    args.some((a) => typeof a === 'string' && a.startsWith('model_reasoning_effort=')),
+    args.some(
+      (a) => typeof a === 'string' && a.startsWith('model_reasoning_effort='),
+    ),
     false,
   );
 });
@@ -414,10 +504,20 @@ test('claude flags promptViaStdin and never embeds the prompt in argv', () => {
   assert.equal(claude.promptViaStdin, true);
 
   const longPrompt = 'x'.repeat(200_000);
-  const args = claude.buildArgs(longPrompt, [], [], {}, { cwd: '/tmp/od-project' });
+  const args = claude.buildArgs(
+    longPrompt,
+    [],
+    [],
+    {},
+    { cwd: '/tmp/od-project' },
+  );
 
   assert.ok(Array.isArray(args), 'claude.buildArgs must return argv');
-  assert.equal(args.includes(longPrompt), false, 'prompt must not appear in argv');
+  assert.equal(
+    args.includes(longPrompt),
+    false,
+    'prompt must not appear in argv',
+  );
   for (const arg of args) {
     assert.ok(
       typeof arg === 'string' && arg.length < 1000,
@@ -455,96 +555,120 @@ test('claude entry declares openclaude as a fallback bin (issue #235)', () => {
 // every platform and is what catches regressions in the AGENT_DEF.
 const fsTest = process.platform === 'win32' ? test.skip : test;
 
-fsTest('resolveAgentExecutable prefers def.bin over fallbackBins when bin is on PATH', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'od-agents-resolve-'));
-  try {
-    writeFileSync(join(dir, 'claude'), '');
-    writeFileSync(join(dir, 'openclaude'), '');
-    chmodSync(join(dir, 'claude'), 0o755);
-    chmodSync(join(dir, 'openclaude'), 0o755);
-    process.env.OD_AGENT_HOME = dir;
-    process.env.PATH = dir;
+fsTest(
+  'resolveAgentExecutable prefers def.bin over fallbackBins when bin is on PATH',
+  () => {
+    const dir = mkdtempSync(join(tmpdir(), 'od-agents-resolve-'));
+    try {
+      writeFileSync(join(dir, 'claude'), '');
+      writeFileSync(join(dir, 'openclaude'), '');
+      chmodSync(join(dir, 'claude'), 0o755);
+      chmodSync(join(dir, 'openclaude'), 0o755);
+      process.env.OD_AGENT_HOME = dir;
+      process.env.PATH = dir;
 
-    const resolved = resolveAgentExecutable({
-      bin: 'claude',
-      fallbackBins: ['openclaude'],
-    });
-    assert.equal(resolved, join(dir, 'claude'));
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
+      const resolved = resolveAgentExecutable({
+        bin: 'claude',
+        fallbackBins: ['openclaude'],
+      });
+      assert.equal(resolved, join(dir, 'claude'));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
 
-fsTest('resolveAgentExecutable falls back through fallbackBins when def.bin is missing', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'od-agents-resolve-'));
-  try {
-    // Only `openclaude` is installed (Claude Code fork-only setup).
-    writeFileSync(join(dir, 'openclaude'), '');
-    chmodSync(join(dir, 'openclaude'), 0o755);
-    process.env.OD_AGENT_HOME = dir;
-    process.env.PATH = dir;
+fsTest(
+  'resolveAgentExecutable falls back through fallbackBins when def.bin is missing',
+  () => {
+    const dir = mkdtempSync(join(tmpdir(), 'od-agents-resolve-'));
+    try {
+      // Only `openclaude` is installed (Claude Code fork-only setup).
+      writeFileSync(join(dir, 'openclaude'), '');
+      chmodSync(join(dir, 'openclaude'), 0o755);
+      process.env.OD_AGENT_HOME = dir;
+      process.env.PATH = dir;
 
-    const resolved = resolveAgentExecutable({
-      bin: 'claude',
-      fallbackBins: ['openclaude'],
-    });
-    assert.equal(resolved, join(dir, 'openclaude'));
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
+      const resolved = resolveAgentExecutable({
+        bin: 'claude',
+        fallbackBins: ['openclaude'],
+      });
+      assert.equal(resolved, join(dir, 'openclaude'));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
 
-fsTest('resolveAgentExecutable returns null when neither def.bin nor any fallback is on PATH', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'od-agents-resolve-'));
-  try {
-    process.env.OD_AGENT_HOME = dir;
-    process.env.PATH = dir;
+fsTest(
+  'resolveAgentExecutable returns null when neither def.bin nor any fallback is on PATH',
+  () => {
+    const dir = mkdtempSync(join(tmpdir(), 'od-agents-resolve-'));
+    try {
+      process.env.OD_AGENT_HOME = dir;
+      process.env.PATH = dir;
 
-    const resolved = resolveAgentExecutable({
-      bin: 'claude',
-      fallbackBins: ['openclaude'],
-    });
-    assert.equal(resolved, null);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
+      const resolved = resolveAgentExecutable({
+        bin: 'claude',
+        fallbackBins: ['openclaude'],
+      });
+      assert.equal(resolved, null);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
 
-fsTest('resolveAgentExecutable searches mise node bins when PATH is minimal', () => {
-  const home = mkdtempSync(join(tmpdir(), 'od-agents-home-'));
-  try {
-    const dir = join(home, '.local', 'share', 'mise', 'installs', 'node', '24.14.1', 'bin');
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'codex'), '');
-    chmodSync(join(dir, 'codex'), 0o755);
-    process.env.OD_AGENT_HOME = home;
-    process.env.PATH = '/usr/bin:/bin';
+fsTest(
+  'resolveAgentExecutable searches mise node bins when PATH is minimal',
+  () => {
+    const home = mkdtempSync(join(tmpdir(), 'od-agents-home-'));
+    try {
+      const dir = join(
+        home,
+        '.local',
+        'share',
+        'mise',
+        'installs',
+        'node',
+        '24.14.1',
+        'bin',
+      );
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'codex'), '');
+      chmodSync(join(dir, 'codex'), 0o755);
+      process.env.OD_AGENT_HOME = home;
+      process.env.PATH = '/usr/bin:/bin';
 
-    const resolved = resolveAgentExecutable({
-      bin: 'codex',
-    });
-    assert.equal(resolved, join(dir, 'codex'));
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
-});
+      const resolved = resolveAgentExecutable({
+        bin: 'codex',
+      });
+      assert.equal(resolved, join(dir, 'codex'));
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  },
+);
 
-fsTest('resolveAgentExecutable still resolves agents without a fallbackBins field', () => {
-  // Guard against a regression that would require every AGENT_DEF to
-  // declare fallbackBins. Most agents (codex / gemini / opencode / ...)
-  // only have a single binary name and must keep working unchanged.
-  const dir = mkdtempSync(join(tmpdir(), 'od-agents-resolve-'));
-  try {
-    writeFileSync(join(dir, 'codex'), '');
-    chmodSync(join(dir, 'codex'), 0o755);
-    process.env.PATH = dir;
+fsTest(
+  'resolveAgentExecutable still resolves agents without a fallbackBins field',
+  () => {
+    // Guard against a regression that would require every AGENT_DEF to
+    // declare fallbackBins. Most agents (codex / gemini / opencode / ...)
+    // only have a single binary name and must keep working unchanged.
+    const dir = mkdtempSync(join(tmpdir(), 'od-agents-resolve-'));
+    try {
+      writeFileSync(join(dir, 'codex'), '');
+      chmodSync(join(dir, 'codex'), 0o755);
+      process.env.PATH = dir;
 
-    const resolved = resolveAgentExecutable({ bin: 'codex' });
-    assert.equal(resolved, join(dir, 'codex'));
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
+      const resolved = resolveAgentExecutable({ bin: 'codex' });
+      assert.equal(resolved, join(dir, 'codex'));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
 
 // DeepSeek TUI's exec subcommand requires the prompt as a positional
 // argument (no `-` stdin sentinel; clap declares `prompt: String` as a
@@ -630,7 +754,9 @@ test('checkPromptArgvBudget flags oversized DeepSeek prompts and lets short prom
   // A multi-byte UTF-8 prompt (e.g. CJK characters) is measured in
   // bytes, not code points — pin that so a 3-byte-per-char prompt
   // can't sneak past a code-point-based regression of the helper.
-  const cjkOversized = '汉'.repeat(Math.ceil(deepseek.maxPromptArgBytes / 3) + 1);
+  const cjkOversized = '汉'.repeat(
+    Math.ceil(deepseek.maxPromptArgBytes / 3) + 1,
+  );
   const cjkFlagged = checkPromptArgvBudget(deepseek, cjkOversized);
   assert.ok(cjkFlagged, 'byte-counted UTF-8 prompts must also trip the guard');
   assert.equal(cjkFlagged.code, 'AGENT_PROMPT_TOO_LARGE');
@@ -676,7 +802,11 @@ test('checkWindowsCmdShimCommandLineBudget flags quote-heavy prompts that expand
   // Use a realistic npm-style Windows install path so the resolved-bin
   // contribution mirrors a real user's environment.
   const resolvedBin = 'C:\\Users\\Tester\\AppData\\Roaming\\npm\\deepseek.cmd';
-  const flagged = checkWindowsCmdShimCommandLineBudget(deepseek, resolvedBin, args);
+  const flagged = checkWindowsCmdShimCommandLineBudget(
+    deepseek,
+    resolvedBin,
+    args,
+  );
 
   assert.ok(
     flagged,
@@ -718,7 +848,11 @@ test('checkWindowsCmdShimCommandLineBudget is a no-op for non-.cmd resolutions',
   // than overlapping with the direct-exe guard's contract.
   const args = deepseek.buildArgs('x'.repeat(20_000), [], [], {});
   assert.equal(
-    checkWindowsCmdShimCommandLineBudget(deepseek, '/usr/local/bin/deepseek', args),
+    checkWindowsCmdShimCommandLineBudget(
+      deepseek,
+      '/usr/local/bin/deepseek',
+      args,
+    ),
     null,
   );
   assert.equal(
@@ -760,7 +894,11 @@ test('checkWindowsCmdShimCommandLineBudget projects the %var% escape into the co
 
   const args = deepseek.buildArgs(prompt, [], [], {});
   const resolvedBin = 'C:\\Users\\Tester\\AppData\\Roaming\\npm\\deepseek.cmd';
-  const flagged = checkWindowsCmdShimCommandLineBudget(deepseek, resolvedBin, args);
+  const flagged = checkWindowsCmdShimCommandLineBudget(
+    deepseek,
+    resolvedBin,
+    args,
+  );
   // The prompt is short enough that the cmd-shim budget should still pass —
   // the test isn't about an oversized prompt; it's about the *content* of
   // the projected line. A null result here means the escape is in place
@@ -772,10 +910,7 @@ test('checkWindowsCmdShimCommandLineBudget no-ops when resolvedBin is null or ad
   // Bin resolution failed but the run continued long enough to reach
   // this guard — must be a no-op so the existing AGENT_UNAVAILABLE path
   // still fires from server.ts.
-  assert.equal(
-    checkWindowsCmdShimCommandLineBudget(deepseek, null, []),
-    null,
-  );
+  assert.equal(checkWindowsCmdShimCommandLineBudget(deepseek, null, []), null);
   // Stdin-delivered adapters never declare `maxPromptArgBytes` — the
   // guard must skip them even when handed a `.cmd` path.
   assert.equal(
@@ -815,7 +950,11 @@ test('checkWindowsDirectExeCommandLineBudget flags quote-heavy prompts on a dire
   // (path has spaces so the resolved-bin contribution itself gets
   // wrapped in `"…"`, which mirrors what libuv would do on Windows).
   const resolvedBin = 'C:\\Program Files\\DeepSeek\\deepseek.exe';
-  const flagged = checkWindowsDirectExeCommandLineBudget(deepseek, resolvedBin, args);
+  const flagged = checkWindowsDirectExeCommandLineBudget(
+    deepseek,
+    resolvedBin,
+    args,
+  );
 
   assert.ok(
     flagged,
@@ -851,7 +990,12 @@ test('checkWindowsDirectExeCommandLineBudget no-ops on .cmd / .bat resolutions a
   // The cmd-shim guard owns `.bat` / `.cmd` — the direct-exe guard must
   // skip them so an oversized prompt on a `.cmd` install doesn't trip
   // both guards (and double-emit an SSE error).
-  const args = deepseek.buildArgs('"'.repeat(deepseek.maxPromptArgBytes - 100), [], [], {});
+  const args = deepseek.buildArgs(
+    '"'.repeat(deepseek.maxPromptArgBytes - 100),
+    [],
+    [],
+    {},
+  );
   assert.equal(
     checkWindowsDirectExeCommandLineBudget(
       deepseek,
@@ -873,11 +1017,19 @@ test('checkWindowsDirectExeCommandLineBudget no-ops on .cmd / .bat resolutions a
   // concatenation to bust. The pre-buildArgs `checkPromptArgvBudget` is
   // the one responsible for catching oversized argv on those hosts.
   assert.equal(
-    checkWindowsDirectExeCommandLineBudget(deepseek, '/usr/local/bin/deepseek', args),
+    checkWindowsDirectExeCommandLineBudget(
+      deepseek,
+      '/usr/local/bin/deepseek',
+      args,
+    ),
     null,
   );
   assert.equal(
-    checkWindowsDirectExeCommandLineBudget(deepseek, '/home/dev/.cargo/bin/deepseek', args),
+    checkWindowsDirectExeCommandLineBudget(
+      deepseek,
+      '/home/dev/.cargo/bin/deepseek',
+      args,
+    ),
     null,
   );
 });
@@ -890,10 +1042,7 @@ test('checkWindowsDirectExeCommandLineBudget no-ops when resolvedBin is null/emp
     checkWindowsDirectExeCommandLineBudget(deepseek, null, []),
     null,
   );
-  assert.equal(
-    checkWindowsDirectExeCommandLineBudget(deepseek, '', []),
-    null,
-  );
+  assert.equal(checkWindowsDirectExeCommandLineBudget(deepseek, '', []), null);
   // Stdin-delivered adapters never declare `maxPromptArgBytes` — the
   // guard must skip them even when handed a Windows `.exe` path.
   assert.equal(
@@ -915,10 +1064,16 @@ test('cmd-shim and direct-exe guards are mutually exclusive on a single resoluti
 
   const cmdPath = 'C:\\Users\\Tester\\AppData\\Roaming\\npm\\deepseek.cmd';
   assert.ok(checkWindowsCmdShimCommandLineBudget(deepseek, cmdPath, args));
-  assert.equal(checkWindowsDirectExeCommandLineBudget(deepseek, cmdPath, args), null);
+  assert.equal(
+    checkWindowsDirectExeCommandLineBudget(deepseek, cmdPath, args),
+    null,
+  );
 
   const exePath = 'C:\\Program Files\\DeepSeek\\deepseek.exe';
-  assert.equal(checkWindowsCmdShimCommandLineBudget(deepseek, exePath, args), null);
+  assert.equal(
+    checkWindowsCmdShimCommandLineBudget(deepseek, exePath, args),
+    null,
+  );
   assert.ok(checkWindowsDirectExeCommandLineBudget(deepseek, exePath, args));
 });
 
@@ -947,7 +1102,9 @@ test('vibe args use empty array for acp-json-rpc streaming', () => {
 test('vibe fetchModels falls back to fallbackModels when detection fails', async () => {
   // fetchModels rejects when the binary doesn't exist; the daemon's
   // probe() catches this and uses fallbackModels instead.
-  const result = await vibe.fetchModels('/nonexistent/vibe-acp').catch(() => null);
+  const result = await vibe
+    .fetchModels('/nonexistent/vibe-acp')
+    .catch(() => null);
 
   assert.equal(result, null);
   assert.ok(Array.isArray(vibe.fallbackModels));
