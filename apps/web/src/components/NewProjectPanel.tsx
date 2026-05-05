@@ -329,7 +329,15 @@ export function NewProjectPanel({
         </button>
       </div>
       <div className="newproj-body">
-        <h3 className="newproj-title">{titleForTab(tab, t)}</h3>
+        <h3 className="newproj-title">
+          <span className="newproj-title-text">{titleForTab(tab, t)}</span>
+          {tab === 'live-artifact' ? (
+            // "Beta" is an internationally adopted brand-style status marker;
+            // intentionally not run through t() (consistent with short product
+            // status pills that read the same across our supported locales).
+            <span className="newproj-title-badge" aria-label="Beta feature">Beta</span>
+          ) : null}
+        </h3>
 
         <input
           className="newproj-name"

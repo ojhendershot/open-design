@@ -1853,7 +1853,30 @@ code {
   flex-direction: column;
   gap: 14px;
 }
-.newproj-title { margin: 0; font-size: 14px; font-weight: 600; }
+.newproj-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.newproj-title-text { flex: 1 1 auto; min-width: 0; }
+.newproj-title-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-panel));
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
 .newproj-name { width: 100%; }
 .newproj-section { display: flex; flex-direction: column; gap: 6px; }
 .newproj-label {
