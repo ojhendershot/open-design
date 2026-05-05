@@ -12,14 +12,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   AGENT_DEFS,
+  buildLiveArtifactsMcpServersForAgent,
   checkPromptArgvBudget,
   checkWindowsCmdShimCommandLineBudget,
   checkWindowsDirectExeCommandLineBudget,
   resolveAgentExecutable,
   spawnEnvForAgent,
 } from '../src/agents.js';
+import { createLiveArtifactsMcpTools, handleLiveArtifactsMcpRequest } from '../src/mcp-live-artifacts-server.js';
 
 const codex = AGENT_DEFS.find((agent) => agent.id === 'codex');
+const hermes = AGENT_DEFS.find((agent) => agent.id === 'hermes');
+const kimi = AGENT_DEFS.find((agent) => agent.id === 'kimi');
+
 const copilot = AGENT_DEFS.find((agent) => agent.id === 'copilot');
 const cursorAgent = AGENT_DEFS.find((agent) => agent.id === 'cursor-agent');
 const kiro = AGENT_DEFS.find((agent) => agent.id === 'kiro');
@@ -33,6 +38,9 @@ const originalDisablePlugins = process.env.OD_CODEX_DISABLE_PLUGINS;
 const originalPath = process.env.PATH;
 const originalHome = process.env.HOME;
 const originalAgentHome = process.env.OD_AGENT_HOME;
+const originalDaemonUrl = process.env.OD_DAEMON_URL;
+const originalToolToken = process.env.OD_TOOL_TOKEN;
+const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   if (originalDisablePlugins == null) {
@@ -51,6 +59,17 @@ afterEach(() => {
   } else {
     process.env.OD_AGENT_HOME = originalAgentHome;
   }
+  if (originalDaemonUrl == null) {
+    delete process.env.OD_DAEMON_URL;
+  } else {
+    process.env.OD_DAEMON_URL = originalDaemonUrl;
+  }
+  if (originalToolToken == null) {
+    delete process.env.OD_TOOL_TOKEN;
+  } else {
+    process.env.OD_TOOL_TOKEN = originalToolToken;
+  }
+  globalThis.fetch = originalFetch;
 });
 
 test('AGENT_DEFS ids are unique', () => {
@@ -147,6 +166,130 @@ test('codex args do not include the literal `-` stdin sentinel (regression of #2
     { cwd: '/tmp/od-project' },
   );
   assert.equal(withDisablePlugins.includes('-'), false);
+});
+
+test('live artifact MCP discovery is limited to mature ACP agents', () => {
+  assert.deepEqual(buildLiveArtifactsMcpServersForAgent(hermes), [
+    {
+      name: 'open-design-live-artifacts',
+      command: 'od',
+      args: ['mcp', 'live-artifacts'],
+    },
+  ]);
+  assert.deepEqual(buildLiveArtifactsMcpServersForAgent(kimi), [
+    {
+      name: 'open-design-live-artifacts',
+      command: 'od',
+      args: ['mcp', 'live-artifacts'],
+    },
+  ]);
+
+  for (const agent of AGENT_DEFS) {
+    if (agent.id === 'hermes' || agent.id === 'kimi') continue;
+    assert.deepEqual(buildLiveArtifactsMcpServersForAgent(agent), []);
+  }
+});
+
+test('live artifact MCP discovery is disabled when run-scoped tool auth is unavailable', () => {
+  assert.deepEqual(buildLiveArtifactsMcpServersForAgent(hermes, { enabled: false }), []);
+});
+
+test('live artifact MCP discovery can use daemon-resolved CLI command', () => {
+  assert.deepEqual(
+    buildLiveArtifactsMcpServersForAgent(hermes, {
+      command: process.execPath,
+      argsPrefix: ['/workspace/apps/daemon/dist/cli.js'],
+    }),
+    [
+      {
+        name: 'open-design-live-artifacts',
+        command: process.execPath,
+        args: ['/workspace/apps/daemon/dist/cli.js', 'mcp', 'live-artifacts'],
+      },
+    ],
+  );
+});
+
+test('MCP-capable agents can discover equivalent live artifact and connector tools', async () => {
+  const tools = createLiveArtifactsMcpTools();
+  assert.deepEqual(tools.map((tool) => tool.name), [
+    'live_artifacts_create',
+    'live_artifacts_list',
+    'live_artifacts_update',
+    'live_artifacts_refresh',
+    'connectors_list',
+    'connectors_execute',
+  ]);
+
+  for (const tool of tools) {
+    assert.equal(typeof tool.description, 'string');
+    assert.match(tool.description, /POSIX equivalent: `"\$OD_NODE_BIN" "\$OD_BIN" tools /u);
+    assert.equal(tool.inputSchema.type, 'object');
+  }
+
+  const initialized = await handleLiveArtifactsMcpRequest({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
+  assert.equal(initialized.result.serverInfo.name, 'open-design-live-artifacts');
+  assert.deepEqual(initialized.result.capabilities, { tools: {} });
+
+  const listed = await handleLiveArtifactsMcpRequest({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
+  assert.deepEqual(listed.result.tools.map((tool) => tool.name), tools.map((tool) => tool.name));
+
+  const createTool = tools.find((tool) => tool.name === 'live_artifacts_create')!;
+  const updateTool = tools.find((tool) => tool.name === 'live_artifacts_update')!;
+  const createProperties = createTool.inputSchema.properties as Record<string, unknown>;
+  const updateProperties = updateTool.inputSchema.properties as Record<string, unknown>;
+  assert.deepEqual(Object.keys(createProperties).sort(), ['input', 'provenanceJson', 'templateHtml']);
+  assert.deepEqual(Object.keys(updateProperties).sort(), ['artifactId', 'input', 'provenanceJson', 'templateHtml']);
+});
+
+test('live artifact MCP create forwards input and artifact payload fields to daemon tools', async () => {
+  process.env.OD_DAEMON_URL = 'http://127.0.0.1:17456';
+  process.env.OD_TOOL_TOKEN = 'test-tool-token';
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return new Response(JSON.stringify({ artifact: { id: 'artifact-1' } }), { status: 200 });
+  };
+
+  const input = { title: 'Demo', preview: { type: 'html', entry: 'index.html' } };
+  const templateHtml = '<h1>{{data.title}}</h1>';
+  const provenanceJson = { source: { type: 'mcp-test' } };
+  const response = await handleLiveArtifactsMcpRequest({
+    jsonrpc: '2.0',
+    id: 3,
+    method: 'tools/call',
+    params: { name: 'live_artifacts_create', arguments: { input, templateHtml, provenanceJson } },
+  });
+
+  assert.equal(response.error, undefined);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'http://127.0.0.1:17456/api/tools/live-artifacts/create');
+  assert.deepEqual(JSON.parse(calls[0].init.body), { input, templateHtml, provenanceJson });
+});
+
+test('live artifact MCP update preserves nested input and artifact payload fields', async () => {
+  process.env.OD_DAEMON_URL = 'http://127.0.0.1:17456';
+  process.env.OD_TOOL_TOKEN = 'test-tool-token';
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return new Response(JSON.stringify({ artifact: { id: 'artifact-1', title: 'Updated' } }), { status: 200 });
+  };
+
+  const input = { title: 'Updated', pinned: true };
+  const templateHtml = '<p>{{data.value}}</p>';
+  const provenanceJson = { source: { type: 'mcp-update-test' } };
+  const response = await handleLiveArtifactsMcpRequest({
+    jsonrpc: '2.0',
+    id: 4,
+    method: 'tools/call',
+    params: { name: 'live_artifacts_update', arguments: { artifactId: 'artifact-1', input, templateHtml, provenanceJson } },
+  });
+
+  assert.equal(response.error, undefined);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'http://127.0.0.1:17456/api/tools/live-artifacts/update');
+  assert.deepEqual(JSON.parse(calls[0].init.body), { artifactId: 'artifact-1', input, templateHtml, provenanceJson });
 });
 
 test('cursor-agent args deliver prompts via stdin without passing a literal dash prompt', () => {
@@ -395,6 +538,61 @@ test('claude flags promptViaStdin and never embeds the prompt in argv', () => {
   // `-p` (print mode) must still be present; without it claude drops into
   // an interactive REPL that the daemon has no TTY for.
   assert.ok(args.includes('-p'), 'claude argv must include -p');
+});
+
+// ---- Claude Code --add-dir capability (issue #430) -------------------------
+// Skill seeds (`skills/<id>/assets/template.html`) and design-system specs
+// (`design-systems/<id>/DESIGN.md`) live outside the project cwd. Without
+// `--add-dir`, Claude Code's directory access policy blocks reads on any
+// path outside the working directory. Bug was that we probed global `claude
+// --help` for `--add-dir` but that flag only appears in `claude -p --help`.
+
+test('claude buildArgs passes --add-dir when dirs are supplied (issue #430, probing-failed baseline)', () => {
+  // This is the default state before any capability probe runs: agentCapabilities
+  // has no entry -> buildArgs gets `caps = {}` -> caps.addDir is undefined ->
+  // undefined !== false -> true. This is also the "probing threw" case: timeout,
+  // binary not found, non-zero exit code from --help. Dirs are always passed
+  // unless capability probing explicitly detected --help and found no --add-dir.
+  const args = claude.buildArgs(
+    '',
+    [],
+    ['/repo/skills', '/repo/design-systems'],
+    {},
+  );
+
+  const addDirIndex = args.indexOf('--add-dir');
+  assert.ok(addDirIndex >= 0, '--add-dir must be present by default (safe baseline)');
+  assert.equal(args[addDirIndex + 1], '/repo/skills');
+  assert.equal(args[addDirIndex + 2], '/repo/design-systems');
+  // Check flag ordering: --add-dir comes before --permission-mode
+  const permModeIndex = args.indexOf('--permission-mode');
+  assert.ok(
+    addDirIndex < permModeIndex,
+    `--add-dir (index ${addDirIndex}) should appear before --permission-mode (index ${permModeIndex})`,
+  );
+});
+
+test('claude buildArgs drops empty / null dirs but keeps valid ones (issue #430 edge case)', () => {
+  const args = claude.buildArgs('', [], ['', null, '/repo/skills', undefined], {});
+
+  const addDirIndex = args.indexOf('--add-dir');
+  assert.ok(addDirIndex >= 0, '--add-dir should survive filter');
+  // Only the one valid path survives after --add-dir.
+  assert.equal(args[addDirIndex + 1], '/repo/skills');
+  // Should NOT have multiple --add-dir flags (one flag, N arguments).
+  assert.equal(args.filter((a) => a === '--add-dir').length, 1);
+  // Should NOT have null / undefined / '' sneaking into argv.
+  assert.equal(args.includes(''), false);
+  assert.equal(args.includes(null), false);
+  assert.equal(args.includes(undefined), false);
+});
+
+test('claude helpArgs probes the -p subcommand where --add-dir lives (issue #430 root cause)', () => {
+  assert.deepEqual(
+    claude.helpArgs,
+    ['-p', '--help'],
+    `claude.helpArgs must be ['-p', '--help'], not just ['--help'], because --add-dir lives under the -p subcommand. Probing global help never finds it! Got: ${JSON.stringify(claude.helpArgs)}`,
+  );
 });
 
 // ---- OpenClaude fallback (issue #235) -------------------------------------

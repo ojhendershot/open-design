@@ -1,6 +1,8 @@
 import type { Dict } from '../types';
+import { en } from './en';
 
 export const ja: Dict = {
+  ...en,
   'common.cancel': 'キャンセル',
   'common.save': '保存',
   'common.close': '閉じる',
@@ -396,7 +398,11 @@ export const ja: Dict = {
   'chat.importWeb': 'Web 要素を取得',
   'chat.importFolder': 'コードフォルダーをリンク',
   'chat.importSkills': 'スキルとデザインシステム',
-  'chat.importProject': '別のプロジェクトを参照',
+  'chat.importProject': 'Reference another project',
+  'chat.linkedFolderRemoveAria': 'リンクされたフォルダー {path} を削除',
+  'chat.linkedFolderNotFound': 'フォルダーが存在しません',
+  'chat.linkedFolderAlready': 'このフォルダーは既にリンクされています',
+  'chat.linkedFolderPickError': 'フォルダー選択を開けません',
   'chat.send': '送信',
   'chat.stop': '停止',
   'chat.removeAria': '{name} を削除',

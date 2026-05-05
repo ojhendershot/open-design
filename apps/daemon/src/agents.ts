@@ -127,10 +127,13 @@ export const AGENT_DEFS = [
     // — issue #235) get auto-detected without writing wrapper scripts.
     fallbackBins: ['openclaude'],
     versionArgs: ['--version'],
-    helpArgs: ['--help'],
+    helpArgs: ['-p', '--help'],
     capabilityFlags: {
       // Flag string -> capability key. After probing `--help`, we set
       // `agentCapabilities[id][key] = true` for each substring that matches.
+      // `--add-dir` and `--include-partial-messages` live under `claude -p`
+      // subcommand, so we probe `claude -p --help` instead of `claude --help`.
+      // Fixes issue #430: --add-dir never detected because it wasn't in global help.
       '--include-partial-messages': 'partialMessages',
       '--add-dir': 'addDir',
     },
@@ -377,6 +380,7 @@ export const AGENT_DEFS = [
     ],
     buildArgs: () => ['acp', '--accept-hooks'],
     streamFormat: 'acp-json-rpc',
+    mcpDiscovery: 'mature-acp',
   },
   {
     id: 'kimi',
@@ -398,6 +402,7 @@ export const AGENT_DEFS = [
     ],
     buildArgs: () => ['acp'],
     streamFormat: 'acp-json-rpc',
+    mcpDiscovery: 'mature-acp',
   },
   {
     id: 'cursor-agent',
@@ -926,6 +931,17 @@ export async function detectAgents() {
 
 export function getAgentDef(id) {
   return AGENT_DEFS.find((a) => a.id === id) || null;
+}
+
+export function buildLiveArtifactsMcpServersForAgent(def, { enabled = true, command = 'od', argsPrefix = [] } = {}) {
+  if (!enabled || def?.mcpDiscovery !== 'mature-acp') return [];
+  return [
+    {
+      name: 'open-design-live-artifacts',
+      command,
+      args: [...argsPrefix, 'mcp', 'live-artifacts'],
+    },
+  ];
 }
 
 // Adapters that ship the prompt as a positional argv arg (no stdin
