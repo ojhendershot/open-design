@@ -725,6 +725,33 @@ describe('live artifact store layout', () => {
     ).rejects.toBeInstanceOf(LiveArtifactStaleRefreshError);
   });
 
+  it('rejects prototype-polluting keys in document refresh output before merging', async () => {
+    const projectsRoot = await makeProjectsRoot();
+    const input: any = validCreateInput();
+    input.document!.dataJson = { title: 'Revenue', nested: { existing: true } };
+    input.document!.sourceJson = {
+      type: 'daemon_tool' as const,
+      toolName: 'project_files.read_json',
+      input: { path: 'metrics.json' },
+      refreshPermission: 'manual_refresh_granted_for_read_only' as const,
+    };
+    const created = await createLiveArtifact({
+      projectsRoot,
+      projectId: 'project-1',
+      input,
+      templateHtml: '<h1>{{data.title}}</h1>',
+    });
+    const output = JSON.parse('{"nested":{"__proto__":{"polluted":true}}}') as any;
+
+    expect(() => buildLiveArtifactRefreshCandidate({
+      artifact: created.artifact,
+      currentDataJson: created.artifact.document!.dataJson,
+      documentOutput: { output },
+      now: new Date('2026-04-30T11:01:00.000Z'),
+    })).toThrow(/refreshOutput\.nested\.__proto__ uses a forbidden key/);
+    expect(({} as { polluted?: boolean }).polluted).toBeUndefined();
+  });
+
   it('does not mutate live artifact files when refresh snapshot persistence fails', async () => {
     const projectsRoot = await makeProjectsRoot();
     const input: any = validCreateInput();

@@ -275,6 +275,7 @@ function asBoundedRefreshOutput(value: BoundedJsonObject): BoundedJsonObject {
 
 const SAFE_MAPPING_SEGMENT = /^[A-Za-z_][A-Za-z0-9_-]*$|^(?:0|[1-9][0-9]*)$/;
 const UNSAFE_MAPPING_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
+const UNSAFE_REFRESH_MERGE_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
 function parseMappingPath(path: string, field: string): string[] {
   const normalized = path.startsWith('$.') ? path.slice(2) : path;
@@ -451,11 +452,30 @@ function cloneBoundedJsonObject(value: BoundedJsonObject): BoundedJsonObject {
   return JSON.parse(JSON.stringify(value)) as BoundedJsonObject;
 }
 
-function deepMergeBoundedJsonObject(target: BoundedJsonObject, source: BoundedJsonObject): void {
+function assertSafeRefreshMergeValue(value: BoundedJsonValue, path: string): void {
+  if (Array.isArray(value)) {
+    value.forEach((child, index) => assertSafeRefreshMergeValue(child, `${path}.${index}`));
+    return;
+  }
+  if (!isJsonObject(value)) return;
+  for (const [key, child] of Object.entries(value)) {
+    const childPath = `${path}.${key}`;
+    if (UNSAFE_REFRESH_MERGE_KEYS.has(key)) {
+      throw new Error(`${childPath} uses a forbidden key`);
+    }
+    assertSafeRefreshMergeValue(child, childPath);
+  }
+}
+
+function deepMergeBoundedJsonObject(target: BoundedJsonObject, source: BoundedJsonObject, path = 'refreshOutput'): void {
   for (const [key, value] of Object.entries(source)) {
+    if (UNSAFE_REFRESH_MERGE_KEYS.has(key)) {
+      throw new Error(`${path}.${key} uses a forbidden key`);
+    }
+    assertSafeRefreshMergeValue(value, `${path}.${key}`);
     const current = target[key];
     if (isJsonObject(current) && isJsonObject(value)) {
-      deepMergeBoundedJsonObject(current, value);
+      deepMergeBoundedJsonObject(current, value, `${path}.${key}`);
     } else {
       target[key] = value;
     }
