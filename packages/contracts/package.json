@@ -3,19 +3,24 @@
   "version": "0.3.0",
   "private": true,
   "type": "module",
+  "main": "./dist/index.mjs",
   "description": "Shared pure TypeScript contracts for the Open Design web/daemon boundary.",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.mjs"
     },
     "./critique": {
-      "types": "./src/critique.ts",
-      "default": "./src/critique.ts"
+      "types": "./dist/critique.d.ts",
+      "default": "./dist/critique.mjs"
     }
   },
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
+    "build": "node ./esbuild.config.mjs && tsc -p tsconfig.json --emitDeclarationOnly",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json --noEmit"
   },
@@ -23,6 +28,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "esbuild": "0.27.7",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"
   }
