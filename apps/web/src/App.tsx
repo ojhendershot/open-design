@@ -278,7 +278,9 @@ export function App() {
       force: true,
     });
     void syncConfigToDaemon(withOnboarding);
-    void syncComposioConfigToDaemon(withOnboarding.composio);
+    // Keep the Composio secret out of localStorage, but send the raw pending
+    // edit to the daemon before it is normalized away for local persistence.
+    void syncComposioConfigToDaemon(next.composio);
     setConfig(withOnboarding);
     setSettingsOpen(false);
   }, []);

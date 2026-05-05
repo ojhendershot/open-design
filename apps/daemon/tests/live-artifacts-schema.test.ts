@@ -233,6 +233,28 @@ describe('live artifact schema validation', () => {
     }
   });
 
+  it('does not require connector approval metadata for connector_tool sources', () => {
+    const result = validateLiveArtifactCreateInput({
+      ...validCreateInput(),
+      document: {
+        ...validCreateInput().document,
+        sourceJson: {
+          type: 'connector_tool',
+          toolName: 'docs.search',
+          input: { query: 'launch' },
+          connector: {
+            connectorId: 'docs',
+            toolName: 'docs.search',
+          },
+          refreshPermission: 'none',
+        },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.document?.sourceJson?.connector).toEqual({ connectorId: 'docs', toolName: 'docs.search' });
+  });
+
   it('requires connector source tool name to match connector metadata', () => {
     const result = validateLiveArtifactCreateInput({
       ...validCreateInput(),

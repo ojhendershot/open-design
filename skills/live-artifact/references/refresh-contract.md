@@ -14,8 +14,7 @@ Refreshable tiles or documents use `sourceJson`:
   "connector": {
     "connectorId": "github",
     "accountLabel": "example/org",
-    "toolName": "list_releases",
-    "approvalPolicy": "manual_refresh_granted_for_read_only"
+    "toolName": "list_releases"
   },
   "outputMapping": {
     "dataPaths": [{ "from": "items", "to": "releases" }],
@@ -37,13 +36,11 @@ Supported output transforms:
 - `compact_table`
 - `metric_summary`
 
-## Permission model
+## Source execution model
 
-- New refreshable sources start with `refreshPermission: "none"` unless the user grants refresh.
-- First manual refresh requires user confirmation.
-- After approval, the daemon may persist `manual_refresh_granted_for_read_only` for read-only refreshable sources.
-- Users must be able to revoke refresh permission from the Source tab.
-- Write, destructive, unknown, or drifted connector tools are never refreshable.
+- `refreshPermission` is retained for backward compatibility with older artifacts, but the refresh runner does not require a separate connector approval step.
+- If a safe source descriptor exists, manual refresh executes it through daemon-owned local or connector wrappers.
+- Write, destructive, unknown, disabled, unconnected, or schema-drifted connector tools should not be authored as refresh sources.
 
 ## Connector-backed refresh
 
@@ -51,14 +48,14 @@ Connector-backed refresh sources use the same connector execution service as age
 
 Before creating a connector-backed refresh source:
 
-1. List connectors with `od tools connectors list --format compact`.
-2. Select a connected connector and a tool whose safety is `read` + `auto` and whose catalog metadata marks it refresh-eligible.
-3. Execute once with `od tools connectors execute --connector <id> --tool <name> --input input.json` to produce compact normalized preview data.
-4. Store only non-sensitive connector references, the bounded input object, output mapping, and `refreshPermission`/approval state in `sourceJson`.
+1. List connectors with `"$OD_NODE_BIN" "$OD_BIN" tools connectors list --format compact`.
+2. If the user named a connector/source and it is connected, select that connector directly instead of asking where the source is. Then select a tool whose safety is `read` + `auto` and whose catalog metadata marks it refresh-eligible.
+3. Execute once with `"$OD_NODE_BIN" "$OD_BIN" tools connectors execute --connector <id> --tool <name> --input input.json` to produce compact normalized preview data.
+4. Store only non-sensitive connector references, the bounded input object, output mapping, and compatibility `refreshPermission` in `sourceJson`.
 
-On each refresh, the daemon must re-check connector status, account label, allowlist membership, current scopes, tool safety, input schema, approval policy, and refresh eligibility. If any check fails or output protection rejects the result, refresh fails all-or-nothing and preserves the previous valid preview.
+On each refresh, the daemon must re-check connector status, account label, allowlist membership, input schema, and output protection. If any check fails or output protection rejects the result, refresh fails all-or-nothing and preserves the previous valid preview.
 
-Persisted connector refresh metadata may include `connectorId`, `toolName`, non-sensitive `accountLabel`, `approvalPolicy`, bounded `input`, `outputMapping`, and `refreshPermission`. It must not include credentials, auth/session material, raw provider envelopes, or unbounded provider responses.
+Persisted connector refresh metadata may include `connectorId`, `toolName`, non-sensitive `accountLabel`, bounded `input`, `outputMapping`, and compatibility `refreshPermission`. It must not include credentials, auth/session material, raw provider envelopes, or unbounded provider responses.
 
 ## Commit behavior
 

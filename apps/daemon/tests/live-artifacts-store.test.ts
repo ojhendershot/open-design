@@ -900,6 +900,65 @@ describe('live artifact store layout', () => {
     expect(candidate.dataJson).not.toHaveProperty('value');
   });
 
+  it('falls back to full refresh output when all mapped data paths are missing', () => {
+    const document: any = {
+      format: 'html_template_v1',
+      templatePath: 'template.html',
+      generatedPreviewPath: 'index.html',
+      dataPath: 'data.json',
+      dataJson: { title: 'Notion word cloud' },
+      sourceJson: {
+        type: 'connector_tool',
+        toolName: 'notion.notion_fetch_data',
+        input: { fetch_type: 'pages' },
+        connector: { connectorId: 'notion', toolName: 'notion.notion_fetch_data' },
+        outputMapping: {
+          dataPaths: [{ from: 'values', to: 'documents' }],
+          transform: 'compact_table',
+        },
+        refreshPermission: 'none',
+      },
+    };
+
+    const candidate = buildLiveArtifactRefreshCandidate({
+      artifact: {
+        schemaVersion: 1,
+        id: 'la-notion-word-cloud',
+        projectId: 'project-1',
+        title: 'Notion word cloud',
+        slug: 'notion-word-cloud',
+        status: 'active',
+        pinned: false,
+        preview: { type: 'html', entry: 'index.html' },
+        refreshStatus: 'idle',
+        createdAt: '2026-05-05T00:00:00.000Z',
+        updatedAt: '2026-05-05T00:00:00.000Z',
+        tiles: [],
+        document,
+      },
+      currentDataJson: document.dataJson,
+      documentOutput: {
+        output: {
+          data: {
+            results: [
+              { title: 'Page one', characters: 120 },
+              { title: 'Page two', characters: 80 },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(candidate.dataJson).toMatchObject({
+      title: 'Notion word cloud',
+      count: 2,
+      rows: [
+        { title: 'Page one', characters: 120 },
+        { title: 'Page two', characters: 80 },
+      ],
+    });
+  });
+
   it('normalizes refresh timeout configuration and rejects invalid durations', () => {
     expect(normalizeLiveArtifactRefreshTimeouts()).toEqual({
       sourceTimeoutMs: 30_000,

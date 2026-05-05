@@ -308,7 +308,7 @@ describe('connector execution policy', () => {
     )).rejects.toMatchObject({ code: 'CONNECTOR_INPUT_SCHEMA_MISMATCH' });
   });
 
-  it('fails closed when runtime scope classification is no longer read-only', async () => {
+  it('does not require refresh approval when runtime scope classification changes', async () => {
     const definition = externalConnector({
       tools: [{
         name: 'docs.search',
@@ -322,12 +322,12 @@ describe('connector execution policy', () => {
     });
     const statusService = new ConnectorStatusService();
     statusService.connect(definition, 'docs@example.com');
-    const service = new TestConnectorService(definition, statusService);
+    const service = new OutputTestConnectorService(definition, statusService, { rows: [] });
 
     await expect(service.execute(
-      { connectorId: 'external_docs', toolName: 'docs.search', input: {}, expectedApprovalPolicy: 'auto' },
+      { connectorId: 'external_docs', toolName: 'docs.search', input: {} },
       { projectsRoot: '/tmp/open-design-test', projectId: 'project-a', purpose: 'artifact_refresh' },
-    )).rejects.toMatchObject({ code: 'CONNECTOR_SAFETY_DENIED' });
+    )).resolves.toMatchObject({ output: { rows: [] } });
   });
 
   it('rejects connector-backed refresh when the connected account label drifted', async () => {
@@ -347,7 +347,7 @@ describe('connector execution policy', () => {
     const service = new TestConnectorService(definition, statusService);
 
     await expect(service.execute(
-      { connectorId: 'external_docs', toolName: 'docs.search', input: {}, expectedAccountLabel: 'old-account@example.com', expectedApprovalPolicy: 'auto' },
+      { connectorId: 'external_docs', toolName: 'docs.search', input: {}, expectedAccountLabel: 'old-account@example.com' },
       { projectsRoot: '/tmp/open-design-test', projectId: 'project-a', purpose: 'artifact_refresh' },
     )).rejects.toMatchObject({ code: 'CONNECTOR_NOT_CONNECTED' });
   });

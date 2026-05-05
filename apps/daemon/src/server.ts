@@ -3,6 +3,7 @@ import express from 'express';
 import multer from 'multer';
 import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -142,11 +143,17 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const require = createRequire(import.meta.url);
 export function resolveProjectRoot(moduleDir: string): string {
   const base = path.basename(moduleDir);
   const daemonDir =
     base === 'dist' || base === 'src' ? path.dirname(moduleDir) : moduleDir;
   return path.resolve(daemonDir, '../..');
+}
+
+export function resolveDaemonCliPath(): string {
+  const packageJsonPath = require.resolve('@open-design/daemon/package.json');
+  return path.join(path.dirname(packageJsonPath), 'dist', 'cli.js');
 }
 
 const PROJECT_ROOT = resolveProjectRoot(__dirname);
@@ -307,7 +314,8 @@ const DAEMON_RESOURCE_ROOT = resolveDaemonResourceRoot();
 // when this project shipped with Vite; the daemon serves whatever the
 // frontend toolchain emits, no further config needed.
 const STATIC_DIR = path.join(PROJECT_ROOT, 'apps', 'web', 'out');
-const OD_BIN = path.join(PROJECT_ROOT, 'apps', 'daemon', 'dist', 'cli.js');
+const OD_BIN = resolveDaemonCliPath();
+const OD_NODE_BIN = process.execPath;
 const SKILLS_DIR = resolveDaemonResourceDir(
   DAEMON_RESOURCE_ROOT,
   'skills',
@@ -410,10 +418,12 @@ export function createAgentRuntimeEnv(
   baseEnv: NodeJS.ProcessEnv | Record<string, string | undefined>,
   daemonUrl: string,
   toolTokenGrant: { token?: string } | null = null,
+  nodeBin: string = process.execPath,
 ): NodeJS.ProcessEnv {
   const env = {
     ...baseEnv,
     OD_DAEMON_URL: daemonUrl,
+    OD_NODE_BIN: nodeBin,
   };
 
   if (toolTokenGrant?.token) {
@@ -437,8 +447,11 @@ export function createAgentRuntimeToolPrompt(
     '## Runtime tool environment',
     '',
     `- Daemon URL: \`${daemonUrl}\` (also available as \`OD_DAEMON_URL\`).`,
+    '- `OD_NODE_BIN` is the absolute path to the Node-compatible runtime that started the daemon; packaged desktop installs provide this even when the user has no system `node` on PATH.',
+    '- `OD_BIN` is the absolute path to the Open Design CLI script. On POSIX shells run wrappers with `"$OD_NODE_BIN" "$OD_BIN" tools ...`; do not call bare `od`, which may resolve to the system octal-dump command on Unix-like systems.',
+    '- On PowerShell use `& $env:OD_NODE_BIN $env:OD_BIN tools ...`; on cmd.exe use `"%OD_NODE_BIN%" "%OD_BIN%" tools ...`.',
     tokenLine,
-    '- Prefer project wrapper commands such as `od tools ...` over raw HTTP. The wrappers read these environment values automatically.',
+    '- Prefer project wrapper commands through `OD_NODE_BIN` + `OD_BIN` over raw HTTP. The wrappers read these environment values automatically.',
   ].join('\n');
 }
 
@@ -3485,6 +3498,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     }
     const odMediaEnv = {
       OD_BIN,
+      OD_NODE_BIN,
       OD_DAEMON_URL: daemonUrl,
       ...(typeof projectId === 'string' && projectId && cwd
         ? {

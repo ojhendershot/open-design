@@ -399,6 +399,19 @@ export function EntryView({
     return () => window.removeEventListener('message', onMessage);
   }, [reloadConnectorStatuses]);
 
+  // When the OAuth flow is handed off to the user's system browser (desktop
+  // shell opens connector auth URLs externally rather than in an Electron
+  // popup), the callback page has no `window.opener` to postMessage back to.
+  // Refresh connector statuses whenever the window regains focus so the UI
+  // picks up a just-completed connection without manual intervention.
+  useEffect(() => {
+    function onFocus() {
+      void reloadConnectorStatuses();
+    }
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [reloadConnectorStatuses]);
+
   function updateConnector(next: ConnectorDetail | null) {
     if (!next) return;
     setConnectors((curr) => curr.map((connector) => (connector.id === next.id ? next : connector)));

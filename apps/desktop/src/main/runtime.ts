@@ -180,10 +180,6 @@ function isHttpUrl(url: string): boolean {
   }
 }
 
-function isBlankPopupUrl(url: string): boolean {
-  return url === "about:blank";
-}
-
 function installWindowChromeCssHook(window: BrowserWindow): void {
   window.webContents.on("did-finish-load", () => {
     void applyWindowChromeCss(window).catch((error: unknown) => {
@@ -258,7 +254,6 @@ export async function createDesktopRuntime(options: DesktopRuntimeOptions): Prom
   window.on("blur", () => showWindowButtons(window));
 
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (isBlankPopupUrl(url)) return { action: "allow" };
     if (isHttpUrl(url)) void shell.openExternal(url);
     return { action: "deny" };
   });

@@ -823,7 +823,7 @@ function describeRefreshStatus(status: LiveArtifactRefreshStatus): RefreshStatus
       return {
         label: 'Not refreshable',
         tone: 'warning',
-        description: 'This live artifact has no approved read-only refresh source yet.',
+        description: 'This live artifact has no refresh source yet.',
       };
   }
 }
@@ -1023,9 +1023,7 @@ export function LiveArtifactRefreshHistoryPanel({
           <header className="live-artifact-refresh-section-header">
             <h4>Document source</h4>
             <span className="live-artifact-refresh-hint">
-              {documentSource.refreshPermission === 'manual_refresh_granted_for_read_only'
-                ? 'Manual read-only refresh approved'
-                : 'Refresh not permitted'}
+              Source configured
             </span>
           </header>
           <dl className="live-artifact-refresh-kv">

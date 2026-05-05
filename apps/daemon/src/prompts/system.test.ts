@@ -46,7 +46,10 @@ describe('composeSystemPrompt', () => {
     expect(prompt).toContain('`references/refresh-contract.md`');
     expect(prompt).toContain('use the runtime tool environment documented below');
     expect(prompt).toContain('provides the daemon URL and whether a run-scoped tool token is available');
-    expect(prompt).toContain('od tools live-artifacts create --input artifact.json');
+    expect(prompt).toContain('"$OD_NODE_BIN" "$OD_BIN" tools live-artifacts create --input artifact.json');
+    expect(prompt).toContain('if the user names a connector/source (for example Notion)');
+    expect(prompt).toContain('list connectors before asking where the data comes from');
+    expect(prompt).toContain('a connected `notion` connector plus a user brief that names Notion is enough to start with `notion.notion_search`');
     expect(prompt).toContain('Prefer the `live-artifact` skill workflow when available');
     expect(prompt).toContain('The first output should be a live artifact/dashboard/report');
   });

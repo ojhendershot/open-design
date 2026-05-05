@@ -30,8 +30,13 @@ const LIVE_ARTIFACTS_USAGE = `Usage:
   od tools live-artifacts update --artifact-id <id> --input artifact.json
 
 Environment:
+  OD_NODE_BIN     Node-compatible runtime for agent wrapper invocations
+  OD_BIN          Open Design CLI script for agent wrapper invocations
   OD_DAEMON_URL   Daemon base URL injected into agent runs
   OD_TOOL_TOKEN   Bearer token injected into agent runs
+
+Agent runtime invocation:
+  "$OD_NODE_BIN" "$OD_BIN" tools live-artifacts list --format compact
 `;
 
 function writeJson(value: unknown, stream: NodeJS.WriteStream = process.stdout): void {
@@ -139,9 +144,18 @@ async function readArtifactInput(inputPath: string): Promise<{ input: unknown; t
   const resolvedInputPath = path.resolve(inputPath);
   const input = await readJsonFile(resolvedInputPath);
   const inputDir = path.dirname(resolvedInputPath);
+  const dataJson = await readOptionalJsonObject(path.join(inputDir, 'data.json'));
   const templateHtml = await readOptionalTextFile(path.join(inputDir, 'template.html'));
   const provenanceJson = await readOptionalJsonObject(path.join(inputDir, 'provenance.json'));
-  return { input, ...(templateHtml === undefined ? {} : { templateHtml }), ...(provenanceJson === undefined ? {} : { provenanceJson }) };
+  let inputWithDataJson = input;
+  if (dataJson !== undefined && input && typeof input === 'object' && !Array.isArray(input)) {
+    const inputRecord = input as JsonObject;
+    const document = inputRecord.document;
+    if (document && typeof document === 'object' && !Array.isArray(document)) {
+      inputWithDataJson = { ...inputRecord, document: { ...(document as JsonObject), dataJson } };
+    }
+  }
+  return { input: inputWithDataJson, ...(templateHtml === undefined ? {} : { templateHtml }), ...(provenanceJson === undefined ? {} : { provenanceJson }) };
 }
 
 async function requestJson(baseUrl: URL, token: string, pathname: string, init: RequestInit = {}): Promise<{ status: number; body: unknown }> {

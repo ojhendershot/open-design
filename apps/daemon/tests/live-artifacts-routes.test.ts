@@ -230,7 +230,7 @@ describe('live artifact tool routes', () => {
     expect(toolRefresh.body.artifact.document.dataJson).toMatchObject({ title: 'Open bugs', owner: '7' });
     expect(executeConnector).toHaveBeenCalledTimes(1);
     expect(executeConnector).toHaveBeenLastCalledWith(
-      expect.objectContaining({ expectedApprovalPolicy: 'auto' }),
+      expect.not.objectContaining({ expectedApprovalPolicy: expect.anything() }),
       expect.objectContaining({ purpose: 'artifact_refresh' }),
     );
 
@@ -242,12 +242,12 @@ describe('live artifact tool routes', () => {
     expect(uiRefresh.body.artifact.document.dataJson).toMatchObject({ title: 'Open bugs', owner: '8' });
     expect(executeConnector).toHaveBeenCalledTimes(2);
     expect(executeConnector).toHaveBeenLastCalledWith(
-      expect.objectContaining({ expectedApprovalPolicy: 'auto' }),
+      expect.not.objectContaining({ expectedApprovalPolicy: expect.anything() }),
       expect.objectContaining({ purpose: 'artifact_refresh' }),
     );
   });
 
-  it('rejects refresh requests when the stored source disables refresh execution', async () => {
+  it('refreshes local sources even when refreshPermission is none', async () => {
     const projectId = uniqueProjectId();
     const token = mintToolToken(projectId, 'run-route-test-refresh-disabled');
 
@@ -282,8 +282,9 @@ describe('live artifact tool routes', () => {
     const refresh = await jsonFetch(`${baseUrl}/api/live-artifacts/${create.body.artifact.id}/refresh?projectId=${encodeURIComponent(projectId)}`, {
       method: 'POST',
     });
-    expect(refresh.status).toBe(400);
-    expect(refresh.body.error).toMatchObject({ code: 'LIVE_ARTIFACT_REFRESH_UNAVAILABLE' });
+    expect(refresh.status).toBe(200);
+    expect(refresh.body.refresh).toMatchObject({ status: 'succeeded', refreshedSourceCount: 1 });
+    expect(refresh.body.artifact.document.dataJson).toMatchObject({ title: 'Disabled Refresh Artifact' });
   });
 
   it('rejects manual refresh requests with non-loopback host before refresh side effects', async () => {
@@ -335,7 +336,7 @@ describe('live artifact tool routes', () => {
     expect(executeConnector).not.toHaveBeenCalled();
   });
 
-  it('preserves revoked connector refresh permission during updates', async () => {
+  it('refreshes connector sources even when refreshPermission is none', async () => {
     const projectId = uniqueProjectId();
     const token = mintToolToken(projectId, 'run-route-test-refresh-default');
     const executeConnector = vi.spyOn(connectorService, 'execute').mockResolvedValueOnce({
@@ -382,9 +383,10 @@ describe('live artifact tool routes', () => {
     const refresh = await jsonFetch(`${baseUrl}/api/live-artifacts/${create.body.artifact.id}/refresh?projectId=${encodeURIComponent(projectId)}`, {
       method: 'POST',
     });
-    expect(refresh.status).toBe(400);
-    expect(refresh.body.error).toMatchObject({ code: 'LIVE_ARTIFACT_REFRESH_UNAVAILABLE' });
-    expect(executeConnector).not.toHaveBeenCalled();
+    expect(refresh.status).toBe(200);
+    expect(refresh.body.refresh).toMatchObject({ status: 'succeeded', refreshedSourceCount: 1 });
+    expect(refresh.body.artifact.document.dataJson).toMatchObject({ title: 'Default refresh', owner: '9' });
+    expect(executeConnector).toHaveBeenCalledTimes(1);
   });
 
   it('rejects refresh requests when no refresh source exists', async () => {
@@ -406,6 +408,69 @@ describe('live artifact tool routes', () => {
       code: 'LIVE_ARTIFACT_REFRESH_UNAVAILABLE',
       message: 'No refresh source is available yet.',
     });
+  });
+
+  it('refreshes approved tile sources when no document source exists', async () => {
+    const projectId = uniqueProjectId();
+    const token = mintToolToken(projectId, 'run-route-test-refresh-tile-source');
+    const executeConnector = vi.spyOn(connectorService, 'execute').mockResolvedValueOnce({
+      ok: true,
+      connectorId: 'monet',
+      toolName: 'monet.metrics',
+      safety: { sideEffect: 'read', approval: 'auto' },
+      output: { owner: 'Finance Ops', revenue: 123 },
+    });
+
+    const baseInput = validCreateInput('Tile Source Artifact');
+    const create = await jsonFetch(`${baseUrl}/api/tools/live-artifacts/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        input: {
+          ...baseInput,
+          tiles: [
+            {
+              id: 'tile-1',
+              kind: 'metric',
+              title: 'Revenue',
+              renderJson: { type: 'metric', label: 'Revenue', value: '$0' },
+              provenanceJson: {
+                generatedAt: '2026-05-01T00:00:00.000Z',
+                generatedBy: 'agent',
+                sources: [{ label: 'Monet metrics', type: 'connector' }],
+              },
+              refreshStatus: 'idle',
+              sourceJson: {
+                type: 'connector_tool',
+                toolName: 'monet.metrics',
+                input: { report: 'tile' },
+                connector: {
+                  connectorId: 'monet',
+                  toolName: 'monet.metrics',
+                  approvalPolicy: 'read_only_auto',
+                },
+                outputMapping: {
+                  dataPaths: [{ from: 'owner', to: 'owner' }, { from: 'revenue', to: 'revenue' }],
+                  transform: 'identity',
+                },
+                refreshPermission: 'manual_refresh_granted_for_read_only',
+              },
+            },
+          ],
+        },
+      }),
+    });
+    expect(create.status).toBe(200);
+    expect(create.body.artifact.document.sourceJson).toBeUndefined();
+
+    const refresh = await jsonFetch(`${baseUrl}/api/live-artifacts/${create.body.artifact.id}/refresh?projectId=${encodeURIComponent(projectId)}`, {
+      method: 'POST',
+    });
+
+    expect(refresh.status).toBe(200);
+    expect(refresh.body.refresh).toMatchObject({ status: 'succeeded', refreshedSourceCount: 1 });
+    expect(refresh.body.artifact.document.dataJson).toMatchObject({ owner: 'Finance Ops', revenue: 123 });
+    expect(executeConnector).toHaveBeenCalledTimes(1);
   });
 
   it('marks artifacts failed and returns connector refresh error codes', async () => {

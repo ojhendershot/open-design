@@ -148,6 +148,9 @@ function printRootHelp() {
   od mcp live-artifacts
       Start the MCP server exposing live-artifact and connector tools.
 
+  "$OD_NODE_BIN" "$OD_BIN" tools ...
+      Recommended agent-runtime form; avoids relying on user PATH for od or node.
+
   od media generate --surface <image|video|audio> --model <id> [opts]
       Generate a media artifact and write it into the active project.
       Designed to be invoked by a code agent - picks up OD_DAEMON_URL
@@ -382,7 +385,7 @@ async function pollUntilDoneOrBudget(daemonUrl, taskId, sinceStart) {
   process.stdout.write(JSON.stringify(handoff) + '\n');
   process.stderr.write(
     `task ${taskId} still running after ${handoff.elapsed}s. ` +
-      `Run \`od media wait ${taskId} --since ${since}\` to continue ` +
+      `Run \`"$OD_NODE_BIN" "$OD_BIN" media wait ${taskId} --since ${since}\` to continue in an agent runtime ` +
       `(exit code 2 = still running).\n`,
   );
   process.exit(2);
@@ -459,6 +462,7 @@ function parseFlags(argv, opts = {}) {
 
 function printMediaHelp() {
   console.log(`Usage: od media generate --surface <image|video|audio> --model <id> [opts]
+       "$OD_NODE_BIN" "$OD_BIN" media generate --surface <image|video|audio> --model <id> [opts]
 
 Required:
   --surface  image | video | audio

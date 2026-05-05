@@ -35,7 +35,7 @@ export function createLiveArtifactsMcpTools(): McpTool[] {
   return [
     {
       name: 'live_artifacts_create',
-      description: 'Create a project-scoped live artifact through the daemon tool endpoint. Equivalent to `od tools live-artifacts create --input artifact.json`.',
+      description: 'Create a project-scoped live artifact through the daemon tool endpoint. POSIX equivalent: `"$OD_NODE_BIN" "$OD_BIN" tools live-artifacts create --input artifact.json`.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -47,12 +47,12 @@ export function createLiveArtifactsMcpTools(): McpTool[] {
     },
     {
       name: 'live_artifacts_list',
-      description: 'List compact project-scoped live artifacts through the daemon tool endpoint. Equivalent to `od tools live-artifacts list --format compact`.',
+      description: 'List compact project-scoped live artifacts through the daemon tool endpoint. POSIX equivalent: `"$OD_NODE_BIN" "$OD_BIN" tools live-artifacts list --format compact`.',
       inputSchema: EMPTY_OBJECT_SCHEMA,
     },
     {
       name: 'live_artifacts_update',
-      description: 'Update a live artifact through the daemon tool endpoint. Equivalent to `od tools live-artifacts update --artifact-id <id> --input artifact.json`.',
+      description: 'Update a live artifact through the daemon tool endpoint. POSIX equivalent: `"$OD_NODE_BIN" "$OD_BIN" tools live-artifacts update --artifact-id <id> --input artifact.json`.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -65,7 +65,7 @@ export function createLiveArtifactsMcpTools(): McpTool[] {
     },
     {
       name: 'live_artifacts_refresh',
-      description: 'Refresh a live artifact through the daemon tool endpoint. Equivalent to `od tools live-artifacts refresh --artifact-id <id>`.',
+      description: 'Refresh a live artifact through the daemon tool endpoint. POSIX equivalent: `"$OD_NODE_BIN" "$OD_BIN" tools live-artifacts refresh --artifact-id <id>`.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,
@@ -77,12 +77,12 @@ export function createLiveArtifactsMcpTools(): McpTool[] {
     },
     {
       name: 'connectors_list',
-      description: 'List connector catalog and available read-only tools through the daemon tool endpoint. Equivalent to `od tools connectors list --format compact`.',
+      description: 'List connector catalog and available read-only tools through the daemon tool endpoint. POSIX equivalent: `"$OD_NODE_BIN" "$OD_BIN" tools connectors list --format compact`.',
       inputSchema: EMPTY_OBJECT_SCHEMA,
     },
     {
       name: 'connectors_execute',
-      description: 'Execute an allowed connector read tool through the daemon tool endpoint. Equivalent to `od tools connectors execute --connector <id> --tool <name> --input input.json`.',
+      description: 'Execute an allowed connector read tool through the daemon tool endpoint. POSIX equivalent: `"$OD_NODE_BIN" "$OD_BIN" tools connectors execute --connector <id> --tool <name> --input input.json`.',
       inputSchema: {
         type: 'object',
         additionalProperties: false,

@@ -44,7 +44,7 @@ live-artifact/
 └── references/
     ├── artifact-schema.md      ← `references/artifact-schema.md`: artifact files, DTO shape, template binding rules
     ├── connector-policy.md     ← `references/connector-policy.md`: connector safety, redaction, credential boundaries
-    └── refresh-contract.md     ← `references/refresh-contract.md`: refresh permissions, source metadata, snapshots
+    └── refresh-contract.md     ← `references/refresh-contract.md`: source metadata, refresh execution, snapshots
 ```
 
 ## Current status
@@ -63,11 +63,14 @@ Before creating files, decide whether the user actually wants a live artifact or
 
 ## Workflow
 
-1. **Confirm scope and data source**
+1. **Resolve scope and data source without blocking on connected connectors**
    - Identify the preview goal, audience, data freshness expectations, and whether refresh should be possible later.
+   - If the user explicitly names a connector/source such as Notion, GitHub, Slack, or Google Drive, do not ask “where should the data come from?” before checking daemon connector tools.
    - Prefer local/project sources or daemon connector tools when available.
    - Do not call provider APIs directly when a daemon connector/wrapper exists.
-   - If connector data is needed, first list connectors with `od tools connectors list --format compact`, choose only connected read-only tools, then execute through the connector wrapper.
+   - If connector data is needed, first list connectors with `"$OD_NODE_BIN" "$OD_BIN" tools connectors list --format compact`. If the named connector is present with `status: "connected"`, choose an appropriate read-only `auto` tool from its catalog and execute it through the connector wrapper.
+   - For Notion specifically, a connected `notion` connector plus a user brief that names Notion is enough to start with `notion.notion_search` using a query derived from the requested artifact/topic. Use `notion.notion_fetch_database` only when the user supplied a database id or the search result clearly identifies one.
+   - Ask the user a data-source question only when no matching connected connector exists, multiple connected candidates fit equally well, or the requested artifact has no usable topic/query to search for. If you must ask, be specific: ask for the page/database/topic or permission to search broadly, not “where is the Notion data source?”
 
 2. **Author the source files**
    - Write `template.html` as the human-designed HTML template.
@@ -87,15 +90,15 @@ Before creating files, decide whether the user actually wants a live artifact or
    - Use escaped `html_template_v1` interpolation only. Raw/unescaped HTML interpolation is not allowed.
 
 5. **Register or update through daemon wrappers**
-   - Use the `od` daemon wrapper commands instead of raw `curl`:
+   - Use the Open Design daemon wrapper commands via `"$OD_NODE_BIN" "$OD_BIN"` instead of raw `curl`, bare `node`, or bare `od`:
 
      ```bash
-     od tools live-artifacts create --input artifact.json
-     od tools live-artifacts list --format compact
-     od tools live-artifacts update --artifact-id "$ARTIFACT_ID" --input artifact.json
+     "$OD_NODE_BIN" "$OD_BIN" tools live-artifacts create --input artifact.json
+     "$OD_NODE_BIN" "$OD_BIN" tools live-artifacts list --format compact
+     "$OD_NODE_BIN" "$OD_BIN" tools live-artifacts update --artifact-id "$ARTIFACT_ID" --input artifact.json
      ```
 
-   - The wrapper reads injected `OD_DAEMON_URL` and `OD_TOOL_TOKEN`; do not print, persist, or override them.
+   - The wrapper reads injected `OD_NODE_BIN`, `OD_BIN`, `OD_DAEMON_URL`, and `OD_TOOL_TOKEN`; do not print, persist, or override token values.
    - Do not include or invent `projectId`; the daemon derives project/run scope from the token.
    - Use raw HTTP only for daemon development/debugging when explicitly requested.
 
@@ -103,16 +106,17 @@ Before creating files, decide whether the user actually wants a live artifact or
    - Discover available connectors and tools:
 
      ```bash
-     od tools connectors list --format compact
+     "$OD_NODE_BIN" "$OD_BIN" tools connectors list --format compact
      ```
 
    - Execute a read-only connector tool with a JSON object input file:
 
      ```bash
-     od tools connectors execute --connector "$CONNECTOR_ID" --tool "$TOOL_NAME" --input input.json
+     "$OD_NODE_BIN" "$OD_BIN" tools connectors execute --connector "$CONNECTOR_ID" --tool "$TOOL_NAME" --input input.json
      ```
 
-   - Persist only the compact normalized fields needed by the preview plus non-sensitive connector references (`connectorId`, `toolName`, `accountLabel`, approval/refresh permission). Never persist connector credentials, transport metadata, or raw provider output.
+   - Persist only the compact normalized fields needed by the preview plus non-sensitive connector references (`connectorId`, `toolName`, `accountLabel`). Never persist connector credentials, transport metadata, or raw provider output.
+   - Do not ask for connector secrets or duplicate setup. If `status` is `connected`, use the listed tools; if it is not connected, tell the user to connect it in the UI.
    - See `references/connector-policy.md` for listing/execution and credential boundaries, and `references/refresh-contract.md` for read-only refresh source metadata.
 
 7. **Report concise results**

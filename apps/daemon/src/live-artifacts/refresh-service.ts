@@ -15,8 +15,7 @@ import {
   withLiveArtifactRefreshSourceTimeout,
 } from './refresh.js';
 import { connectorService } from '../connectors/service.js';
-import type { ConnectorToolApproval } from '../connectors/catalog.js';
-import type { BoundedJsonObject, LiveArtifactConnectorApprovalPolicy, LiveArtifactRefreshErrorRecord, LiveArtifactRefreshSourceMetadata, LiveArtifactTileSource } from './schema.js';
+import type { BoundedJsonObject, LiveArtifactRefreshErrorRecord, LiveArtifactRefreshSourceMetadata, LiveArtifactTileSource } from './schema.js';
 
 export interface RefreshLiveArtifactOptions {
   projectsRoot: string;
@@ -65,18 +64,16 @@ function documentSourceMetadata(source: LiveArtifactTileSource): LiveArtifactRef
   return metadata;
 }
 
-function isSupportedSource(source: LiveArtifactTileSource | undefined): source is LiveArtifactTileSource {
-  if (source === undefined) return false;
-  if (source.refreshPermission === 'none') return false;
-  return source.type === 'daemon_tool' || source.type === 'connector_tool';
+function tileSourceMetadata(tileId: string, source: LiveArtifactTileSource): LiveArtifactRefreshSourceMetadata {
+  const metadata: LiveArtifactRefreshSourceMetadata = { sourceType: 'tile', tileId };
+  if (source.toolName !== undefined) metadata.toolName = source.toolName;
+  if (source.connector !== undefined) metadata.connector = source.connector;
+  return metadata;
 }
 
-function connectorExpectedApprovalPolicy(policy: LiveArtifactConnectorApprovalPolicy): ConnectorToolApproval {
-  switch (policy) {
-    case 'read_only_auto':
-    case 'manual_refresh_granted_for_read_only':
-      return 'auto';
-  }
+function isSupportedSource(source: LiveArtifactTileSource | undefined): source is LiveArtifactTileSource {
+  if (source === undefined) return false;
+  return source.type === 'daemon_tool' || source.type === 'connector_tool';
 }
 
 async function executeRefreshSource(options: {
@@ -86,9 +83,6 @@ async function executeRefreshSource(options: {
   signal: AbortSignal;
 }): Promise<BoundedJsonObject> {
   const { projectsRoot, projectId, source, signal } = options;
-  if (source.refreshPermission === 'none') {
-    throw new LiveArtifactRefreshUnavailableError('Refresh is disabled for this source.');
-  }
   if (source.type === 'connector_tool') {
     const connector = source.connector;
     if (connector === undefined) throw new Error('connector refresh source requires connector metadata');
@@ -98,7 +92,6 @@ async function executeRefreshSource(options: {
         toolName: connector.toolName,
         input: source.input,
         ...(connector.accountLabel === undefined ? {} : { expectedAccountLabel: connector.accountLabel }),
-        expectedApprovalPolicy: connectorExpectedApprovalPolicy(connector.approvalPolicy),
       },
       { projectsRoot, projectId, purpose: 'artifact_refresh', signal },
     );
@@ -152,9 +145,12 @@ export async function refreshLiveArtifact(options: RefreshLiveArtifactOptions): 
       const currentDataJson = artifact.document?.dataJson ?? {};
       const documentSource = artifact.document?.sourceJson;
       const hasDocumentSource = isSupportedSource(documentSource);
+      const tileSources = artifact.tiles
+        .map((tile) => ({ tileId: tile.id, source: tile.sourceJson }))
+        .filter((tileSource): tileSource is { tileId: string; source: LiveArtifactTileSource } => isSupportedSource(tileSource.source));
       const timeouts = normalizeLiveArtifactRefreshTimeouts();
 
-      if (!hasDocumentSource) {
+      if (!hasDocumentSource && tileSources.length === 0) {
         throw new LiveArtifactRefreshUnavailableError();
       }
 
@@ -169,6 +165,7 @@ export async function refreshLiveArtifact(options: RefreshLiveArtifactOptions): 
         },
         async (run) => {
           let documentOutput: { output: BoundedJsonObject } | undefined;
+          const tileOutputs: Array<{ tileId: string; output: BoundedJsonObject }> = [];
           if (hasDocumentSource) {
             const step = 'document';
             const sourceMetadata = documentSourceMetadata(documentSource);
@@ -194,16 +191,44 @@ export async function refreshLiveArtifact(options: RefreshLiveArtifactOptions): 
               throw error;
             }
           }
+
+          for (const tileSource of tileSources) {
+            const step = `tile:${tileSource.tileId}:execute`;
+            const sourceMetadata = tileSourceMetadata(tileSource.tileId, tileSource.source);
+            const tileStartedAt = nowDate();
+            await appendLog({ step, status: 'running', startedAt: tileStartedAt, source: sourceMetadata });
+            try {
+              const output = await withLiveArtifactRefreshSourceTimeout(
+                run,
+                { step, source: sourceMetadata, sourceTimeoutMs: timeouts.sourceTimeoutMs },
+                async (signal) => executeRefreshSource({
+                  projectsRoot: options.projectsRoot,
+                  projectId: options.projectId,
+                  source: tileSource.source,
+                  signal,
+                }),
+              );
+              const tileFinishedAt = nowDate();
+              await appendLog({ step, status: 'succeeded', startedAt: tileStartedAt, finishedAt: tileFinishedAt, source: sourceMetadata });
+              tileOutputs.push({ tileId: tileSource.tileId, output });
+            } catch (error) {
+              const tileFinishedAt = nowDate();
+              await appendLog({ step, status: 'failed', startedAt: tileStartedAt, finishedAt: tileFinishedAt, source: sourceMetadata, error });
+              throw error;
+            }
+          }
+
           return buildLiveArtifactRefreshCandidate({
             artifact,
             currentDataJson,
             ...(documentOutput === undefined ? {} : { documentOutput }),
+            ...(tileOutputs.length === 0 ? {} : { tileOutputs }),
             now: nowDate(),
           });
         },
       );
 
-      const refreshedSourceCount = hasDocumentSource ? 1 : 0;
+      const refreshedSourceCount = (hasDocumentSource ? 1 : 0) + tileSources.length;
 
       const committed = await commitLiveArtifactRefreshCandidate({
         projectsRoot: options.projectsRoot,

@@ -61,10 +61,16 @@ export interface LiveArtifactRefreshDocumentOutput {
   output: BoundedJsonObject;
 }
 
+export interface LiveArtifactRefreshTileOutput {
+  tileId: string;
+  output: BoundedJsonObject;
+}
+
 export interface BuildLiveArtifactRefreshCandidateOptions {
   artifact: LiveArtifact;
   currentDataJson: BoundedJsonObject;
   documentOutput?: LiveArtifactRefreshDocumentOutput;
+  tileOutputs?: LiveArtifactRefreshTileOutput[];
   now?: Date;
 }
 
@@ -292,7 +298,7 @@ function isJsonObject(value: BoundedJsonValue | undefined): value is BoundedJson
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function readMappedValue(root: BoundedJsonObject, path: string): BoundedJsonValue {
+function readMappedValue(root: BoundedJsonObject, path: string): BoundedJsonValue | undefined {
   let current: BoundedJsonValue | undefined = root;
   for (const segment of parseMappingPath(path, 'outputMapping.dataPaths.from')) {
     if (Array.isArray(current)) {
@@ -302,9 +308,9 @@ function readMappedValue(root: BoundedJsonObject, path: string): BoundedJsonValu
     } else if (isJsonObject(current)) {
       current = current[segment];
     } else {
-      throw new Error(`outputMapping.dataPaths.from path is missing: ${path}`);
+      return undefined;
     }
-    if (current === undefined) throw new Error(`outputMapping.dataPaths.from path is missing: ${path}`);
+    if (current === undefined) return undefined;
   }
   return current;
 }
@@ -350,9 +356,10 @@ function applyDataPaths(output: BoundedJsonObject, dataPaths: NonNullable<LiveAr
   if (dataPaths === undefined || dataPaths.length === 0) return output;
   const mapped: BoundedJsonObject = {};
   for (const dataPath of dataPaths) {
-    writeMappedValue(mapped, dataPath.to, readMappedValue(output, dataPath.from));
+    const value = readMappedValue(output, dataPath.from);
+    if (value !== undefined) writeMappedValue(mapped, dataPath.to, value);
   }
-  return mapped;
+  return Object.keys(mapped).length === 0 ? output : mapped;
 }
 
 function humanizeKey(key: string): string {
@@ -498,6 +505,17 @@ export function buildLiveArtifactRefreshCandidate(options: BuildLiveArtifactRefr
     if (source.toolName === 'public_github_repository_metric') {
       applyLegacyGithubRepositoryMetricCompat(dataJson, options.documentOutput.output);
     }
+  }
+
+  for (const tileOutput of options.tileOutputs ?? []) {
+    const tile = options.artifact.tiles.find((candidateTile) => candidateTile.id === tileOutput.tileId);
+    const source = tile?.sourceJson;
+    if (source === undefined) continue;
+    const mapped = applyLiveArtifactOutputMapping({
+      source,
+      output: tileOutput.output,
+    });
+    deepMergeBoundedJsonObject(dataJson, mapped);
   }
 
   return { dataJson: asBoundedRefreshOutput(dataJson) };
@@ -691,9 +709,6 @@ async function executePublicGithubRepositoryMetric(options: ExecuteLocalDaemonRe
 export async function executeLocalDaemonRefreshSource(options: ExecuteLocalDaemonRefreshSourceOptions): Promise<BoundedJsonObject> {
   if (options.source.type !== 'daemon_tool') {
     throw new Error('local daemon refresh sources require source.type daemon_tool');
-  }
-  if (options.source.refreshPermission === 'none') {
-    throw new Error('refresh is disabled for this source');
   }
   if (!isLocalDaemonRefreshToolName(options.source.toolName)) {
     throw new Error(`unsupported local daemon refresh tool: ${options.source.toolName ?? '<missing>'}`);

@@ -150,6 +150,9 @@ function renderMetadataBlock(
     lines.push(
       '- **intent**: live-artifact — the user chose New live artifact. The first output should be a live artifact/dashboard/report, not a one-off static mockup. Prefer the `live-artifact` skill workflow when available, keep source data compact, and register through the daemon live-artifact tool path once that wrapper/tooling is available.',
     );
+    lines.push(
+      '- **connector-source rule**: if the user names a connector/source (for example Notion) and daemon connector tools are available, list connectors before asking where the data comes from. When the named connector is `connected`, use its read-only tools and ask follow-up questions only for missing topic/page/database details, multiple equally plausible matches, or an unconnected/missing connector.',
+    );
   }
 
   if (metadata.kind === 'prototype') {
@@ -185,7 +188,7 @@ function renderMetadataBlock(
     }
     lines.push('');
     lines.push(
-      'This is an **image** project. Plan the prompt carefully, then dispatch via the **media generation contract** using `od media generate --surface image --model <imageModel>`. Do NOT emit `<artifact>` HTML for media surfaces.',
+      'This is an **image** project. Plan the prompt carefully, then dispatch via the **media generation contract** using `"$OD_NODE_BIN" "$OD_BIN" media generate --surface image --model <imageModel>`. Do NOT emit `<artifact>` HTML for media surfaces.',
     );
   }
   if (metadata.kind === 'video') {
@@ -203,7 +206,7 @@ function renderMetadataBlock(
     }
     lines.push('');
     lines.push(
-      'This is a **video** project. Plan the shotlist and motion, then dispatch via the **media generation contract** using `od media generate --surface video --model <videoModel> --length <seconds> --aspect <ratio>`. Do NOT emit `<artifact>` HTML.',
+      'This is a **video** project. Plan the shotlist and motion, then dispatch via the **media generation contract** using `"$OD_NODE_BIN" "$OD_BIN" media generate --surface video --model <videoModel> --length <seconds> --aspect <ratio>`. Do NOT emit `<artifact>` HTML.',
     );
     if (metadata.videoModel === 'hyperframes-html') {
       lines.push(
@@ -228,7 +231,7 @@ function renderMetadataBlock(
     }
     lines.push('');
     lines.push(
-      'This is an **audio** project. Lock the content intent first, then dispatch via the **media generation contract** using `od media generate --surface audio --audio-kind <kind> --model <audioModel> --duration <seconds>` and add `--voice <voice-id>` for speech when you have a provider-specific voice id. Do NOT emit `<artifact>` HTML.',
+      'This is an **audio** project. Lock the content intent first, then dispatch via the **media generation contract** using `"$OD_NODE_BIN" "$OD_BIN" media generate --surface audio --audio-kind <kind> --model <audioModel> --duration <seconds>` and add `--voice <voice-id>` for speech when you have a provider-specific voice id. Do NOT emit `<artifact>` HTML.',
     );
   }
 

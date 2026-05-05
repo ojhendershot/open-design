@@ -64,7 +64,7 @@ export interface LiveArtifactTileSource {
     connectorId: string;
     accountLabel?: string;
     toolName: string;
-    approvalPolicy: LiveArtifactConnectorApprovalPolicy;
+    approvalPolicy?: LiveArtifactConnectorApprovalPolicy;
   };
   outputMapping?: {
     dataPaths?: Array<{ from: string; to: string }>;
@@ -592,10 +592,13 @@ function validateSource(value: unknown, path: string, issues: LiveArtifactValida
       const connectorId = asString(value.connector.connectorId, `${path}.connector.connectorId`, issues, MAX_ID_LENGTH);
       const accountLabel = asOptionalString(value.connector.accountLabel, `${path}.connector.accountLabel`, issues, MAX_SHORT_TEXT_LENGTH);
       const connectorToolName = asString(value.connector.toolName, `${path}.connector.toolName`, issues, MAX_ID_LENGTH);
-      const approvalPolicy = validateEnum(value.connector.approvalPolicy, CONNECTOR_APPROVAL_POLICIES, `${path}.connector.approvalPolicy`, issues);
-      if (connectorId !== undefined && connectorToolName !== undefined && approvalPolicy !== undefined) {
-        const nextConnector: NonNullable<LiveArtifactTileSource['connector']> = { connectorId, toolName: connectorToolName, approvalPolicy };
+      const approvalPolicy = value.connector.approvalPolicy === undefined
+        ? undefined
+        : validateEnum(value.connector.approvalPolicy, CONNECTOR_APPROVAL_POLICIES, `${path}.connector.approvalPolicy`, issues);
+      if (connectorId !== undefined && connectorToolName !== undefined) {
+        const nextConnector: NonNullable<LiveArtifactTileSource['connector']> = { connectorId, toolName: connectorToolName };
         if (accountLabel !== undefined) nextConnector.accountLabel = accountLabel;
+        if (approvalPolicy !== undefined) nextConnector.approvalPolicy = approvalPolicy;
         connector = nextConnector;
       }
     }

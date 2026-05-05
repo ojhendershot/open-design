@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
 
 import { runLiveArtifactsToolCli } from '../src/tools-live-artifacts-cli.js';
 
@@ -10,6 +13,7 @@ describe('live artifact tool CLI environment', () => {
   let stdoutOutput: string[];
   let stderrOutput: string[];
   let fetchMock: ReturnType<typeof vi.fn>;
+  const tempRoots: string[] = [];
 
   beforeEach(() => {
     process.env = { ...ORIGINAL_ENV };
@@ -37,7 +41,29 @@ describe('live artifact tool CLI environment', () => {
     stdoutWrite.mockRestore();
     stderrWrite.mockRestore();
     process.env = ORIGINAL_ENV;
+    return Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true }))).then(() => undefined);
   });
+
+  async function makeArtifactInputFiles() {
+    const root = await mkdtemp(path.join(tmpdir(), 'od-live-artifact-cli-'));
+    tempRoots.push(root);
+    const artifactPath = path.join(root, 'artifact.json');
+    await writeFile(artifactPath, JSON.stringify({
+      title: 'Data backed artifact',
+      preview: { type: 'html', entry: 'index.html' },
+      document: {
+        format: 'html_template_v1',
+        templatePath: 'template.html',
+        generatedPreviewPath: 'index.html',
+        dataPath: 'data.json',
+        dataJson: {},
+      },
+    }));
+    await writeFile(path.join(root, 'data.json'), JSON.stringify({ title: 'Injected title', metrics: { count: 3 } }));
+    await writeFile(path.join(root, 'template.html'), '<h1>{{data.title}}</h1>');
+    await writeFile(path.join(root, 'provenance.json'), JSON.stringify({ generatedAt: '2026-05-05T00:00:00.000Z', generatedBy: 'agent', sources: [] }));
+    return artifactPath;
+  }
 
   it('reads OD_DAEMON_URL and OD_TOOL_TOKEN from the injected environment', async () => {
     process.env.OD_DAEMON_URL = 'http://127.0.0.1:7456/base/';
@@ -98,6 +124,35 @@ describe('live artifact tool CLI environment', () => {
       ],
     });
     expect(stderrOutput.join('')).toBe('');
+  });
+
+  it('injects sibling data.json into document dataJson when creating artifacts', async () => {
+    process.env.OD_DAEMON_URL = 'http://127.0.0.1:7456/base/';
+    process.env.OD_TOOL_TOKEN = 'agent-run-token';
+    const artifactPath = await makeArtifactInputFiles();
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          artifact: {
+            id: 'live_1',
+            title: 'Data backed artifact',
+            status: 'active',
+            refreshStatus: 'idle',
+            preview: { type: 'html', entry: 'index.html' },
+            updatedAt: '2026-05-05T00:00:00.000Z',
+          },
+        }),
+        { headers: { 'Content-Type': 'application/json' }, status: 200 },
+      ),
+    );
+
+    const result = await runLiveArtifactsToolCli(['create', '--input', artifactPath]);
+
+    expect(result.exitCode).toBe(0);
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(requestBody.input.document.dataJson).toEqual({ title: 'Injected title', metrics: { count: 3 } });
+    expect(requestBody.templateHtml).toBe('<h1>{{data.title}}</h1>');
+    expect(requestBody.provenanceJson).toMatchObject({ generatedBy: 'agent' });
   });
 
   it('calls the refresh tool endpoint with the artifact id', async () => {

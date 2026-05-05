@@ -203,7 +203,7 @@ The skill should instruct the agent to:
 
 1. Determine whether the user wants a live artifact or a normal static artifact.
 2. Query available connectors and allowed read-only operations.
-3. Fetch or ask the user for the required data source.
+3. Fetch from the named connected connector/source when available; ask for a data source only when no matching connected source exists, multiple candidates are equally plausible, or the request lacks any searchable topic/page/database clue.
 4. Create a safe render model, not raw provider output.
 5. Write `template.html`, `data.json`, `artifact.json`, and `provenance.json` into the live artifact workspace directory; treat `index.html` as derived preview output.
 6. Register the artifact through daemon tooling.

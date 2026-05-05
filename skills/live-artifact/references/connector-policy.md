@@ -26,22 +26,30 @@ If a tool name, scope, or description suggests write/create/update/delete/admin/
 List connectors before using connector-backed data:
 
 ```bash
-od tools connectors list --format compact
+"$OD_NODE_BIN" "$OD_BIN" tools connectors list --format compact
 ```
 
 The compact result includes each connector's `id`, display metadata, `status`, optional `accountLabel`, and callable tool summaries with `name`, `description`, `safety`, and `inputSchema`. Use this output to select a connector and tool; do not guess tool names.
 
 Only execute tools from connectors whose status is `connected`. Local/public connectors may already be connected by the daemon; OAuth-backed connectors must be connected by the user through the UI before agent execution.
 
+If the user already named a connector or app, treat that as the intended data source. For example, “create a Notion live artifact” means: list connectors, find `notion`, and if it is `connected`, use its read-only tools instead of asking where the Notion data comes from. Ask a follow-up only when the matching connector is missing/unconnected, when several connected matches are equally plausible, or when there is no searchable topic/page/database clue in the user’s request.
+
+For Notion, prefer this selection order:
+
+1. Use `notion.notion_search` with a concise query derived from the user’s requested artifact/topic.
+2. Use `notion.notion_fetch_database` only when the user provided a database id or a prior search result identifies a specific database.
+3. If the user simply says “Notion live artifact” with no topic, ask what Notion page/database/topic to visualize or whether to search broadly.
+
 ## Connector execution
 
 Create a bounded JSON object input file that matches the selected tool's `inputSchema`, then execute through the wrapper:
 
 ```bash
-od tools connectors execute --connector "$CONNECTOR_ID" --tool "$TOOL_NAME" --input input.json
+"$OD_NODE_BIN" "$OD_BIN" tools connectors execute --connector "$CONNECTOR_ID" --tool "$TOOL_NAME" --input input.json
 ```
 
-The wrapper reads `OD_DAEMON_URL` and `OD_TOOL_TOKEN`, sends the request to `/api/tools/connectors/execute`, and prints compact JSON. Successful output includes `connectorId`, optional `accountLabel`, `toolName`, `safety`, `outputSummary`, redacted `output`, and daemon metadata. On failure, fix the input/schema/connection issue and retry; do not bypass connector validation with direct provider calls.
+The wrapper reads `OD_NODE_BIN`, `OD_BIN`, `OD_DAEMON_URL`, and `OD_TOOL_TOKEN`, sends the request to `/api/tools/connectors/execute`, and prints compact JSON. Successful output includes `connectorId`, optional `accountLabel`, `toolName`, `safety`, `outputSummary`, redacted `output`, and daemon metadata. On failure, fix the input/schema/connection issue and retry; do not bypass connector validation with direct provider calls.
 
 Execution is fail-closed:
 
@@ -66,8 +74,7 @@ Connector-backed live artifact refresh is allowed only for tools that remain rea
   "connector": {
     "connectorId": "github_public",
     "accountLabel": "public",
-    "toolName": "github.public_repo_summary",
-    "approvalPolicy": "manual_refresh_granted_for_read_only"
+    "toolName": "github.public_repo_summary"
   },
   "outputMapping": {
     "dataPaths": [{ "from": "summary", "to": "repository" }],
@@ -77,7 +84,7 @@ Connector-backed live artifact refresh is allowed only for tools that remain rea
 }
 ```
 
-During refresh, the daemon revalidates `connectorId`, `accountLabel`, tool name, saved input schema, current scopes, current safety classification, allowlist membership, and approval policy. If anything drifts, the refresh fails without changing the previous valid preview.
+During refresh, the daemon revalidates `connectorId`, `accountLabel`, tool name, saved input schema, and allowlist membership. If anything drifts, the refresh fails without changing the previous valid preview.
 
 Never mark write, destructive, unknown, confirmation-required, disabled, unconnected, or schema-drifted connector tools as refreshable.
 
@@ -101,9 +108,10 @@ Credential storage is daemon-controlled and outside project artifact directories
 ## Credential handling constraints
 
 - Do not ask the user for connector secrets inside the artifact workflow.
+- Do not ask the user to re-specify a data source that is already named and connected; inspect the connector catalog first.
 - Do not write OAuth material, API keys, cookies, sessions, HTTP request metadata, or provider auth state into `artifact.json`, `data.json`, `provenance.json`, tile JSON, snapshots, refresh history, or `.live-artifacts/`.
 - Do not include secret-like values in connector tool inputs or source metadata. If a connector requires credentials, the daemon-owned connector UI/storage must handle them outside project artifacts.
-- Safe persisted connector references are limited to catalog IDs, tool names, non-sensitive account labels, approval/refresh permission values, selected normalized output fields, and concise provenance notes.
+- Safe persisted connector references are limited to catalog IDs, tool names, non-sensitive account labels, selected normalized output fields, and concise provenance notes.
 - If connector output contains unredacted sensitive or envelope-like fields, stop and return a validation/safety error instead of storing it.
 
 ## Output protection

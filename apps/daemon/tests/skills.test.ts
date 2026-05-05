@@ -67,7 +67,9 @@ describe('listSkills', () => {
     expect(skill.body).toContain('references/artifact-schema.md');
     expect(skill.body).toContain('references/connector-policy.md');
     expect(skill.body).toContain('references/refresh-contract.md');
-    expect(skill.body).toContain('od tools live-artifacts create --input artifact.json');
+    expect(skill.body).toContain('"$OD_NODE_BIN" "$OD_BIN" tools live-artifacts create --input artifact.json');
+    expect(skill.body).toContain('do not ask “where should the data come from?” before checking daemon connector tools');
+    expect(skill.body).toContain('notion.notion_search');
     expect(skill.body).toContain('`OD_DAEMON_URL`');
     expect(skill.body).toContain('`OD_TOOL_TOKEN`');
   });

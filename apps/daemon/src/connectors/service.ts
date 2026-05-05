@@ -19,7 +19,6 @@ export interface ConnectorExecuteRequest {
   toolName: string;
   input: BoundedJsonObject;
   expectedAccountLabel?: string;
-  expectedApprovalPolicy?: ConnectorCatalogDefinition['minimumApproval'];
 }
 
 export interface ConnectorExecuteResponse {
@@ -664,15 +663,6 @@ export class ConnectorService {
         connectorId: request.connectorId,
         toolName: request.toolName,
         approvalPolicy: effectiveApproval ?? null,
-        safety: { ...runtimeSafety },
-      });
-    }
-    if (request.expectedApprovalPolicy !== undefined && effectiveApproval !== request.expectedApprovalPolicy) {
-      throw new ConnectorServiceError('CONNECTOR_SAFETY_DENIED', 'connector approval policy changed since refresh approval', 403, {
-        connectorId: request.connectorId,
-        toolName: request.toolName,
-        expectedApprovalPolicy: request.expectedApprovalPolicy,
-        currentApprovalPolicy: effectiveApproval ?? null,
         safety: { ...runtimeSafety },
       });
     }

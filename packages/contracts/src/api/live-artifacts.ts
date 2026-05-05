@@ -136,7 +136,7 @@ export interface LiveArtifactTileSource {
     connectorId: string;
     accountLabel?: string;
     toolName: string;
-    approvalPolicy: LiveArtifactConnectorApprovalPolicy;
+    approvalPolicy?: LiveArtifactConnectorApprovalPolicy;
   };
   outputMapping?: {
     dataPaths?: Array<{ from: string; to: string }>;
