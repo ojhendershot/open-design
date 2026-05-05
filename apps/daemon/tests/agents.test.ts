@@ -233,9 +233,16 @@ test('MCP-capable agents can discover equivalent live artifact and connector too
 
   const listed = await handleLiveArtifactsMcpRequest({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
   assert.deepEqual(listed.result.tools.map((tool) => tool.name), tools.map((tool) => tool.name));
+
+  const createTool = tools.find((tool) => tool.name === 'live_artifacts_create')!;
+  const updateTool = tools.find((tool) => tool.name === 'live_artifacts_update')!;
+  const createProperties = createTool.inputSchema.properties as Record<string, unknown>;
+  const updateProperties = updateTool.inputSchema.properties as Record<string, unknown>;
+  assert.deepEqual(Object.keys(createProperties).sort(), ['input', 'provenanceJson', 'templateHtml']);
+  assert.deepEqual(Object.keys(updateProperties).sort(), ['artifactId', 'input', 'provenanceJson', 'templateHtml']);
 });
 
-test('live artifact MCP create forwards input under daemon tool input key', async () => {
+test('live artifact MCP create forwards input and artifact payload fields to daemon tools', async () => {
   process.env.OD_DAEMON_URL = 'http://127.0.0.1:17456';
   process.env.OD_TOOL_TOKEN = 'test-tool-token';
   const calls = [];
@@ -245,20 +252,22 @@ test('live artifact MCP create forwards input under daemon tool input key', asyn
   };
 
   const input = { title: 'Demo', preview: { type: 'html', entry: 'index.html' } };
+  const templateHtml = '<h1>{{data.title}}</h1>';
+  const provenanceJson = { source: { type: 'mcp-test' } };
   const response = await handleLiveArtifactsMcpRequest({
     jsonrpc: '2.0',
     id: 3,
     method: 'tools/call',
-    params: { name: 'live_artifacts_create', arguments: { input } },
+    params: { name: 'live_artifacts_create', arguments: { input, templateHtml, provenanceJson } },
   });
 
   assert.equal(response.error, undefined);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'http://127.0.0.1:17456/api/tools/live-artifacts/create');
-  assert.deepEqual(JSON.parse(calls[0].init.body), { input });
+  assert.deepEqual(JSON.parse(calls[0].init.body), { input, templateHtml, provenanceJson });
 });
 
-test('live artifact MCP update preserves nested input for daemon tool updates', async () => {
+test('live artifact MCP update preserves nested input and artifact payload fields', async () => {
   process.env.OD_DAEMON_URL = 'http://127.0.0.1:17456';
   process.env.OD_TOOL_TOKEN = 'test-tool-token';
   const calls = [];
@@ -268,17 +277,19 @@ test('live artifact MCP update preserves nested input for daemon tool updates', 
   };
 
   const input = { title: 'Updated', pinned: true };
+  const templateHtml = '<p>{{data.value}}</p>';
+  const provenanceJson = { source: { type: 'mcp-update-test' } };
   const response = await handleLiveArtifactsMcpRequest({
     jsonrpc: '2.0',
     id: 4,
     method: 'tools/call',
-    params: { name: 'live_artifacts_update', arguments: { artifactId: 'artifact-1', input } },
+    params: { name: 'live_artifacts_update', arguments: { artifactId: 'artifact-1', input, templateHtml, provenanceJson } },
   });
 
   assert.equal(response.error, undefined);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'http://127.0.0.1:17456/api/tools/live-artifacts/update');
-  assert.deepEqual(JSON.parse(calls[0].init.body), { artifactId: 'artifact-1', input });
+  assert.deepEqual(JSON.parse(calls[0].init.body), { artifactId: 'artifact-1', input, templateHtml, provenanceJson });
 });
 
 test('cursor-agent args deliver prompts via stdin without passing a literal dash prompt', () => {

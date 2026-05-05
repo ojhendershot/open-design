@@ -966,13 +966,13 @@ export async function commitLiveArtifactRefreshCandidate(
     previewHtml,
     provenanceJson,
   });
-  await writeLiveArtifactRefreshState(paths, nextState);
   await Promise.all([
     writeFileAtomic(paths.artifactJsonPath, stableJson(persisted.value)),
     writeFileAtomic(paths.dataJsonPath, stableJson(candidateData.value)),
     writeFileAtomic(paths.generatedPreviewHtmlPath, previewHtml),
     writeFileAtomic(paths.provenanceJsonPath, stableJson(provenanceJson)),
   ]);
+  await writeLiveArtifactRefreshState(paths, nextState);
   return { artifact: persisted.value, paths };
 }
 

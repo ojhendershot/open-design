@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -771,6 +771,54 @@ describe('live artifact store layout', () => {
     await expect(readFile(created.paths.artifactJsonPath, 'utf8')).resolves.toBe(originalArtifactJson);
     await expect(readFile(created.paths.dataJsonPath, 'utf8')).resolves.toBe(originalDataJson);
     await expect(readFile(created.paths.generatedPreviewHtmlPath, 'utf8')).resolves.toBe(originalPreviewHtml);
+    await expect(readFile(created.paths.refreshStatePath, 'utf8')).resolves.not.toContain('lastCommittedRefreshId');
+  });
+
+  it('does not mark refresh committed when live artifact file persistence fails', async () => {
+    const projectsRoot = await makeProjectsRoot();
+    const input: any = validCreateInput();
+    input.document!.dataJson = { title: 'Revenue', revenue: 42 };
+    input.document!.sourceJson = {
+      type: 'daemon_tool' as const,
+      toolName: 'project_files.read_json',
+      input: { path: 'metrics.json' },
+      outputMapping: {
+        dataPaths: [{ from: 'json.revenue', to: 'value' }],
+        transform: 'identity' as const,
+      },
+      refreshPermission: 'manual_refresh_granted_for_read_only' as const,
+    };
+    const created = await createLiveArtifact({
+      projectsRoot,
+      projectId: 'project-1',
+      input,
+      templateHtml: '<h1>{{data.title}}</h1><p>{{data.value}}</p>',
+    });
+
+    const lock = await acquireLiveArtifactRefreshLock({ projectsRoot, projectId: 'project-1', artifactId: created.artifact.id });
+    const candidate = buildLiveArtifactRefreshCandidate({
+      artifact: created.artifact,
+      currentDataJson: created.artifact.document!.dataJson,
+      documentOutput: { output: { json: { revenue: 99 } } },
+      now: new Date('2026-04-30T11:01:00.000Z'),
+    });
+    await rm(created.paths.provenanceJsonPath, { force: true });
+    await mkdir(created.paths.provenanceJsonPath);
+
+    await expect(commitLiveArtifactRefreshCandidate({
+      projectsRoot,
+      projectId: 'project-1',
+      artifactId: created.artifact.id,
+      refreshId: lock.metadata.refreshId,
+      dataJson: candidate.dataJson,
+      provenanceJson: {
+        generatedAt: '2026-04-30T11:01:00.000Z',
+        generatedBy: 'agent',
+        sources: [{ label: 'test', type: 'user_input' }],
+      },
+      now: new Date('2026-04-30T11:01:00.000Z'),
+    })).rejects.toThrow();
+
     await expect(readFile(created.paths.refreshStatePath, 'utf8')).resolves.not.toContain('lastCommittedRefreshId');
   });
 

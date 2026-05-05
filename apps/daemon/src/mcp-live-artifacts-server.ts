@@ -42,6 +42,8 @@ export function createLiveArtifactsMcpTools(): McpTool[] {
         required: ['input'],
         properties: {
           input: ARTIFACT_INPUT_SCHEMA,
+          templateHtml: { type: 'string' },
+          provenanceJson: { type: 'object', additionalProperties: true },
         },
       },
     },
@@ -60,6 +62,8 @@ export function createLiveArtifactsMcpTools(): McpTool[] {
         properties: {
           artifactId: { type: 'string', minLength: 1 },
           input: ARTIFACT_INPUT_SCHEMA,
+          templateHtml: { type: 'string' },
+          provenanceJson: { type: 'object', additionalProperties: true },
         },
       },
     },
@@ -148,7 +152,14 @@ async function requestJson(pathname: string, init: RequestInit = {}): Promise<un
 
 async function callTool(name: string, args: JsonObject): Promise<unknown> {
   if (name === 'live_artifacts_create') {
-    return await requestJson('/api/tools/live-artifacts/create', { method: 'POST', body: JSON.stringify({ input: args.input ?? {} }) });
+    return await requestJson('/api/tools/live-artifacts/create', {
+      method: 'POST',
+      body: JSON.stringify({
+        input: args.input ?? {},
+        ...(typeof args.templateHtml === 'string' ? { templateHtml: args.templateHtml } : {}),
+        ...(args.provenanceJson && typeof args.provenanceJson === 'object' && !Array.isArray(args.provenanceJson) ? { provenanceJson: args.provenanceJson } : {}),
+      }),
+    });
   }
   if (name === 'live_artifacts_list') {
     return await requestJson('/api/tools/live-artifacts/list', { method: 'GET' });
@@ -156,7 +167,12 @@ async function callTool(name: string, args: JsonObject): Promise<unknown> {
   if (name === 'live_artifacts_update') {
     return await requestJson('/api/tools/live-artifacts/update', {
       method: 'POST',
-      body: JSON.stringify({ artifactId: args.artifactId, input: typeof args.input === 'object' && args.input ? args.input : {} }),
+      body: JSON.stringify({
+        artifactId: args.artifactId,
+        input: typeof args.input === 'object' && args.input ? args.input : {},
+        ...(typeof args.templateHtml === 'string' ? { templateHtml: args.templateHtml } : {}),
+        ...(args.provenanceJson && typeof args.provenanceJson === 'object' && !Array.isArray(args.provenanceJson) ? { provenanceJson: args.provenanceJson } : {}),
+      }),
     });
   }
   if (name === 'live_artifacts_refresh') {
