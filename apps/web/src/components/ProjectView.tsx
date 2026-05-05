@@ -1465,6 +1465,10 @@ export function ProjectView({
           onAdoptPet={onAdoptPetInline}
           onTogglePet={onTogglePet}
           onOpenPetSettings={onOpenPetSettings}
+          projectMetadata={project.metadata}
+          onProjectMetadataChange={(metadata) => {
+            onProjectChange({ ...project, metadata });
+          }}
         />
         <FileWorkspace
           projectId={project.id}

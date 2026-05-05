@@ -55,6 +55,7 @@ import type { PreviewComment, PreviewCommentTarget } from '../types';
 type TranslateFn = (key: keyof Dict, vars?: Record<string, string | number>) => string;
 type SlideState = { active: number; count: number };
 
+const MAX_CACHED_SLIDE_STATES = 64;
 const htmlPreviewSlideState = new Map<string, SlideState>();
 const MARKDOWN_CODE_BLOCK_ATTR = 'data-markdown-code-block';
 const MARKDOWN_COPY_BLOCK_ATTR = 'data-copy-code-block';
@@ -136,6 +137,14 @@ function ensureMarkdownCodeBlockControls(root: HTMLElement, t: TranslateFn) {
       block.prepend(button);
     }
     setMarkdownCodeBlockCopiedState(block, false, t);
+  }
+}
+
+function setSlideStateCached(key: string, state: SlideState) {
+  htmlPreviewSlideState.set(key, state);
+  if (htmlPreviewSlideState.size > MAX_CACHED_SLIDE_STATES) {
+    const oldest = htmlPreviewSlideState.keys().next().value;
+    if (oldest != null) htmlPreviewSlideState.delete(oldest);
   }
 }
 
@@ -1784,7 +1793,7 @@ function HtmlViewer({
       if (!data || data.type !== 'od:slide-state') return;
       if (typeof data.active !== 'number' || typeof data.count !== 'number') return;
       const next = { active: data.active, count: data.count };
-      htmlPreviewSlideState.set(previewStateKey, next);
+      setSlideStateCached(previewStateKey, next);
       setSlideState(next);
     }
     window.addEventListener('message', onMessage);
