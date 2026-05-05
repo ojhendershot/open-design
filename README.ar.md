@@ -343,6 +343,74 @@ pnpm tools-dev run web
 
 خريطة الملفات الكاملة، السكربتات، واستكشاف الأخطاء → [`QUICKSTART.md`](QUICKSTART.md).
 
+## تشغيل المشروع
+
+يمكن تشغيل Open Design كتطبيق ويب في متصفّحك، أو كتطبيق سطح مكتب Electron. كلا الوضعين يتشاركان نفس معمارية الـ daemon المحلي + الويب.
+
+### الويب / Localhost (الافتراضي)
+
+```bash
+# Foreground mode — keeps the lifecycle command in the foreground (logs written to files)
+pnpm tools-dev run web
+
+# View recent logs:
+pnpm tools-dev logs
+
+# Background mode — daemon + web run as background processes
+pnpm tools-dev start web
+```
+
+افتراضياً، يربط `tools-dev` نفسه بمنافذ ephemeral متاحة ويطبع الروابط الفعلية عند الإقلاع. لاستخدام منافذ ثابتة من حالة متوقّفة:
+
+```bash
+pnpm tools-dev run web --daemon-port 17456 --web-port 17573
+```
+
+إذا كان daemon/web يعملان بالفعل، استخدم `restart` لتبديل المنافذ في الجلسة القائمة:
+
+```bash
+pnpm tools-dev restart --daemon-port 17456 --web-port 17573
+```
+
+### سطح المكتب / Electron
+
+```bash
+# Start daemon + web + desktop in the background
+pnpm tools-dev
+
+# Check desktop status
+pnpm tools-dev inspect desktop status
+
+# Take a screenshot of the desktop app
+pnpm tools-dev inspect desktop screenshot --path /tmp/open-design.png
+```
+
+تطبيق سطح المكتب يكتشف رابط الويب تلقائياً عبر sidecar IPC — لا حاجة لتخمين المنافذ.
+
+### أوامر مفيدة أخرى
+
+| الأمر | ما يفعله |
+|---|---|
+| `pnpm tools-dev status` | يُظهر حالات الـ sidecar العاملة |
+| `pnpm tools-dev logs` | يُظهر ذيول سجلات daemon/web/desktop |
+| `pnpm tools-dev stop` | يوقف كل sidecars العاملة |
+| `pnpm tools-dev restart` | يوقف ثم يعيد تشغيل كل sidecars |
+| `pnpm tools-dev check` | الحالة + سجلات حديثة + تشخيصات شائعة |
+
+لإعادة التشغيل بمنافذ ثابتة، الإقلاع في الخلفية، واستكشاف الأخطاء الكامل، راجع [`QUICKSTART.md`](QUICKSTART.md).
+
+## استخدام Open Design من وكيل البرمجة لديك
+
+يشحن Open Design خادم MCP عبر stdio. اربطه بـ Claude Code أو Codex أو Cursor أو VS Code أو Antigravity أو Zed أو Windsurf أو أيّ عميل متوافق مع MCP، وسيتمكّن الوكيل في مستودع آخر من قراءة الملفات من مشاريع Open Design المحلية مباشرة. يحلّ هذا محلّ حلقة export-ثم-attach. حين يستدعي الوكيل `search_files` أو `get_file` أو `get_artifact` بدون وسيط مشروع، يأخذ MCP افتراضياً المشروع (والملف) المفتوح حالياً في Open Design، بحيث تعمل برومبتات مثل *«ابنِ هذا في تطبيقي»* أو *«طابِق هذه الأنماط»* مباشرة.
+
+**لماذا MCP؟** تصدير zip وإعادة إرفاقه مع كل دورة تصميم يكسر التدفّق. خادم MCP يكشف مصدر تصميمك مباشرة — tokens CSS، مكوّنات JSX، entry HTML — كـ API منظَّم يمكن للوكيل الاستعلام منه بالاسم. الوكيل يرى دائماً الملف الحيّ، لا نسخة قديمة من آخر export.
+
+افتح **Settings → MCP server** في تطبيق Open Design للحصول على تدفّق تثبيت لكلّ عميل. تُضمِّن اللوحة المسار المطلق لـ `node` ولـ `cli.js` المبني للـ daemon داخل كل snippet، فتعمل على نسخة source جديدة لا يكون فيها `od` على الـ PATH. Cursor يحصل على deeplink بنقرة واحدة؛ والباقي يحصلون على JSON snippet للنسخ واللصق بالشكل الذي يتوقّعه ملفّ تكوينهم (Claude Code يتضمّن سطر `claude mcp add-json` واحداً، فلا تحتاج لتحرير `~/.claude.json` يدوياً). أعد تشغيل أو reload لعميلك بعد التثبيت ليظهر الخادم.
+
+يجب أن يكون الـ daemon يعمل محلياً لتنجح استدعاءات أدوات MCP. إن كان الوكيل قد أُقلع قبل Open Design، أعد تشغيل الوكيل بعد جاهزية Open Design ليصل إلى الـ daemon الحيّ. الاستدعاءات أثناء توقّف الـ daemon تعيد خطأً واضحاً `"daemon not reachable"` بدلاً من crash.
+
+**نموذج الأمان.** خادم MCP للقراءة فقط؛ يكشف قراءة ملفات، metadata، وبحث — لا شيء يكتب على القرص أو يستدعي خدمة خارجية. يعمل كعملية ابن لوكيل البرمجة عبر stdio، لذا أيّ عميل MCP تسجّله يرث صلاحية قراءة لمشاريع Open Design المحلية لديك. عامله مثل تثبيت إضافة VS Code: لا تسجّل إلا العملاء الذين تثق بهم. الـ daemon يربط نفسه بـ `127.0.0.1` افتراضياً؛ التعرّض للشبكة المحلية بأكملها يتطلّب `OD_BIND_HOST` صريحاً.
+
 ## بنية المستودع
 
 ```
