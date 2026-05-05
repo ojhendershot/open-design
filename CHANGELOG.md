@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.4.0] - 2026-05-05
 
-A multi-platform, multi-protocol leap: Open Design now ships as an MCP server, lands on Linux desktops, ships Critique Theater (Design Jury) Phase 4, gains live-reload + Tweaks mode + live artifacts in the preview pane, and adds five new agent / runtime adapters. 71 merged PRs from 40+ contributors over two days.
+A multi-protocol leap: Open Design now ships as an MCP server, ships Critique Theater (Design Jury) Phase 4, gains live-reload + Tweaks mode + live artifacts in the preview pane, and adds five new agent / runtime adapters. 71 merged PRs from 40+ contributors over two days. Linux AppImage packaging landed in tooling, but the stable Linux artifact is deferred from 0.4.0 while containerized release packaging is hardened.
 
 ### Added
 
@@ -30,7 +30,7 @@ A multi-platform, multi-protocol leap: Open Design now ships as an MCP server, l
 - **Live artifacts and Composio connector catalog.** ([#381])
 
 #### Packaging & deployment
-- **Linux x64 AppImage** in `tools-pack` and the release workflows. ([#369])
+- **Linux x64 AppImage tooling** in `tools-pack`; stable release artifact deferred from 0.4.0 while the containerized packaging lane is hardened. ([#369])
 - Optimize packaged mac artifact size. ([#424])
 
 #### Daemon
