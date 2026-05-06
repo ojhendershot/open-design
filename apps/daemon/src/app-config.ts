@@ -1,4 +1,4 @@
-// Daemon-backed app preferences (onboarding state, agent/skill/DS selection).
+// Daemon-backed app preferences (onboarding state, execution basics, agent/skill/DS selection).
 //
 // The web frontend pushes non-sensitive preferences here via PUT
 // /api/app-config; the daemon persists them to <dataDir>/app-config.json
@@ -18,6 +18,12 @@ export interface AgentModelPrefs {
 
 export interface AppConfigPrefs {
   onboardingCompleted?: boolean;
+  mode?: 'daemon' | 'api';
+  baseUrl?: string;
+  model?: string;
+  apiProtocol?: 'anthropic' | 'openai' | 'azure' | 'google';
+  apiVersion?: string;
+  apiProviderBaseUrl?: string | null;
   agentId?: string | null;
   agentModels?: Record<string, AgentModelPrefs>;
   skillId?: string | null;
@@ -26,6 +32,12 @@ export interface AppConfigPrefs {
 
 const ALLOWED_KEYS: ReadonlySet<keyof AppConfigPrefs> = new Set([
   'onboardingCompleted',
+  'mode',
+  'baseUrl',
+  'model',
+  'apiProtocol',
+  'apiVersion',
+  'apiProviderBaseUrl',
   'agentId',
   'agentModels',
   'skillId',
@@ -37,6 +49,31 @@ function configFile(dataDir: string): string {
 }
 
 const AGENT_MODEL_KEYS: ReadonlySet<string> = new Set(['model', 'reasoning']);
+const EXEC_MODES = new Set(['daemon', 'api']);
+const API_PROTOCOLS = new Set(['anthropic', 'openai', 'azure', 'google']);
+const SECRET_QUERY_KEYS =
+  /^(api[_-]?key|key|token|access[_-]?token|auth|authorization|password|secret|client[_-]?secret)$/i;
+const SECRET_FRAGMENT =
+  /(api[_-]?key|token|access[_-]?token|password|secret|authorization)=/i;
+
+function isPersistableUrlString(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+  try {
+    const url = new URL(trimmed);
+    if (url.username || url.password) return false;
+    for (const key of url.searchParams.keys()) {
+      if (SECRET_QUERY_KEYS.test(key)) return false;
+    }
+    if (SECRET_FRAGMENT.test(url.hash)) {
+      return false;
+    }
+  } catch {
+    // App-config is not responsible for URL validation; it only avoids
+    // persisting obvious credential-bearing URL forms.
+  }
+  return true;
+}
 
 function isValidAgentModelEntry(v: unknown): v is AgentModelPrefs {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
@@ -70,6 +107,31 @@ function applyConfigValue(
 ): void {
   if (key === 'onboardingCompleted') {
     if (typeof value === 'boolean') target[key] = value;
+    return;
+  }
+  if (key === 'mode') {
+    if (typeof value === 'string' && EXEC_MODES.has(value)) target[key] = value;
+    return;
+  }
+  if (key === 'apiProtocol') {
+    if (typeof value === 'string' && API_PROTOCOLS.has(value)) target[key] = value;
+    return;
+  }
+  if (key === 'baseUrl') {
+    if (typeof value === 'string' && isPersistableUrlString(value)) {
+      target[key] = value;
+    }
+    return;
+  }
+  if (key === 'model' || key === 'apiVersion') {
+    if (typeof value === 'string') target[key] = value;
+    return;
+  }
+  if (key === 'apiProviderBaseUrl') {
+    if (typeof value === 'string' && isPersistableUrlString(value)) {
+      target[key] = value;
+    }
+    if (value === null) target[key] = value;
     return;
   }
   if (key === 'agentId' || key === 'skillId' || key === 'designSystemId') {

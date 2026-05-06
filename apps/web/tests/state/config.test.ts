@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_CONFIG,
   loadConfig,
+  mergeDaemonConfigPrefs,
   syncComposioConfigToDaemon,
+  syncConfigToDaemon,
 } from '../../src/state/config';
 import type { AppConfig } from '../../src/types';
 
@@ -52,6 +54,105 @@ describe('syncComposioConfigToDaemon', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({}),
     });
+  });
+});
+
+describe('syncConfigToDaemon', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.stubGlobal('fetch', originalFetch);
+  });
+
+  it('persists non-secret execution settings to the daemon', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await syncConfigToDaemon({
+      ...DEFAULT_CONFIG,
+      mode: 'api',
+      apiKey: 'sk-secret',
+      baseUrl: 'https://api.example.com/v1',
+      model: 'example-model',
+      apiProtocol: 'openai',
+      apiVersion: '2024-10-21',
+      apiProviderBaseUrl: null,
+      apiProtocolConfigs: {
+        openai: {
+          apiKey: 'sk-protocol-secret',
+          baseUrl: 'https://api.example.com/v1',
+          model: 'example-model',
+        },
+      },
+      mediaProviders: { openai: { apiKey: 'media-secret', baseUrl: '' } },
+      composio: { apiKey: 'composio-secret' },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestInit = (fetchMock.mock.calls as unknown as [string, RequestInit][])[0]![1];
+    const body = JSON.parse(requestInit.body as string);
+    expect(body).toMatchObject({
+      onboardingCompleted: false,
+      mode: 'api',
+      baseUrl: 'https://api.example.com/v1',
+      model: 'example-model',
+      apiProtocol: 'openai',
+      apiVersion: '2024-10-21',
+      apiProviderBaseUrl: null,
+      agentId: null,
+      skillId: null,
+      designSystemId: null,
+    });
+    expect(body).not.toHaveProperty('apiKey');
+    expect(body).not.toHaveProperty('apiProtocolConfigs');
+    expect(body).not.toHaveProperty('mediaProviders');
+    expect(body).not.toHaveProperty('composio');
+  });
+});
+
+describe('mergeDaemonConfigPrefs', () => {
+  it('restores daemon-backed execution settings without touching local secrets', () => {
+    const merged = mergeDaemonConfigPrefs(
+      {
+        ...DEFAULT_CONFIG,
+        apiKey: 'local-secret',
+        apiProtocolConfigs: {
+          anthropic: {
+            apiKey: 'protocol-secret',
+            baseUrl: 'https://api.anthropic.com',
+            model: 'claude-sonnet-4-5',
+          },
+        },
+      },
+      {
+        onboardingCompleted: true,
+        mode: 'api',
+        baseUrl: 'https://api.example.com/v1',
+        model: 'example-model',
+        apiProtocol: 'openai',
+        apiVersion: '2024-10-21',
+        apiProviderBaseUrl: null,
+        agentId: 'codex',
+        agentModels: { codex: { model: 'gpt-5.1', reasoning: 'high' } },
+        skillId: 'dashboard',
+        designSystemId: 'default',
+      },
+    );
+
+    expect(merged).toMatchObject({
+      onboardingCompleted: true,
+      mode: 'api',
+      baseUrl: 'https://api.example.com/v1',
+      model: 'example-model',
+      apiProtocol: 'openai',
+      apiVersion: '2024-10-21',
+      apiProviderBaseUrl: null,
+      agentId: 'codex',
+      agentModels: { codex: { model: 'gpt-5.1', reasoning: 'high' } },
+      skillId: 'dashboard',
+      designSystemId: 'default',
+    });
+    expect(merged.apiKey).toBe('local-secret');
+    expect(merged.apiProtocolConfigs?.anthropic?.apiKey).toBe('protocol-secret');
   });
 });
 

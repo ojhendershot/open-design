@@ -346,9 +346,61 @@ export async function fetchDaemonConfig(): Promise<AppConfigPrefs | null> {
   }
 }
 
+export function mergeDaemonConfigPrefs(config: AppConfig, daemonConfig: AppConfigPrefs | null | undefined): AppConfig {
+  const next: AppConfig = { ...config };
+  if (!daemonConfig) return next;
+
+  // Daemon-backed values win for the fields it tracks so packaged desktop
+  // can recover from renderer storage resets or origin migrations.
+  if (daemonConfig.onboardingCompleted != null) {
+    next.onboardingCompleted = daemonConfig.onboardingCompleted;
+  }
+  if (daemonConfig.mode !== undefined) {
+    next.mode = daemonConfig.mode;
+  }
+  if (daemonConfig.baseUrl !== undefined) {
+    next.baseUrl = daemonConfig.baseUrl;
+  }
+  if (daemonConfig.model !== undefined) {
+    next.model = daemonConfig.model;
+  }
+  if (daemonConfig.apiProtocol !== undefined) {
+    next.apiProtocol = daemonConfig.apiProtocol;
+  }
+  if (daemonConfig.apiVersion !== undefined) {
+    next.apiVersion = daemonConfig.apiVersion;
+  }
+  if (daemonConfig.apiProviderBaseUrl !== undefined) {
+    next.apiProviderBaseUrl = daemonConfig.apiProviderBaseUrl;
+  }
+  if (daemonConfig.agentId !== undefined) {
+    next.agentId = daemonConfig.agentId;
+  }
+  if (daemonConfig.skillId !== undefined) {
+    next.skillId = daemonConfig.skillId;
+  }
+  if (daemonConfig.designSystemId !== undefined) {
+    next.designSystemId = daemonConfig.designSystemId;
+  }
+  if (daemonConfig.agentModels) {
+    next.agentModels = {
+      ...(next.agentModels ?? {}),
+      ...daemonConfig.agentModels,
+    };
+  }
+
+  return next;
+}
+
 export async function syncConfigToDaemon(config: AppConfig): Promise<void> {
   const prefs: AppConfigPrefs = {
     onboardingCompleted: config.onboardingCompleted,
+    mode: config.mode,
+    baseUrl: config.baseUrl,
+    model: config.model,
+    apiProtocol: config.apiProtocol,
+    apiVersion: config.apiVersion,
+    apiProviderBaseUrl: config.apiProviderBaseUrl,
     agentId: config.agentId,
     agentModels: config.agentModels,
     skillId: config.skillId,

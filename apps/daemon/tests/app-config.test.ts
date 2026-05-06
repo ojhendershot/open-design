@@ -62,12 +62,64 @@ describe('app-config', () => {
     it('filters out unknown keys from stored file', async () => {
       await writeFile(
         path.join(dataDir, 'app-config.json'),
-        JSON.stringify({ agentId: 'claude', rogue: 'value', __proto: 'x' }),
+        JSON.stringify({
+          agentId: 'claude',
+          apiKey: 'secret-key',
+          apiProtocolConfigs: { openai: { apiKey: 'secret-key' } },
+          mediaProviders: { openai: { apiKey: 'secret-key' } },
+          composio: { apiKey: 'secret-key' },
+          rogue: 'value',
+          __proto: 'x',
+        }),
       );
       const cfg = await readAppConfig(dataDir);
       expect(cfg).toEqual({ agentId: 'claude' });
       expect(cfg).not.toHaveProperty('rogue');
       expect(cfg).not.toHaveProperty('__proto');
+      expect(cfg).not.toHaveProperty('apiKey');
+      expect(cfg).not.toHaveProperty('apiProtocolConfigs');
+      expect(cfg).not.toHaveProperty('mediaProviders');
+      expect(cfg).not.toHaveProperty('composio');
+    });
+
+    it('returns daemon-backed non-secret execution preferences', async () => {
+      await writeFile(
+        path.join(dataDir, 'app-config.json'),
+        JSON.stringify({
+          onboardingCompleted: true,
+          mode: 'api',
+          baseUrl: 'https://api.example.com/v1',
+          model: 'example-model',
+          apiProtocol: 'openai',
+          apiVersion: '2024-10-21',
+          apiProviderBaseUrl: null,
+        }),
+      );
+
+      await expect(readAppConfig(dataDir)).resolves.toEqual({
+        onboardingCompleted: true,
+        mode: 'api',
+        baseUrl: 'https://api.example.com/v1',
+        model: 'example-model',
+        apiProtocol: 'openai',
+        apiVersion: '2024-10-21',
+        apiProviderBaseUrl: null,
+      });
+    });
+
+    it('filters out credential-bearing execution URLs from stored file', async () => {
+      await writeFile(
+        path.join(dataDir, 'app-config.json'),
+        JSON.stringify({
+          baseUrl: 'https://user:pass@api.example.com/v1',
+          apiProviderBaseUrl: 'https://api.example.com/v1?api_key=secret',
+          model: 'example-model',
+        }),
+      );
+
+      await expect(readAppConfig(dataDir)).resolves.toEqual({
+        model: 'example-model',
+      });
     });
 
     it('filters out invalid scalar values from stored file', async () => {
@@ -75,6 +127,12 @@ describe('app-config', () => {
         path.join(dataDir, 'app-config.json'),
         JSON.stringify({
           onboardingCompleted: 'yes',
+          mode: 'browser',
+          baseUrl: 42,
+          model: false,
+          apiProtocol: 'bad-protocol',
+          apiVersion: ['2024'],
+          apiProviderBaseUrl: { baseUrl: 'bad' },
           agentId: 123,
           skillId: { id: 'bad' },
           designSystemId: ['bad'],
@@ -97,16 +155,62 @@ describe('app-config', () => {
       await writeAppConfig(dataDir, {
         onboardingCompleted: true,
         unknownKey: 'should be dropped',
+        apiKey: 'secret-key',
+        apiProtocolConfigs: { openai: { apiKey: 'secret-key' } },
+        mediaProviders: { openai: { apiKey: 'secret-key' } },
+        composio: { apiKey: 'secret-key' },
         agentId: 'claude',
       });
       const cfg = await readAppConfig(dataDir);
       expect(cfg).toEqual({ onboardingCompleted: true, agentId: 'claude' });
       expect(cfg).not.toHaveProperty('unknownKey');
+      expect(cfg).not.toHaveProperty('apiKey');
+      expect(cfg).not.toHaveProperty('apiProtocolConfigs');
+      expect(cfg).not.toHaveProperty('mediaProviders');
+      expect(cfg).not.toHaveProperty('composio');
+    });
+
+    it('persists non-secret execution preferences', async () => {
+      await writeAppConfig(dataDir, {
+        mode: 'api',
+        baseUrl: 'https://api.example.com/v1',
+        model: 'example-model',
+        apiProtocol: 'azure',
+        apiVersion: '2024-10-21',
+        apiProviderBaseUrl: null,
+      });
+
+      await expect(readAppConfig(dataDir)).resolves.toEqual({
+        mode: 'api',
+        baseUrl: 'https://api.example.com/v1',
+        model: 'example-model',
+        apiProtocol: 'azure',
+        apiVersion: '2024-10-21',
+        apiProviderBaseUrl: null,
+      });
+    });
+
+    it('does not persist credential-bearing execution URLs', async () => {
+      await writeAppConfig(dataDir, {
+        baseUrl: 'https://api.example.com/v1?token=secret',
+        apiProviderBaseUrl: 'https://user:pass@api.example.com/v1',
+        model: 'example-model',
+      });
+
+      await expect(readAppConfig(dataDir)).resolves.toEqual({
+        model: 'example-model',
+      });
     });
 
     it('does not persist invalid scalar values', async () => {
       await writeAppConfig(dataDir, {
         onboardingCompleted: 'yes',
+        mode: 'browser',
+        baseUrl: 42,
+        model: false,
+        apiProtocol: 'bad-protocol',
+        apiVersion: ['2024'],
+        apiProviderBaseUrl: { baseUrl: 'bad' },
         agentId: 123,
         skillId: false,
         designSystemId: { id: 'bad' },

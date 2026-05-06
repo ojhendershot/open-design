@@ -23,6 +23,7 @@ import {
   hasAnyConfiguredProvider,
   fetchComposioConfigFromDaemon,
   loadConfig,
+  mergeDaemonConfigPrefs,
   saveConfig,
   syncComposioConfigToDaemon,
   syncConfigToDaemon,
@@ -159,30 +160,9 @@ export function App() {
       setAppVersionInfo(versionInfo);
 
       setConfig((prev) => {
-        const next = { ...prev };
-
         // Merge daemon-persisted config — daemon values win for the fields
-        // it tracks so that the choice survives origin/storage resets.
-        if (daemonConfig) {
-          if (daemonConfig.onboardingCompleted != null) {
-            next.onboardingCompleted = daemonConfig.onboardingCompleted;
-          }
-          if (daemonConfig.agentId !== undefined) {
-            next.agentId = daemonConfig.agentId;
-          }
-          if (daemonConfig.skillId !== undefined) {
-            next.skillId = daemonConfig.skillId;
-          }
-          if (daemonConfig.designSystemId !== undefined) {
-            next.designSystemId = daemonConfig.designSystemId;
-          }
-          if (daemonConfig.agentModels) {
-            next.agentModels = {
-              ...(next.agentModels ?? {}),
-              ...daemonConfig.agentModels,
-            };
-          }
-        }
+        // it tracks so that choices survive origin/storage resets.
+        const next = mergeDaemonConfigPrefs(prev, daemonConfig);
 
         if (alive) {
           const hasLocalComposioKey = Boolean(next.composio?.apiKey?.trim());
@@ -205,8 +185,13 @@ export function App() {
         // Migrate localStorage prefs to daemon on first boot with the new
         // endpoint. If daemon already had values the merge above used them;
         // writing back is idempotent and ensures both sides stay in sync.
-        if (alive) {
+        // Skip the boot write when the daemon read failed, otherwise a
+        // renderer-storage reset plus transient GET failure could overwrite
+        // the durable daemon config with defaults.
+        if (alive && daemonConfig !== null) {
           void syncConfigToDaemon(next);
+        }
+        if (alive && daemonComposioConfig !== null) {
           void syncComposioConfigToDaemon(next.composio);
         }
 
@@ -289,6 +274,7 @@ export function App() {
     (mode: AppConfig['mode']) => {
       const next = { ...config, mode };
       saveConfig(next);
+      void syncConfigToDaemon(next);
       setConfig(next);
     },
     [config],
