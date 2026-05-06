@@ -22,7 +22,7 @@ import {
   startPackedWinApp,
   stopPackedWinApp,
   uninstallPackedWinApp,
-} from "./win.js";
+} from "./win/index.js";
 import {
   cleanupPackedLinuxNamespace,
   installPackedLinuxApp,
