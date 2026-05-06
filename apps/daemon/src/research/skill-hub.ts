@@ -201,8 +201,10 @@ interface InstallOptions {
 }
 
 /**
- * Install a single hub entry by writing its raw content to
- * `<targetRoot>/<name>/SKILL.md` (or `DESIGN.md`, depending on namespace).
+ * Install a single hub entry. For `skills` / `design-systems` this writes
+ * `<targetRoot>/<name>/SKILL.md` (or `DESIGN.md`). For `craft` this writes
+ * `<targetRoot>/<name>.md` directly at the craft root, matching how
+ * `apps/daemon/src/craft.ts` resolves sections (`<craftDir>/<slug>.md`).
  *
  * Note: this v0 only writes the manifest file. A full install also fetches
  * sibling assets (example.html, references/, assets/) — that pass should
@@ -213,15 +215,16 @@ export async function installHubEntry(
   entry: HubEntry,
   opts: InstallOptions,
 ): Promise<{ path: string }> {
-  const childDir = resolveSafeChild(opts.targetRoot, entry.name);
-  await fs.mkdir(childDir, { recursive: true });
-  const fileName =
-    entry.namespace === 'skills'
-      ? 'SKILL.md'
-      : entry.namespace === 'design-systems'
-        ? 'DESIGN.md'
-        : `${entry.name}.md`;
-  const target = path.join(childDir, fileName);
+  let target: string;
+  if (entry.namespace === 'craft') {
+    target = resolveSafeChild(opts.targetRoot, `${entry.name}.md`);
+    await fs.mkdir(opts.targetRoot, { recursive: true });
+  } else {
+    const childDir = resolveSafeChild(opts.targetRoot, entry.name);
+    await fs.mkdir(childDir, { recursive: true });
+    const fileName = entry.namespace === 'skills' ? 'SKILL.md' : 'DESIGN.md';
+    target = path.join(childDir, fileName);
+  }
   if (!opts.overwrite) {
     try {
       await fs.access(target);

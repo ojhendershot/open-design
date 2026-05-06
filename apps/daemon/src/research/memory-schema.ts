@@ -166,8 +166,7 @@ export function listMemoriesForContext(
   const rows = db
     .prepare<unknown[], MemoryRow>(
       `SELECT * FROM memories
-       WHERE archived = 0
-         AND (expires_at IS NULL OR expires_at > ${now})
+       WHERE (expires_at IS NULL OR expires_at > ${now})
          AND (
            (scope = 'project' AND scope_id = ?)
            ${conversationFilter}
