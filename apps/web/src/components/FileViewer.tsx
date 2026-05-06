@@ -2702,6 +2702,7 @@ function HtmlViewer({
           <button
             type="button"
             className={`viewer-toggle${boardMode ? ' active' : ''}`}
+            data-testid="board-mode-toggle"
             title={t('fileViewer.tweaks')}
             aria-pressed={boardMode}
             disabled={!boardAvailable}

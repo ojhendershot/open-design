@@ -489,18 +489,19 @@ async function runCommentAttachmentFlow(
   await sendPrompt(page, entry.prompt);
   await expectArtifactVisible(page, entry);
 
+  await page.getByTestId('board-mode-toggle').click();
   await page.getByTestId('comment-mode-toggle').click();
   const frame = page.frameLocator('[data-testid="artifact-preview-frame"]');
   await frame.locator('[data-od-id="hero-title"]').click();
   await expect(page.getByTestId('comment-popover')).toBeVisible();
   await page.getByTestId('comment-popover-input').fill('Make the headline more specific.');
-  await page.getByTestId('comment-add-send').click();
+  await page.getByTestId('comment-popover').getByRole('button', { name: 'Save comment' }).click();
 
-  await expect(page.getByTestId('staged-comment-attachments')).toBeVisible();
-  await expect(page.getByTestId('staged-comment-attachments')).toContainText('hero-title');
-  await expect(page.getByTestId('staged-comment-attachments')).toContainText('Make the headline more specific.');
-  await expect(page.getByTestId('chat-composer-input')).toHaveValue('');
   await expect(page.getByTestId('comment-saved-marker-hero-title')).toBeVisible();
+  await expect(page.getByTestId('staged-comment-attachments')).toHaveCount(0);
+  await expect(page.getByTestId('chat-composer-input')).toHaveValue('');
+  await expect(page.getByTestId('chat-send')).toBeDisabled();
+  await page.getByTestId('comment-popover').getByRole('button', { name: 'Close' }).click();
 
   await frame.locator('[data-od-id="hero-copy"]').hover();
   await expect(page.getByTestId('comment-target-overlay')).toBeVisible();
@@ -513,9 +514,18 @@ async function runCommentAttachmentFlow(
 
   await page.getByRole('tab', { name: 'Comments' }).click();
   await expect(page.getByTestId('comments-panel')).toBeVisible();
-  await expect(page.getByTestId('comments-panel').getByRole('heading', { name: 'Attached to chat' })).toBeVisible();
   await expect(page.getByTestId('comments-panel').getByRole('heading', { name: 'Saved comments' })).toBeVisible();
+  await page.getByTestId('comments-panel')
+    .locator('[data-testid="comment-card-hero-title"]')
+    .getByRole('button', { name: 'Add' })
+    .click();
+  await page.getByRole('tab', { name: 'Chat' }).click();
+  await expect(page.getByTestId('staged-comment-attachments')).toBeVisible();
+  await expect(page.getByTestId('staged-comment-attachments')).toContainText('hero-title');
+  await expect(page.getByTestId('staged-comment-attachments')).toContainText('Make the headline more specific.');
 
+  await page.getByRole('tab', { name: 'Comments' }).click();
+  await expect(page.getByTestId('comments-panel').getByRole('heading', { name: 'Attached to chat' })).toBeVisible();
   await page.getByTestId('comments-panel')
     .locator('[data-testid="comment-card-hero-title"]')
     .getByRole('button', { name: 'Remove' })

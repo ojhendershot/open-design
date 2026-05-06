@@ -28,6 +28,7 @@ e2e/reports/latest.md
 e2e/ui/.od-data
 e2e/ui/reports
 e2e/ui/test-results
+apps/web/playwright/
 
 # Legacy folder name from before the rename; keep ignored so existing
 # clones don't accidentally stage stale runtime data.
