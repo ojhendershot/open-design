@@ -270,10 +270,8 @@ async function checkE2eLayout(): Promise<boolean> {
 
     if (repositoryPath.startsWith("e2e/ui/")) {
       const relativePath = repositoryPath.slice("e2e/ui/".length);
-      if (relativePath.includes("/")) {
-        violations.push(`${repositoryPath} -> e2e UI test files must stay flat under ui/`);
-      } else if (!/\.test\.ts$/.test(repositoryPath)) {
-        violations.push(`${repositoryPath} -> e2e UI files must be Playwright *.test.ts files`);
+      if (relativePath.includes("/") || !/\.test\.ts$/.test(repositoryPath)) {
+        violations.push(`${repositoryPath} -> e2e UI files must be flat Playwright *.test.ts files under ui/`);
       }
       continue;
     }
@@ -309,7 +307,7 @@ async function checkE2eLayout(): Promise<boolean> {
     return false;
   }
 
-  console.log("E2E layout check passed: Vitest, UI, resources, lib, and scripts stay in their lanes.");
+  console.log("E2E layout check passed: Vitest, Playwright UI, resources, lib, and scripts stay in their lanes.");
   return true;
 }
 

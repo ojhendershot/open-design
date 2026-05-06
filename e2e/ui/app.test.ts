@@ -300,6 +300,73 @@ for (const entry of automatedUiScenarios()) {
   });
 }
 
+test('daemon error details persist between failed sends', async ({ page }) => {
+  const entry = automatedUiScenarios().find((scenario) => scenario.id === 'prototype-basic');
+  if (!entry) throw new Error('prototype-basic scenario missing');
+
+  await page.route('**/api/agents', async (route) => {
+    await route.fulfill({
+      json: {
+        agents: [
+          {
+            id: 'mock',
+            name: 'Mock Agent',
+            bin: 'mock-agent',
+            available: true,
+            version: 'test',
+            models: [{ id: 'default', label: 'Default' }],
+          },
+        ],
+      },
+    });
+  });
+
+  let runCount = 0;
+  await page.route('**/api/runs', async (route) => {
+    runCount += 1;
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ runId: `error-run-${runCount}` }),
+    });
+  });
+  await page.route('**/api/runs/*/events', async (route) => {
+    const body = [
+      'event: start',
+      'data: {"bin":"mock-agent"}',
+      '',
+      'event: error',
+      'data: {"message":"connection refused"}',
+      '',
+      '',
+    ].join('\n');
+
+    await route.fulfill({
+      status: 200,
+      headers: {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+      },
+      body,
+    });
+  });
+
+  await page.goto('/');
+  await createProject(page, entry);
+  await expectWorkspaceReady(page);
+
+  await sendPrompt(page, 'first failing prompt');
+  const errorPills = page.locator('.status-pill', { hasText: 'connection refused' });
+  await expect(errorPills).toHaveCount(1);
+  await expect(page.locator('.msg.error')).toContainText('connection refused');
+  await expect(page.getByText('first failing prompt')).toBeVisible();
+
+  await sendPrompt(page, 'second failing prompt');
+  await expect(errorPills).toHaveCount(2);
+  await expect(page.getByText('first failing prompt')).toBeVisible();
+  await expect(page.getByText('second failing prompt')).toBeVisible();
+});
+
 async function createProject(
   page: Page,
   entry: UiScenario,
