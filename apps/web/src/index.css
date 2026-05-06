@@ -4460,8 +4460,8 @@ button.connector-action.is-loading {
 @media (max-width: 900px) {
   .entry {
     grid-template-columns: 1fr !important;
-    height: auto;
-    min-height: 100vh;
+    height: 100%;
+    min-height: 0;
   }
   .entry-side {
     width: 100% !important;
