@@ -58,7 +58,18 @@ function isSafeProjectId(id: string): boolean {
   return typeof id === 'string' && /^[A-Za-z0-9._-]{1,128}$/.test(id);
 }
 
-function auditFile(projectId: string, opts: AuditOptions): string {
+interface ResolvedAuditPath {
+  dir: string;
+  file: string;
+}
+
+/**
+ * Resolve the audit directory and file for a project. Pure function: does
+ * NOT touch the filesystem (no mkdir, no stat). Read paths must use this
+ * directly so simply querying the audit log can never create directories
+ * outside the project tree (PR #617 review, P1).
+ */
+function resolveAuditPath(projectId: string, opts: AuditOptions): ResolvedAuditPath {
   if (!isSafeProjectId(projectId)) throw new Error('invalid project id');
   const root = opts.dataDir
     ? path.resolve(opts.dataDir)
@@ -70,17 +81,91 @@ function auditFile(projectId: string, opts: AuditOptions): string {
   if (dir !== projectsRoot && !dir.startsWith(projectsRoot + path.sep)) {
     throw new Error('project id escapes projects root');
   }
+  return { dir, file: path.join(dir, 'audit.jsonl') };
+}
+
+/**
+ * Resolve + ensure the project's audit directory exists. Use this on the
+ * write path only (`appendAuditEntry`), never on reads.
+ */
+function ensureAuditFile(projectId: string, opts: AuditOptions): string {
+  const { dir, file } = resolveAuditPath(projectId, opts);
   fs.mkdirSync(dir, { recursive: true });
-  return path.join(dir, 'audit.jsonl');
+  return file;
+}
+
+// --- Redaction -------------------------------------------------------------
+
+const REDACTED = '[redacted]';
+const SENSITIVE_KEY_PATTERN =
+  /^(?:.*[_-])?(?:token|secret|password|passwd|api[_-]?key|authorization|auth[_-]?header|access[_-]?key|private[_-]?key|cookie|session[_-]?id|credential|bearer|x[_-]?api[_-]?key)(?:[_-].*)?$/i;
+const MAX_REDACTION_DEPTH = 6;
+// Truncate excessively long string values defensively so a stray paste of a
+// large blob (e.g. a base64-encoded screenshot) cannot bloat the audit file.
+const MAX_STRING_LEN = 4 * 1024;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function redactValue(value: unknown, depth: number): unknown {
+  if (depth > MAX_REDACTION_DEPTH) return REDACTED;
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') {
+    return value.length > MAX_STRING_LEN ? value.slice(0, MAX_STRING_LEN) + '…' : value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => redactValue(v, depth + 1));
+  }
+  if (isPlainObject(value)) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = SENSITIVE_KEY_PATTERN.test(k) ? REDACTED : redactValue(v, depth + 1);
+    }
+    return out;
+  }
+  // Drop class instances, functions, symbols — JSON.stringify wouldn't
+  // round-trip them anyway.
+  return undefined;
+}
+
+function redactDetail(detail: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!detail) return detail;
+  const result = redactValue(detail, 0);
+  return isPlainObject(result) ? result : undefined;
+}
+
+function redactEntry(entry: AuditEntry): AuditEntry {
+  const out: AuditEntry = {
+    timestamp: entry.timestamp,
+    projectId: entry.projectId,
+    action: entry.action,
+    actor: entry.actor,
+  };
+  if (entry.conversationId !== undefined) out.conversationId = entry.conversationId;
+  if (entry.agentId !== undefined) out.agentId = entry.agentId;
+  const redactedDetail = redactDetail(entry.detail);
+  if (redactedDetail !== undefined) out.detail = redactedDetail;
+  return out;
 }
 
 /**
  * Append a single audit entry. Atomic at the line level on POSIX (write(2)
  * is atomic for buffers smaller than PIPE_BUF, and JSONL stays well below).
+ *
+ * Sensitive fields in `entry.detail` (token / api_key / authorization etc.)
+ * are recursively redacted before serialization, since `detail` is typed as
+ * `Record<string, unknown>` and per-action shape is not enforced yet.
  */
 export function appendAuditEntry(entry: AuditEntry, opts: AuditOptions): void {
-  const file = auditFile(entry.projectId, opts);
-  const line = JSON.stringify(entry) + '\n';
+  const file = ensureAuditFile(entry.projectId, opts);
+  const safe = redactEntry(entry);
+  const line = JSON.stringify(safe) + '\n';
   fs.appendFileSync(file, line, { encoding: 'utf8' });
 }
 
@@ -102,7 +187,8 @@ export async function readAuditEntries(
   projectId: string,
   opts: ReadOptions,
 ): Promise<AuditEntry[]> {
-  const file = auditFile(projectId, opts);
+  // Reads must not create directories — use the side-effect-free resolver.
+  const { file } = resolveAuditPath(projectId, opts);
   if (!fs.existsSync(file)) return [];
   const limit = Math.min(opts.limit ?? 50, 1000);
   const since = opts.since ?? 0;
@@ -129,10 +215,14 @@ export async function readAuditEntries(
  * Sensitive-data stripper for export.
  * Source: openwork apps/server/src/workspace-export-safety.ts
  *
- * For Open Design we currently strip nothing automatically because the
- * audit entries don't carry credentials. Kept as a typed seam so future
- * fields (e.g. agent stdin previews) can be redacted without a refactor.
+ * Recursively strips fields whose key looks token-like (token / api_key /
+ * authorization / cookie / password / private_key / session_id / bearer /
+ * x-api-key — case-insensitive, with optional `_` / `-` separators on
+ * either side). Truncates over-long string values defensively. Defense in
+ * depth on top of `appendAuditEntry()` redaction, in case an upstream caller
+ * appends raw lines or a future field gets added without going through the
+ * append helper.
  */
 export function redactForExport(entry: AuditEntry): AuditEntry {
-  return entry;
+  return redactEntry(entry);
 }
