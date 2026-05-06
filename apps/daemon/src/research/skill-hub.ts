@@ -246,13 +246,34 @@ async function fetchRawCapped(url: string, token?: string): Promise<string | nul
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 const NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/i;
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
-const ALLOWED_OD_MODES = new Set(['prototype', 'deck', 'template', 'design-system']);
+// Values observed across the 65+ skills currently shipped in `skills/*/SKILL.md`
+// plus the four documented in `docs/skills-protocol.md`. Keep this list aligned
+// with reality so a hub mirroring the catalog does not reject media or utility
+// skills (PR #617 review). The integration PR should replace this with a
+// shared schema export from `apps/daemon/src/skills.ts`.
+const ALLOWED_OD_MODES = new Set([
+  'prototype',
+  'deck',
+  'template',
+  'design-system',
+  'image',
+  'video',
+  'audio',
+  'utility',
+]);
 
 /**
  * Minimal frontmatter parser, intentionally a subset of
- * `apps/daemon/src/frontmatter.ts`. Supports the fields we actually validate
- * here (top-level scalars and the `od.mode` scalar). Anything more complex is
- * left as raw text for the integration PR to swap in the daemon parser.
+ * `apps/daemon/src/frontmatter.ts`. Supports top-level scalars, the `od:`
+ * nested-scalar block, and YAML block scalars (`|`, `|-`, `>`, `>-`) for
+ * `description` — which most existing `SKILL.md` files use. Anything more
+ * complex is left as raw text for the integration PR to swap in the daemon
+ * parser.
+ *
+ * Block scalars are joined with `\n` and right-trimmed, matching what
+ * `apps/daemon/src/frontmatter.ts` does today. This sacrifices strict YAML
+ * folding behavior for `>` in exchange for matching how the daemon already
+ * reads the same files; consistency with the live catalog is the point.
  */
 export function parseFrontmatter(raw: string): Record<string, unknown> {
   const text = raw.replace(/^﻿/, '');
@@ -261,40 +282,110 @@ export function parseFrontmatter(raw: string): Record<string, unknown> {
   const yaml = match[1];
   if (!yaml) return {};
   const out: Record<string, unknown> = {};
-  let inOdBlock = false;
   const od: Record<string, unknown> = {};
-  for (const rawLine of yaml.split(/\r?\n/)) {
-    if (!rawLine.trim() || rawLine.trim().startsWith('#')) continue;
+  const lines = yaml.split(/\r?\n/);
+  let i = 0;
+  let inOdBlock = false;
+
+  while (i < lines.length) {
+    const rawLine = lines[i] ?? '';
+    if (!rawLine.trim() || rawLine.trim().startsWith('#')) {
+      i++;
+      continue;
+    }
     const indent = rawLine.match(/^\s*/)?.[0].length ?? 0;
     const line = rawLine.slice(indent);
+
     if (indent === 0) {
       if (line === 'od:' || line.startsWith('od:')) {
-        inOdBlock = true;
-        const inline = line.slice(3).trim();
-        if (inline) {
-          inOdBlock = false;
-          // od: <scalar> is not a documented shape; ignore.
-        }
+        inOdBlock = line === 'od:';
+        i++;
         continue;
       }
       inOdBlock = false;
       const kv = /^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$/.exec(line);
-      if (!kv) continue;
+      if (!kv) {
+        i++;
+        continue;
+      }
       const key = kv[1];
       const val = (kv[2] ?? '').trim();
-      if (!key) continue;
+      if (!key) {
+        i++;
+        continue;
+      }
+      if (isBlockScalar(val)) {
+        const block = readBlockScalar(lines, i + 1, indent);
+        out[key] = block.value;
+        i = block.next;
+        continue;
+      }
       out[key] = stripQuotes(val);
-    } else if (inOdBlock && indent === 2) {
+      i++;
+      continue;
+    }
+
+    if (inOdBlock && indent === 2) {
       const kv = /^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$/.exec(line);
-      if (!kv) continue;
+      if (!kv) {
+        i++;
+        continue;
+      }
       const key = kv[1];
       const val = (kv[2] ?? '').trim();
-      if (!key) continue;
+      if (!key) {
+        i++;
+        continue;
+      }
+      if (isBlockScalar(val)) {
+        const block = readBlockScalar(lines, i + 1, indent);
+        od[key] = block.value;
+        i = block.next;
+        continue;
+      }
       od[key] = stripQuotes(val);
+      i++;
+      continue;
     }
+
+    i++;
   }
   if (Object.keys(od).length > 0) out['od'] = od;
   return out;
+}
+
+function isBlockScalar(val: string): boolean {
+  return (
+    val === '|'
+    || val === '|-'
+    || val === '|+'
+    || val === '>'
+    || val === '>-'
+    || val === '>+'
+  );
+}
+
+function readBlockScalar(
+  lines: string[],
+  start: number,
+  parentIndent: number,
+): { value: string; next: number } {
+  const collected: string[] = [];
+  const childIndent = parentIndent + 2;
+  let i = start;
+  while (i < lines.length) {
+    const next = lines[i] ?? '';
+    if (next.trim() === '') {
+      collected.push('');
+      i++;
+      continue;
+    }
+    const nIndent = next.match(/^\s*/)?.[0].length ?? 0;
+    if (nIndent < childIndent) break;
+    collected.push(next.slice(childIndent));
+    i++;
+  }
+  return { value: collected.join('\n').trimEnd(), next: i };
 }
 
 function stripQuotes(s: string): string {
