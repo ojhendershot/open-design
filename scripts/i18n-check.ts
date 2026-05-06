@@ -17,6 +17,14 @@ type ReadmeSwitcherEntry = {
   bold: boolean;
 };
 
+type CoreDocLink = {
+  label: string;
+  target: string;
+  syntax: "html" | "markdown";
+};
+
+const coreDocTargetPattern = "(QUICKSTART(?:\\.[A-Za-z0-9-]+)?\\.md|CONTRIBUTING(?:\\.[A-Za-z0-9-]+)?\\.md)";
+
 function repositoryPath(filePath: string): string {
   return path.relative(repoRoot, filePath).split(path.sep).join("/");
 }
@@ -111,6 +119,47 @@ function readmeTarget(fileName: string): string {
   return fileName === "README.md" ? "README.md" : fileName;
 }
 
+function readmeLocale(fileName: string): string | null {
+  if (fileName === "README.md") return null;
+  const match = fileName.match(/^README\.([A-Za-z0-9-]+)\.md$/);
+  return match?.[1] ?? null;
+}
+
+function coreDocSourceName(target: string): "QUICKSTART.md" | "CONTRIBUTING.md" | null {
+  if (target.startsWith("QUICKSTART")) return "QUICKSTART.md";
+  if (target.startsWith("CONTRIBUTING")) return "CONTRIBUTING.md";
+  return null;
+}
+
+function localizedCoreDocName(sourceName: "QUICKSTART.md" | "CONTRIBUTING.md", locale: string): string {
+  return sourceName.replace(/\.md$/, `.${locale}.md`);
+}
+
+function isExplicitEnglishCoreDocLink(link: CoreDocLink): boolean {
+  return link.syntax === "markdown" && link.label.trim() === "English";
+}
+
+function extractCoreDocLinks(source: string): CoreDocLink[] {
+  const links: CoreDocLink[] = [];
+  const markdownPattern = new RegExp(`\\[([^\\]]*)\\]\\(${coreDocTargetPattern}\\)`, "g");
+  const htmlHrefPattern = new RegExp(`<a\\b[^>]*\\bhref=(["'])${coreDocTargetPattern}\\1[^>]*>`, "g");
+
+  for (const match of source.matchAll(markdownPattern)) {
+    const label = match[1];
+    const target = match[2];
+    if (label == null || target == null) continue;
+    links.push({ label, target, syntax: "markdown" });
+  }
+
+  for (const match of source.matchAll(htmlHrefPattern)) {
+    const target = match[2];
+    if (target == null) continue;
+    links.push({ label: "", target, syntax: "html" });
+  }
+
+  return links;
+}
+
 async function checkReadmeSwitchers(): Promise<CheckResult> {
   const errors: string[] = [];
   const readmes = await rootReadmeFiles();
@@ -169,14 +218,37 @@ async function checkReadmeSwitchers(): Promise<CheckResult> {
 async function checkCoreDocLinks(): Promise<CheckResult> {
   const errors: string[] = [];
   const readmes = await rootReadmeFiles();
-  const coreDocPattern = /\]\((QUICKSTART(?:\.[A-Za-z0-9-]+)?\.md|CONTRIBUTING(?:\.[A-Za-z0-9-]+)?\.md)\)/g;
 
   for (const readme of readmes) {
     const source = await readFile(path.join(repoRoot, readme), "utf8");
-    for (const match of source.matchAll(coreDocPattern)) {
-      const target = match[1];
-      if (target && !(await pathExists(path.join(repoRoot, target)))) {
+    const locale = readmeLocale(readme);
+    const links = extractCoreDocLinks(source);
+    const linkedTargets = new Set(links.map((link) => link.target));
+
+    for (const link of links) {
+      const target = link.target;
+      if (!(await pathExists(path.join(repoRoot, target)))) {
         errors.push(`${readme} links to missing core doc ${target}.`);
+      }
+
+      if (locale == null) continue;
+
+      const sourceName = coreDocSourceName(target);
+      if (sourceName == null || target !== sourceName || isExplicitEnglishCoreDocLink(link)) continue;
+
+      const localizedName = localizedCoreDocName(sourceName, locale);
+      if (await pathExists(path.join(repoRoot, localizedName))) {
+        errors.push(`${readme} links to ${sourceName}, but ${localizedName} exists for this README locale.`);
+      }
+    }
+
+    if (locale == null) continue;
+    for (const sourceName of ["QUICKSTART.md", "CONTRIBUTING.md"] as const) {
+      const localizedName = localizedCoreDocName(sourceName, locale);
+      if ((await pathExists(path.join(repoRoot, localizedName))) && links.some((link) => coreDocSourceName(link.target) === sourceName)) {
+        if (!linkedTargets.has(localizedName)) {
+          errors.push(`${readme} links to ${sourceName} docs, but does not link to localized ${localizedName}.`);
+        }
       }
     }
   }
