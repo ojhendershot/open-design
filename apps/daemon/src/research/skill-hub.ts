@@ -30,6 +30,7 @@ const DEFAULT_BRANCH = 'main';
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_FILE_BYTES = 256 * 1024;     // 256KB per SKILL.md / DESIGN.md
 const MAX_LIST_ENTRIES = 500;
+const COMMIT_SHA_PATTERN = /^[0-9a-f]{7,40}$/i;
 
 export type HubNamespace = 'skills' | 'design-systems' | 'craft';
 
@@ -38,32 +39,74 @@ export interface HubEntry {
   name: string;
   description?: string;
   raw: string;                  // raw SKILL.md / DESIGN.md content
-  source: { repo: string; branch: string; path: string };
+  source: {
+    repo: string;
+    branch: string;             // configured ref label (branch or "<sha>")
+    path: string;
+    /**
+     * Immutable commit SHA the bytes were fetched at. Present iff the
+     * caller passed `pinnedSha` (or `OD_HUB_PINNED_SHA`) so the listing
+     * went through `?ref=<sha>` rather than a mutable branch tip. The
+     * install gate (`installHubEntry`) refuses any entry that lacks this
+     * field — branch-tip listings are browseable but not installable
+     * (PR #617 review, P1).
+     */
+    commitSha?: string;
+  };
 }
 
 interface HubConfig {
   repo?: string;                // owner/name
   branch?: string;
   token?: string;               // optional GitHub token (raises rate limit)
+  /**
+   * Pin all GitHub Contents API requests to this immutable commit SHA.
+   * When set, the listing fetches via `?ref=<sha>` and every returned
+   * `HubEntry.source.commitSha` is populated, so `installHubEntry` can
+   * verify the bytes being written came from the SHA the user approved
+   * (PR #617 review, P1). Falls back to `OD_HUB_PINNED_SHA` when the
+   * caller does not pass one.
+   */
+  pinnedSha?: string;
 }
 
 interface ListCacheKey {
   repo: string;
-  branch: string;
+  ref: string;          // SHA or branch — caches must not collapse the two
   namespace: HubNamespace;
 }
 
 const listCache = new Map<string, { ts: number; data: HubEntry[] }>();
 
 function cacheKey(k: ListCacheKey): string {
-  return `${k.repo}@${k.branch}/${k.namespace}`;
+  return `${k.repo}@${k.ref}/${k.namespace}`;
 }
 
-function repoOf(cfg?: HubConfig): { repo: string; branch: string; token?: string } {
+interface ResolvedHubRef {
+  repo: string;
+  branch: string;       // human-readable label
+  ref: string;          // value passed to GitHub `?ref=` (sha or branch)
+  commitSha?: string;   // populated iff a pinned SHA was supplied
+  token?: string;
+}
+
+function repoOf(cfg?: HubConfig): ResolvedHubRef {
   const token = cfg?.token ?? process.env.OD_HUB_TOKEN;
+  const repo = cfg?.repo ?? process.env.OD_HUB_REPO ?? DEFAULT_REPO;
+  const branch = cfg?.branch ?? process.env.OD_HUB_BRANCH ?? DEFAULT_BRANCH;
+  const rawPinned = cfg?.pinnedSha ?? process.env.OD_HUB_PINNED_SHA;
+  let commitSha: string | undefined;
+  if (rawPinned !== undefined && rawPinned !== '') {
+    if (typeof rawPinned !== 'string' || !COMMIT_SHA_PATTERN.test(rawPinned)) {
+      throw new Error('Hub: pinnedSha must be a 7–40 char commit SHA');
+    }
+    commitSha = rawPinned.toLowerCase();
+  }
   return {
-    repo: cfg?.repo ?? process.env.OD_HUB_REPO ?? DEFAULT_REPO,
-    branch: cfg?.branch ?? process.env.OD_HUB_BRANCH ?? DEFAULT_BRANCH,
+    repo,
+    branch,
+    ref: commitSha ?? branch,
+    ...(commitSha ? { commitSha } : {}),
     ...(token ? { token } : {}),
   };
 }
@@ -102,11 +145,11 @@ export async function listHubEntries(
   cfg?: HubConfig,
 ): Promise<HubEntry[]> {
   const r = repoOf(cfg);
-  const key = cacheKey({ repo: r.repo, branch: r.branch, namespace });
+  const key = cacheKey({ repo: r.repo, ref: r.ref, namespace });
   const hit = listCache.get(key);
   if (hit && Date.now() - hit.ts < CACHE_TTL_MS) return hit.data;
 
-  const url = `https://api.github.com/repos/${r.repo}/contents/${namespace}?ref=${r.branch}`;
+  const url = `https://api.github.com/repos/${r.repo}/contents/${namespace}?ref=${encodeURIComponent(r.ref)}`;
   const res = await ghFetch(url, r.token);
   const items = (await res.json()) as ContentsItem[];
 
@@ -128,10 +171,10 @@ export async function listHubEntries(
 async function readDirEntry(
   namespace: HubNamespace,
   dir: ContentsItem,
-  r: { repo: string; branch: string; token?: string },
+  r: ResolvedHubRef,
 ): Promise<HubEntry | null> {
   const fileName = namespace === 'skills' ? 'SKILL.md' : 'DESIGN.md';
-  const url = `https://api.github.com/repos/${r.repo}/contents/${dir.path}/${fileName}?ref=${r.branch}`;
+  const url = `https://api.github.com/repos/${r.repo}/contents/${dir.path}/${fileName}?ref=${encodeURIComponent(r.ref)}`;
   try {
     const res = await ghFetch(url, r.token);
     const meta = (await res.json()) as ContentsItem;
@@ -145,7 +188,12 @@ async function readDirEntry(
       name: dir.name,
       ...(resolved.description ? { description: resolved.description } : {}),
       raw,
-      source: { repo: r.repo, branch: r.branch, path: `${dir.path}/${fileName}` },
+      source: {
+        repo: r.repo,
+        branch: r.branch,
+        path: `${dir.path}/${fileName}`,
+        ...(r.commitSha ? { commitSha: r.commitSha } : {}),
+      },
     };
   } catch {
     return null;
@@ -155,7 +203,7 @@ async function readDirEntry(
 async function readFileEntry(
   namespace: HubNamespace,
   file: ContentsItem,
-  r: { repo: string; branch: string; token?: string },
+  r: ResolvedHubRef,
 ): Promise<HubEntry | null> {
   if (!file.name.endsWith('.md')) return null;
   if (!file.download_url) return null;
@@ -169,7 +217,12 @@ async function readFileEntry(
     name: slug,
     ...(resolved.description ? { description: resolved.description } : {}),
     raw,
-    source: { repo: r.repo, branch: r.branch, path: file.path },
+    source: {
+      repo: r.repo,
+      branch: r.branch,
+      path: file.path,
+      ...(r.commitSha ? { commitSha: r.commitSha } : {}),
+    },
   };
 }
 
@@ -565,22 +618,30 @@ export function resolveSafeChild(targetRoot: string, name: string): string {
  *   - `userApproved: true` — a type-level forcing function so a default-
  *     constructed options object cannot trigger a write.
  *
- * The integration PR will:
- *   1. Resolve every hub list/install through the SHA captured here, not
- *      through the live `branch` ref.
- *   2. Surface provenance + a diff against the previously installed copy
+ * What this starter already enforces:
+ *   1. `listHubEntries` honors `HubConfig.pinnedSha` (or `OD_HUB_PINNED_SHA`)
+ *      and routes the GitHub Contents API through `?ref=<sha>`, populating
+ *      `HubEntry.source.commitSha` so the install gate can verify the bytes
+ *      came from the approved commit (PR #617 review, P1).
+ *   2. `installHubEntry` rejects any entry whose `source.commitSha` is
+ *      missing or does not match `approval.pinnedSha` — defeating both the
+ *      "list from `main`, approve any SHA-shaped string" attack and the
+ *      "swap commits between approval and install" attack.
+ *
+ * What the integration PR still needs to add:
+ *   1. Surface provenance + a diff against the previously installed copy
  *      before persisting.
- *   3. Default the install destination to a quarantined / user-managed
+ *   2. Default the install destination to a quarantined / user-managed
  *      store separate from the active prompt directories, until the user
  *      explicitly activates the entry — mirroring npm/homebrew/apt trust
  *      boundaries.
+ *   3. Pin sibling-asset fetches (example.html, references/, assets/) to
+ *      the same `commitSha` rather than the configured branch.
  */
 export interface InstallApproval {
   pinnedSha: string;
   userApproved: true;
 }
-
-const COMMIT_SHA_PATTERN = /^[0-9a-f]{7,40}$/i;
 
 interface InstallOptions {
   targetRoot: string;            // e.g. <projectRoot>/skills or ~/.open-design/skills
@@ -600,6 +661,16 @@ interface InstallOptions {
  * step, not a trust step; without the approval gate, a hub repo could
  * silently overwrite an installed skill on its next mutation. See
  * `InstallApproval` for the planned quarantine + provenance flow.
+ *
+ * Provenance enforcement (PR #617 review, P1/P2):
+ *   - Reject any entry whose `source.commitSha` is missing — that means the
+ *     listing came through a mutable branch ref (`?ref=main`) and the bytes
+ *     in `entry.raw` are not anchored to an immutable commit.
+ *   - Reject when `source.commitSha` does not match `approval.pinnedSha` —
+ *     that defeats a caller who lists from `main` then forwards an arbitrary
+ *     SHA-shaped string to the install gate.
+ *   - SHA comparison is case-insensitive but exact (no prefix matching),
+ *     so a 7-char short SHA approval cannot stand in for a 40-char one.
  *
  * Re-validates frontmatter before writing — list cache may be stale, and an
  * untrusted hub entry that bypassed the listing path (e.g. via a custom
@@ -624,6 +695,22 @@ export async function installHubEntry(
     || !COMMIT_SHA_PATTERN.test(opts.approval.pinnedSha)
   ) {
     throw new Error('installHubEntry: approval.pinnedSha must be a commit SHA');
+  }
+  const entrySha = entry.source?.commitSha;
+  if (typeof entrySha !== 'string' || entrySha.length === 0) {
+    throw new Error(
+      `installHubEntry: entry has no source.commitSha — list with HubConfig.pinnedSha so bytes are anchored to an immutable commit (${entry.namespace}/${entry.name})`,
+    );
+  }
+  if (!COMMIT_SHA_PATTERN.test(entrySha)) {
+    throw new Error(
+      `installHubEntry: entry.source.commitSha is not a commit SHA (${entry.namespace}/${entry.name})`,
+    );
+  }
+  if (entrySha.toLowerCase() !== opts.approval.pinnedSha.toLowerCase()) {
+    throw new Error(
+      `installHubEntry: provenance mismatch — entry was fetched at ${entrySha} but approval pinned ${opts.approval.pinnedSha} (${entry.namespace}/${entry.name})`,
+    );
   }
   if (!resolveManifest(entry.namespace, entry.raw, entry.name)) {
     throw new Error(`Hub entry manifest failed validation: ${entry.namespace}/${entry.name}`);
