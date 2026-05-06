@@ -227,6 +227,113 @@ describe('research/skill-hub installHubEntry provenance gate', () => {
       }),
     ).rejects.toThrow(/must be a commit SHA/i);
   });
+
+  it('threads opts.token through the re-fetch so private-hub entries install', async () => {
+    // Regression for PR #617 review (P1): for a private hub the listing
+    // went through `HubConfig.token`, but the install path used to call
+    // `fetchManifestRawAtSha()` without any token — so the re-fetch hit
+    // the GitHub API anonymously and the install would always 404 even
+    // though the entry was reachable. The fix routes a server-owned
+    // token from `opts.token` to the re-fetch.
+    const PRIVATE_TOKEN = 'ghs_private_test_token_value';
+    let sawAuthOnManifestMeta = false;
+    let sawAuthOnDownload = false;
+    const downloadUrl = `https://raw.example.invalid/${PINNED_SHA}/skill.md`;
+    const fetchMock = vi.fn(async (
+      input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1],
+    ) => {
+      const url = String(input);
+      const auth = (init?.headers as Record<string, string> | undefined)?.['Authorization']
+        ?? (init?.headers as Record<string, string> | undefined)?.['authorization'];
+      if (url === installManifestUrl(PINNED_SHA)) {
+        // Anonymous request to a private repo would get 404 here. We
+        // assert that the install path actually presents the bearer
+        // token; without it we'd return 404 to mimic GitHub's behavior.
+        if (auth !== `Bearer ${PRIVATE_TOKEN}`) {
+          return new Response(JSON.stringify({ message: 'Not Found' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        sawAuthOnManifestMeta = true;
+        return jsonResponse({
+          name: 'SKILL.md',
+          type: 'file',
+          path: 'skills/example-skill/SKILL.md',
+          download_url: downloadUrl,
+        });
+      }
+      if (url === downloadUrl) {
+        if (auth !== `Bearer ${PRIVATE_TOKEN}`) {
+          return new Response('', { status: 404 });
+        }
+        sawAuthOnDownload = true;
+        return rawResponse(SAMPLE_RAW);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const entry = makeEntry();
+    const result = await installHubEntry(entry, {
+      targetRoot,
+      approval: { pinnedSha: PINNED_SHA, userApproved: true },
+      token: PRIVATE_TOKEN,
+    });
+    expect(sawAuthOnManifestMeta).toBe(true);
+    expect(sawAuthOnDownload).toBe(true);
+    expect(result.path).toBe(path.join(targetRoot, 'example-skill', 'SKILL.md'));
+    const written = await readFile(result.path, 'utf8');
+    expect(written).toBe(SAMPLE_RAW);
+  });
+
+  it('falls back to OD_HUB_TOKEN when opts.token is not supplied', async () => {
+    // The same env var that `listHubEntries` honors as the token source
+    // also applies to the in-process install gate — otherwise a process
+    // configured with `OD_HUB_TOKEN` would list a private hub fine but
+    // fail to install. (PR #617 review, P1.)
+    const ENV_TOKEN = 'ghs_env_token_for_private_hub_install';
+    const downloadUrl = `https://raw.example.invalid/${PINNED_SHA}/skill.md`;
+    const fetchMock = vi.fn(async (
+      input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1],
+    ) => {
+      const url = String(input);
+      const auth = (init?.headers as Record<string, string> | undefined)?.['Authorization']
+        ?? (init?.headers as Record<string, string> | undefined)?.['authorization'];
+      if (auth !== `Bearer ${ENV_TOKEN}`) {
+        return new Response('', { status: 404 });
+      }
+      if (url === installManifestUrl(PINNED_SHA)) {
+        return jsonResponse({
+          name: 'SKILL.md',
+          type: 'file',
+          path: 'skills/example-skill/SKILL.md',
+          download_url: downloadUrl,
+        });
+      }
+      if (url === downloadUrl) {
+        return rawResponse(SAMPLE_RAW);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const previous = process.env.OD_HUB_TOKEN;
+    process.env.OD_HUB_TOKEN = ENV_TOKEN;
+    try {
+      const entry = makeEntry();
+      const result = await installHubEntry(entry, {
+        targetRoot,
+        approval: { pinnedSha: PINNED_SHA, userApproved: true },
+      });
+      expect(result.path).toBe(path.join(targetRoot, 'example-skill', 'SKILL.md'));
+    } finally {
+      if (previous === undefined) delete process.env.OD_HUB_TOKEN;
+      else process.env.OD_HUB_TOKEN = previous;
+    }
+  });
 });
 
 describe('research/skill-hub installHubManifest selector entry point', () => {

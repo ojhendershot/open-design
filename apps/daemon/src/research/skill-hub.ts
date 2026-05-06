@@ -778,6 +778,20 @@ interface InstallOptions {
   targetRoot: string;            // e.g. <projectRoot>/skills or ~/.open-design/skills
   overwrite?: boolean;
   approval: InstallApproval;     // see `InstallApproval` — required
+  /**
+   * Server-owned GitHub token for the hub re-fetch. Required when the
+   * `HubEntry` came from `listHubEntries` against a private hub (i.e. the
+   * caller passed `HubConfig.token` or set `OD_HUB_TOKEN`); without it the
+   * re-fetch hits the GitHub API anonymously and 404s, defeating the
+   * starter for tokened hubs (PR #617 review, P1).
+   *
+   * Carried out-of-band on the options object — never serialized onto
+   * `HubEntry.source` — so a forwarded entry cannot leak the token across
+   * a process boundary. Callers that don't already hold a server-owned
+   * token should route through `installHubManifest`, which carries the
+   * token on the selector instead.
+   */
+  token?: string;
 }
 
 /**
@@ -1002,6 +1016,15 @@ async function writeManifest(args: WriteManifestArgs): Promise<string> {
  *     fetched bytes must equal `entry.raw` byte-for-byte; otherwise the
  *     listing cache is stale or tampered with and the install is rejected.
  *
+ * Private-hub support: when the entry was listed through a tokened
+ * `HubConfig` (or `OD_HUB_TOKEN`), the same server-owned token must be
+ * passed via `opts.token` so the re-fetch can authenticate. The token is
+ * never serialized onto `HubEntry.source`, because forwarding an entry
+ * across a process boundary must not exfiltrate credentials (PR #617
+ * review, P1). Callers that don't already hold a server-owned token
+ * should use `installHubManifest`, which carries the token on the
+ * selector instead.
+ *
  * Future routes that take input from HTTP should call `installHubManifest`
  * (selector-only entry point) instead of forwarding a `HubEntry` body
  * straight in here. This entry point remains for in-process callers that
@@ -1039,13 +1062,22 @@ export async function installHubEntry(
   // Server-owned re-fetch at the canonical commit SHA. We do not trust
   // `entry.raw`; we only trust the bytes we just pulled from GitHub at the
   // SHA the user approved (PR #617 review, P1).
+  //
+  // For private hubs the listing went through `HubConfig.token`, but
+  // tokens are intentionally not carried on `HubEntry.source`. The caller
+  // must thread the same server-owned token through `opts.token` (or
+  // `OD_HUB_TOKEN`) so the re-fetch can authenticate; otherwise the
+  // GitHub API will return 404 for the manifest and the install will
+  // fail. See `InstallOptions.token`.
   const canonicalSha = entrySha.toLowerCase();
+  const refetchToken = opts.token ?? process.env.OD_HUB_TOKEN;
   const fresh = await fetchManifestRawAtSha(
     {
       namespace: entry.namespace,
       name: entry.name,
       repo: entry.source.repo,
       pinnedSha: canonicalSha,
+      ...(refetchToken ? { token: refetchToken } : {}),
     },
     canonicalSha,
   );
