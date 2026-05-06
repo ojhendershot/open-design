@@ -5,6 +5,7 @@ import { resolveToolPackConfig, type ToolPackCliOptions, type ToolPackPlatform }
 import {
   cleanupPackedMacNamespace,
   installPackedMacDmg,
+  inspectPackedMacApp,
   packMac,
   readPackedMacLogs,
   startPackedMacApp,
@@ -78,6 +79,11 @@ function addBuildOptions(command: CacCommand, platform: ToolPackPlatform) {
     .option("--to <target>", TO_HELP_BY_PLATFORM[platform]);
 }
 
+function addMacBuildOptions(command: CacCommand) {
+  return addBuildOptions(command, "mac")
+    .option("--mac-compression <mode>", "mac artifact compression: normal|maximum|store (default: normal)");
+}
+
 function addWinLifecycleOptions(command: CacCommand) {
   return command
     .option("--remove-data", "remove packaged data during uninstall/reset/cleanup")
@@ -89,7 +95,7 @@ function addWinLifecycleOptions(command: CacCommand) {
 
 const cli = cac("tools-pack");
 
-addBuildOptions(addSharedOptions(cli.command("mac <action>", "Mac packaging commands: build|install|start|stop|logs|uninstall|cleanup")), "mac").action(
+addMacBuildOptions(addSharedOptions(cli.command("mac <action>", "Mac packaging commands: build|install|start|stop|logs|uninstall|cleanup|inspect"))).action(
   async (action: string, options: CliOptions) => {
     const config = resolveToolPackConfig("mac", options);
     switch (action) {
@@ -107,6 +113,9 @@ addBuildOptions(addSharedOptions(cli.command("mac <action>", "Mac packaging comm
         return;
       case "logs":
         printLogs(await readPackedMacLogs(config), options);
+        return;
+      case "inspect":
+        printJson(await inspectPackedMacApp(config, options));
         return;
       case "uninstall":
         printJson(await uninstallPackedMacApp(config));

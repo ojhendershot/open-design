@@ -609,6 +609,7 @@ async function buildWorkspaceArtifacts(config: ToolPackConfig): Promise<void> {
   const webNextEnvPath = join(config.workspaceRoot, "apps", "web", "next-env.d.ts");
   const previousWebNextEnv = await readFile(webNextEnvPath, "utf8").catch(() => null);
 
+  await runPnpm(config, ["--filter", "@open-design/contracts", "build"]);
   await runPnpm(config, ["--filter", "@open-design/sidecar-proto", "build"]);
   await runPnpm(config, ["--filter", "@open-design/sidecar", "build"]);
   await runPnpm(config, ["--filter", "@open-design/platform", "build"]);
@@ -696,6 +697,7 @@ async function writeAssembledApp(config: ToolPackConfig, paths: WinPaths, packed
     paths.packagedConfigPath,
     `${JSON.stringify(
       {
+        appVersion: packagedVersion,
         namespace: config.namespace,
         nodeCommandRelative: join("open-design", "bin", "node.exe"),
         ...(config.portable ? {} : { namespaceBaseRoot: config.roots.runtime.namespaceBaseRoot }),

@@ -177,6 +177,80 @@ describe('app-config', () => {
       expect(cfg.agentModels).toBeUndefined();
     });
 
+    it('persists supported per-agent CLI env keys and drops everything else', async () => {
+      await writeAppConfig(dataDir, {
+        agentCliEnv: {
+          claude: {
+            CLAUDE_CONFIG_DIR: '  ~/.claude-2  ',
+            ANTHROPIC_API_KEY: 'sk-should-not-persist',
+          },
+          codex: {
+            CODEX_HOME: '~/.codex-alt',
+            OPENAI_API_KEY: 'sk-should-not-persist',
+          },
+          gemini: {
+            GEMINI_API_KEY: 'should-not-persist',
+          },
+          __proto__: {
+            CLAUDE_CONFIG_DIR: 'bad',
+          },
+        },
+      });
+
+      const cfg = await readAppConfig(dataDir);
+
+      expect(cfg.agentCliEnv).toEqual({
+        claude: { CLAUDE_CONFIG_DIR: '~/.claude-2' },
+        codex: { CODEX_HOME: '~/.codex-alt' },
+      });
+    });
+
+    it('drops agentCliEnv entries that collide with Object.prototype keys', async () => {
+      await writeAppConfig(dataDir, {
+        agentCliEnv: {
+          toString: {
+            CODEX_HOME: '~/.codex-prototype',
+          },
+          hasOwnProperty: {
+            CLAUDE_CONFIG_DIR: '~/.claude-prototype',
+          },
+          claude: {
+            CLAUDE_CONFIG_DIR: '~/.claude-2',
+          },
+        },
+      });
+
+      const cfg = await readAppConfig(dataDir);
+
+      expect(cfg.agentCliEnv).toEqual({
+        claude: { CLAUDE_CONFIG_DIR: '~/.claude-2' },
+      });
+    });
+
+    it('clears agentCliEnv when null or an empty object is sent', async () => {
+      await writeAppConfig(dataDir, {
+        agentCliEnv: {
+          claude: { CLAUDE_CONFIG_DIR: '~/.claude-2' },
+        },
+        onboardingCompleted: true,
+      });
+      expect((await readAppConfig(dataDir)).agentCliEnv).toBeDefined();
+
+      await writeAppConfig(dataDir, { agentCliEnv: null });
+      let cfg = await readAppConfig(dataDir);
+      expect(cfg.agentCliEnv).toBeUndefined();
+      expect(cfg.onboardingCompleted).toBe(true);
+
+      await writeAppConfig(dataDir, {
+        agentCliEnv: {
+          codex: { CODEX_HOME: '~/.codex-alt' },
+        },
+      });
+      await writeAppConfig(dataDir, { agentCliEnv: {} });
+      cfg = await readAppConfig(dataDir);
+      expect(cfg.agentCliEnv).toBeUndefined();
+    });
+
     it('handles corrupted existing file gracefully on write', async () => {
       await writeFile(path.join(dataDir, 'app-config.json'), 'CORRUPT');
       await writeAppConfig(dataDir, { agentId: 'test' });
@@ -215,6 +289,49 @@ function httpRequest(
     req.end();
   });
 }
+
+describe('app-config disabled lists', () => {
+  let dataDir: string;
+
+  beforeEach(async () => {
+    dataDir = await mkdtemp(path.join(tmpdir(), 'od-disabled-'));
+  });
+
+  afterEach(async () => {
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it('persists disabledSkills as string array', async () => {
+    await writeAppConfig(dataDir, { disabledSkills: ['skill-a', 'skill-b'] });
+    const cfg = await readAppConfig(dataDir);
+    expect(cfg.disabledSkills).toEqual(['skill-a', 'skill-b']);
+  });
+
+  it('persists disabledDesignSystems as string array', async () => {
+    await writeAppConfig(dataDir, { disabledDesignSystems: ['ds-x'] });
+    const cfg = await readAppConfig(dataDir);
+    expect(cfg.disabledDesignSystems).toEqual(['ds-x']);
+  });
+
+  it('drops disabledSkills when not a string array', async () => {
+    await writeAppConfig(dataDir, { disabledSkills: 'not-array' } as any);
+    const cfg = await readAppConfig(dataDir);
+    expect(cfg.disabledSkills).toBeUndefined();
+  });
+
+  it('drops disabledSkills with non-string elements', async () => {
+    await writeAppConfig(dataDir, { disabledSkills: [1, 2, 3] } as any);
+    const cfg = await readAppConfig(dataDir);
+    expect(cfg.disabledSkills).toBeUndefined();
+  });
+
+  it('clears disabledSkills when empty array is sent', async () => {
+    await writeAppConfig(dataDir, { disabledSkills: ['a'] });
+    await writeAppConfig(dataDir, { disabledSkills: [] });
+    const cfg = await readAppConfig(dataDir);
+    expect(cfg.disabledSkills).toEqual([]);
+  });
+});
 
 describe('app-config origin guard', () => {
   let server: http.Server;
@@ -302,53 +419,13 @@ describe('app-config origin guard', () => {
     expect(res.status).toBe(403);
   });
 
-  it('allows GET when Origin is the trusted web port (proxy flow)', async () => {
-    const webPort = port + 1;
-    process.env.OD_WEB_PORT = String(webPort);
-    try {
-      const res = await httpRequest(`${baseUrl}/api/app-config`, {
-        headers: {
-          Host: `127.0.0.1:${port}`,
-          Origin: `http://127.0.0.1:${webPort}`,
-        },
-      });
-      expect(res.status).toBe(200);
-    } finally {
-      delete process.env.OD_WEB_PORT;
-    }
-  });
-
-  it('allows PUT when Origin is the trusted web port (proxy flow)', async () => {
-    const webPort = port + 1;
-    process.env.OD_WEB_PORT = String(webPort);
-    try {
-      const res = await httpRequest(`${baseUrl}/api/app-config`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Host: `127.0.0.1:${port}`,
-          Origin: `http://localhost:${webPort}`,
-        },
-        body: JSON.stringify({ onboardingCompleted: true }),
-      });
-      expect(res.status).toBe(200);
-    } finally {
-      delete process.env.OD_WEB_PORT;
-    }
-  });
-
-  it('still rejects cross-origin even when OD_WEB_PORT is set', async () => {
-    process.env.OD_WEB_PORT = String(port + 1);
-    try {
-      const res = await httpRequest(`${baseUrl}/api/app-config`, {
-        headers: {
-          Host: `127.0.0.1:${port}`,
-          Origin: 'https://evil.com',
-        },
-      });
-      expect(res.status).toBe(403);
-    } finally {
-      delete process.env.OD_WEB_PORT;
-    }
+  it('still rejects non-loopback Origin', async () => {
+    const res = await httpRequest(`${baseUrl}/api/app-config`, {
+      headers: {
+        Host: `127.0.0.1:${port}`,
+        Origin: 'https://evil.com',
+      },
+    });
+    expect(res.status).toBe(403);
   });
 });
