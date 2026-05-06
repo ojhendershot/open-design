@@ -44,11 +44,7 @@ from `LOCALES`.
 | `zh-TW` | 繁體中文             | `zh-TW.ts`             | `README.zh-TW.md`   | —         | —                | active |
 | `fr`    | Français             | `fr.ts`                | `README.fr.md`      | yes       | `content.fr.ts`  | active |
 | `uk`    | Українська           | `uk.ts`                | `README.uk.md`      | —         | —                | active |
-
-> `apps/web/src/i18n/locales/tr.ts` exists today as an unregistered
-> dictionary file. Treat unregistered dictionaries as maintenance debt:
-> either register them fully in `LOCALES` and `DICTS`, or remove them in a
-> focused cleanup PR after confirming the locale is out of scope.
+| `tr`    | Türkçe               | `tr.ts`                | —                   | —         | —                | active |
 
 > A locale may ship a UI dict, a root README, core docs, display metadata,
 > or any subset of those surfaces. The English locale is the source of
@@ -128,15 +124,16 @@ matching translated surfaces deliberately:
 - **Display metadata:** update `apps/web/src/i18n/content*.ts` alongside
   `content.ts` when that locale maintains display metadata.
 
+Automated P0 check:
+
+- `pnpm i18n:check` enforces UI locale registration, root README switcher
+  consistency, and root README links to translated core docs. CI runs this
+  as a hard-fail check because these are structural issues.
+
 Known current drift to clean up in focused PRs:
 
-- Root README language switchers differ across languages; for example,
-  `README.es.md` exists while several other root README switchers omit
-  Español.
 - Several translated READMEs lag behind current English badge counts,
   supported agent lists, and Quickstart/download links.
-- `apps/web/src/i18n/locales/tr.ts` is present as an unregistered locale
-  dictionary file.
 
 ## Backport policy
 
