@@ -29,6 +29,18 @@ import {
 } from "@open-design/platform";
 
 import type { ToolPackBuildOutput, ToolPackConfig } from "./config.js";
+import {
+  MAC_PREBUNDLE_ESBUILD_TARGET,
+  MAC_PREBUNDLE_META_DIR_NAME,
+  MAC_PREBUNDLE_POLICIES,
+  MAC_PREBUNDLED_APP_DIR_NAME,
+  MAC_PREBUNDLED_PACKAGED_MAIN_RELATIVE_PATH,
+  MAC_PREBUNDLED_WEB_SIDECAR_RELATIVE_PATH,
+  assertMacPrebundleMetafile,
+  renderMacPackagedMainEntry,
+  shouldInstallInternalPackageForMacPrebundle,
+  shouldUseMacStandalonePrebundle,
+} from "./mac-prebundle.js";
 import { copyBundledResourceTrees, macResources } from "./resources.js";
 
 const execFileAsync = promisify(execFile);
@@ -166,9 +178,6 @@ export type ElectronBuilderTarget = "dir" | "dmg" | "zip";
 const DESKTOP_LOG_ECHO_ENV = "OD_DESKTOP_LOG_ECHO";
 const WEB_STANDALONE_HOOK_CONFIG_ENV = "OD_TOOLS_PACK_WEB_STANDALONE_HOOK_CONFIG";
 const WEB_STANDALONE_RESOURCE_NAME = "open-design-web-standalone";
-const PREBUNDLED_APP_DIR_NAME = "prebundled";
-const PREBUNDLED_PACKAGED_MAIN_RELATIVE_PATH = "app/prebundled/packaged-main.mjs";
-const PREBUNDLED_WEB_SIDECAR_RELATIVE_PATH = "app/prebundled/web-sidecar.mjs";
 const ELECTRON_BUILDER_ASAR = false;
 const ELECTRON_BUILDER_FILE_PATTERNS = [
   "**/*",
@@ -259,14 +268,14 @@ function resolveMacPaths(config: ToolPackConfig): MacPaths {
     assembledAppRoot: join(namespaceRoot, "assembled", "app"),
     assembledMainEntryPath: join(namespaceRoot, "assembled", "app", "main.cjs"),
     assembledPackageJsonPath: join(namespaceRoot, "assembled", "app", "package.json"),
-    assembledPrebundledRoot: join(namespaceRoot, "assembled", "app", PREBUNDLED_APP_DIR_NAME),
+    assembledPrebundledRoot: join(namespaceRoot, "assembled", "app", MAC_PREBUNDLED_APP_DIR_NAME),
     dmgPath: join(namespaceRoot, "dmg", `${PRODUCT_NAME}-${namespaceToken}.dmg`),
     installApplicationsRoot,
     installedAppPath,
     latestMacYmlPath: join(namespaceRoot, "zip", "latest-mac.yml"),
     mountPoint: join(namespaceRoot, "mount"),
-    packagedMainPrebundleMetaPath: join(namespaceRoot, "assembled", "app", PREBUNDLED_APP_DIR_NAME, "packaged-main.meta.json"),
-    packagedMainPrebundlePath: join(namespaceRoot, "assembled", "app", PREBUNDLED_APP_DIR_NAME, "packaged-main.mjs"),
+    packagedMainPrebundleMetaPath: join(namespaceRoot, MAC_PREBUNDLE_META_DIR_NAME, "packaged-main.meta.json"),
+    packagedMainPrebundlePath: join(namespaceRoot, "assembled", MAC_PREBUNDLED_PACKAGED_MAIN_RELATIVE_PATH),
     packagedConfigPath: join(namespaceRoot, "open-design-config.json"),
     resourceRoot: join(namespaceRoot, "resources", "open-design"),
     systemApplicationsAppPath: join("/Applications", macAppBundleName(config.namespace)),
@@ -274,8 +283,8 @@ function resolveMacPaths(config: ToolPackConfig): MacPaths {
     userApplicationsAppPath: join(homedir(), "Applications", macAppBundleName(config.namespace)),
     webStandaloneHookAuditPath: join(namespaceRoot, "web-standalone-after-pack-audit.json"),
     webStandaloneHookConfigPath: join(namespaceRoot, "web-standalone-after-pack-config.json"),
-    webSidecarPrebundleMetaPath: join(namespaceRoot, "assembled", "app", PREBUNDLED_APP_DIR_NAME, "web-sidecar.meta.json"),
-    webSidecarPrebundlePath: join(namespaceRoot, "assembled", "app", PREBUNDLED_APP_DIR_NAME, "web-sidecar.mjs"),
+    webSidecarPrebundleMetaPath: join(namespaceRoot, MAC_PREBUNDLE_META_DIR_NAME, "web-sidecar.meta.json"),
+    webSidecarPrebundlePath: join(namespaceRoot, "assembled", MAC_PREBUNDLED_WEB_SIDECAR_RELATIVE_PATH),
     zipPath: join(namespaceRoot, "zip", `${PRODUCT_NAME}-${namespaceToken}.zip`),
   };
 }
@@ -358,57 +367,25 @@ async function runEsbuild(config: ToolPackConfig, args: string[]): Promise<void>
   await runPnpm(config, ["--filter", "@open-design/packaged", "exec", "esbuild", ...args]);
 }
 
-function shouldUsePrebundledStandaloneWeb(config: ToolPackConfig): boolean {
-  return config.webOutputMode === "standalone";
-}
-
-function shouldInstallInternalPackage(
-  config: ToolPackConfig,
-  packageName: (typeof INTERNAL_PACKAGES)[number]["name"],
-): boolean {
-  if (!shouldUsePrebundledStandaloneWeb(config)) return true;
-  return packageName !== "@open-design/web" && packageName !== "@open-design/packaged";
-}
-
-async function assertPrebundleMetafile(options: {
-  forbiddenInputs: string[];
-  label: string;
-  metafilePath: string;
-}): Promise<void> {
-  const metafile = JSON.parse(await readFile(options.metafilePath, "utf8")) as { inputs?: Record<string, unknown> };
-  const inputs = Object.keys(metafile.inputs ?? {}).map(toPosixPath);
-  const matched = inputs.filter((input) => options.forbiddenInputs.some((forbidden) => input.includes(forbidden)));
-  if (matched.length > 0) {
-    throw new Error(`${options.label} prebundle included forbidden inputs: ${matched.join(", ")}`);
-  }
-}
-
 async function buildPrebundledStandaloneWebRuntime(
   config: ToolPackConfig,
   paths: MacPaths,
 ): Promise<void> {
   await mkdir(paths.assembledPrebundledRoot, { recursive: true });
+  await mkdir(dirname(paths.packagedMainPrebundleMetaPath), { recursive: true });
   await runEsbuild(config, [
     join(config.workspaceRoot, "apps", "packaged", "dist", "index.mjs"),
     "--bundle",
     "--platform=node",
     "--format=esm",
-    "--target=node24",
-    "--external:electron",
+    `--target=${MAC_PREBUNDLE_ESBUILD_TARGET}`,
+    ...MAC_PREBUNDLE_POLICIES.packagedMain.externals.map((dependency) => `--external:${dependency}`),
     `--outfile=${paths.packagedMainPrebundlePath}`,
     `--metafile=${paths.packagedMainPrebundleMetaPath}`,
   ]);
-  await assertPrebundleMetafile({
-    forbiddenInputs: [
-      "/apps/web/",
-      "/node_modules/@open-design/web/",
-      "/node_modules/next/",
-      "/node_modules/openai/",
-      "/node_modules/react/",
-      "/node_modules/react-dom/",
-    ],
-    label: "packaged main",
+  await assertMacPrebundleMetafile({
     metafilePath: paths.packagedMainPrebundleMetaPath,
+    policyName: "packagedMain",
   });
 
   await runEsbuild(config, [
@@ -416,19 +393,14 @@ async function buildPrebundledStandaloneWebRuntime(
     "--bundle",
     "--platform=node",
     "--format=esm",
-    "--target=node24",
+    `--target=${MAC_PREBUNDLE_ESBUILD_TARGET}`,
+    ...MAC_PREBUNDLE_POLICIES.webSidecar.externals.map((dependency) => `--external:${dependency}`),
     `--outfile=${paths.webSidecarPrebundlePath}`,
     `--metafile=${paths.webSidecarPrebundleMetaPath}`,
   ]);
-  await assertPrebundleMetafile({
-    forbiddenInputs: [
-      "/node_modules/next/",
-      "/node_modules/openai/",
-      "/node_modules/react/",
-      "/node_modules/react-dom/",
-    ],
-    label: "web sidecar",
+  await assertMacPrebundleMetafile({
     metafilePath: paths.webSidecarPrebundleMetaPath,
+    policyName: "webSidecar",
   });
 }
 
@@ -562,13 +534,18 @@ async function writeAssembledApp(
     packedTarballs.map((entry) => [entry.packageName, entry.fileName] as const),
   );
   const dependencies = Object.fromEntries(
-    INTERNAL_PACKAGES.filter((packageInfo) => shouldInstallInternalPackage(config, packageInfo.name)).map((packageInfo) => {
+    INTERNAL_PACKAGES.filter((packageInfo) =>
+      shouldInstallInternalPackageForMacPrebundle({
+        packageName: packageInfo.name,
+        webOutputMode: config.webOutputMode,
+      })
+    ).map((packageInfo) => {
       const tarball = tarballByPackage[packageInfo.name];
       if (tarball == null) throw new Error(`missing tarball for ${packageInfo.name}`);
       return [packageInfo.name, `file:${relative(paths.assembledAppRoot, join(paths.tarballsRoot, tarball))}`];
     }),
   );
-  const usePrebundledStandaloneWeb = shouldUsePrebundledStandaloneWeb(config);
+  const usePrebundledStandaloneWeb = shouldUseMacStandalonePrebundle(config.webOutputMode);
 
   await writeFile(
     paths.assembledPackageJsonPath,
@@ -592,9 +569,7 @@ async function writeAssembledApp(
   }
   await writeFile(
     paths.assembledMainEntryPath,
-    usePrebundledStandaloneWeb
-      ? 'import("./prebundled/packaged-main.mjs").catch((error) => {\n  console.error("packaged entry failed", error);\n  process.exit(1);\n});\n'
-      : 'import("@open-design/packaged").catch((error) => {\n  console.error("packaged entry failed", error);\n  process.exit(1);\n});\n',
+    renderMacPackagedMainEntry(usePrebundledStandaloneWeb),
     "utf8",
   );
   await writeFile(
@@ -604,7 +579,7 @@ async function writeAssembledApp(
         appVersion: packagedVersion,
         namespace: config.namespace,
         nodeCommandRelative: "open-design/bin/node",
-        ...(usePrebundledStandaloneWeb ? { webSidecarEntryRelative: PREBUNDLED_WEB_SIDECAR_RELATIVE_PATH } : {}),
+        ...(usePrebundledStandaloneWeb ? { webSidecarEntryRelative: MAC_PREBUNDLED_WEB_SIDECAR_RELATIVE_PATH } : {}),
         webOutputMode: config.webOutputMode,
         ...(config.portable ? {} : { namespaceBaseRoot: config.roots.runtime.namespaceBaseRoot }),
       },
@@ -867,7 +842,7 @@ async function collectMacSizeReport(
       markdownBytes: await sizePathBytes(paths.appPath, { includeFile: (path) => path.endsWith(".md") }),
       nextBytes: await sizePathBytes(join(appNodeModulesRoot, "next")),
       nextSwcBytes: await sumChildDirectorySizes(join(appNodeModulesRoot, "@next"), (name) => name.startsWith("swc-darwin-")),
-      prebundledRuntimeBytes: await sizePathBytes(join(appResourcesRoot, "app", PREBUNDLED_APP_DIR_NAME)),
+      prebundledRuntimeBytes: await sizePathBytes(join(appResourcesRoot, "app", MAC_PREBUNDLED_APP_DIR_NAME)),
       sharpLibvipsBytes: await sizePathBytes(join(appNodeModulesRoot, "@img", `sharp-libvips-darwin-${darwinArch}`)),
       sourcemapBytes: await sizePathBytes(paths.appPath, { includeFile: (path) => path.endsWith(".map") }),
       tsbuildInfoBytes: await sizePathBytes(paths.appPath, { includeFile: (path) => path.endsWith(".tsbuildinfo") }),
