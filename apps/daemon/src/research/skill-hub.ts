@@ -30,7 +30,13 @@ const DEFAULT_BRANCH = 'main';
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_FILE_BYTES = 256 * 1024;     // 256KB per SKILL.md / DESIGN.md
 const MAX_LIST_ENTRIES = 500;
+// Caller-supplied form: 7–40 hex chars. The regex alone is not a trust
+// boundary — `?ref=` also accepts branch/tag names, so a hub repo could
+// create a hex-shaped branch and satisfy this pattern. `resolveHubRef`
+// must canonicalize the input through the GitHub API before it is used as
+// provenance (PR #617 review, P1).
 const COMMIT_SHA_PATTERN = /^[0-9a-f]{7,40}$/i;
+const FULL_COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/i;
 
 export type HubNamespace = 'skills' | 'design-systems' | 'craft';
 
@@ -44,12 +50,16 @@ export interface HubEntry {
     branch: string;             // configured ref label (branch or "<sha>")
     path: string;
     /**
-     * Immutable commit SHA the bytes were fetched at. Present iff the
-     * caller passed `pinnedSha` (or `OD_HUB_PINNED_SHA`) so the listing
-     * went through `?ref=<sha>` rather than a mutable branch tip. The
-     * install gate (`installHubEntry`) refuses any entry that lacks this
-     * field — branch-tip listings are browseable but not installable
-     * (PR #617 review, P1).
+     * Immutable commit SHA the bytes were fetched at, in full 40-char
+     * form as resolved by the GitHub API. Present iff the caller passed
+     * `pinnedSha` (or `OD_HUB_PINNED_SHA`) and `resolveHubRef` confirmed
+     * the input resolved to an actual commit object whose canonical SHA
+     * shares the input's hex prefix. A hex-shaped branch/tag would
+     * resolve to a tip commit whose SHA does not share that prefix and
+     * is rejected, so this field is never the caller's raw input echoed
+     * back. The install gate (`installHubEntry`) refuses any entry that
+     * lacks this field — branch-tip listings are browseable but not
+     * installable (PR #617 review, P1).
      */
     commitSha?: string;
   };
@@ -61,11 +71,15 @@ interface HubConfig {
   token?: string;               // optional GitHub token (raises rate limit)
   /**
    * Pin all GitHub Contents API requests to this immutable commit SHA.
-   * When set, the listing fetches via `?ref=<sha>` and every returned
-   * `HubEntry.source.commitSha` is populated, so `installHubEntry` can
-   * verify the bytes being written came from the SHA the user approved
-   * (PR #617 review, P1). Falls back to `OD_HUB_PINNED_SHA` when the
-   * caller does not pass one.
+   * The caller-supplied form may be a 7–40 char hex prefix; before any
+   * listing happens, `resolveHubRef` calls
+   * `GET /repos/{owner}/{repo}/commits/{input}` to canonicalize it to
+   * the full 40-char commit SHA *and* rejects the input if GitHub
+   * resolved it through a branch/tag named like a SHA (PR #617 review,
+   * P1). The canonical SHA is then used as the `?ref=` value and stamped
+   * on every `HubEntry.source.commitSha`, so `installHubEntry` can verify
+   * the bytes being written came from the SHA the user approved. Falls
+   * back to `OD_HUB_PINNED_SHA` when the caller does not pass one.
    */
   pinnedSha?: string;
 }
@@ -85,29 +99,110 @@ function cacheKey(k: ListCacheKey): string {
 interface ResolvedHubRef {
   repo: string;
   branch: string;       // human-readable label
-  ref: string;          // value passed to GitHub `?ref=` (sha or branch)
-  commitSha?: string;   // populated iff a pinned SHA was supplied
+  ref: string;          // value passed to GitHub `?ref=` (canonical sha or branch)
+  /**
+   * Full 40-char commit SHA returned by the GitHub commits API, populated
+   * iff the caller supplied a `pinnedSha` that resolved to an actual
+   * commit object. Never the caller's raw input echoed back.
+   */
+  commitSha?: string;
   token?: string;
 }
 
-function repoOf(cfg?: HubConfig): ResolvedHubRef {
+interface HubConfigResolved {
+  repo: string;
+  branch: string;
+  token?: string;
+  /** Caller-supplied SHA prefix (7–40 hex), pre-canonicalization. */
+  pinnedShaInput?: string;
+}
+
+function readHubConfig(cfg?: HubConfig): HubConfigResolved {
   const token = cfg?.token ?? process.env.OD_HUB_TOKEN;
   const repo = cfg?.repo ?? process.env.OD_HUB_REPO ?? DEFAULT_REPO;
   const branch = cfg?.branch ?? process.env.OD_HUB_BRANCH ?? DEFAULT_BRANCH;
   const rawPinned = cfg?.pinnedSha ?? process.env.OD_HUB_PINNED_SHA;
-  let commitSha: string | undefined;
+  let pinnedShaInput: string | undefined;
   if (rawPinned !== undefined && rawPinned !== '') {
     if (typeof rawPinned !== 'string' || !COMMIT_SHA_PATTERN.test(rawPinned)) {
       throw new Error('Hub: pinnedSha must be a 7–40 char commit SHA');
     }
-    commitSha = rawPinned.toLowerCase();
+    pinnedShaInput = rawPinned.toLowerCase();
   }
   return {
     repo,
     branch,
-    ref: commitSha ?? branch,
-    ...(commitSha ? { commitSha } : {}),
     ...(token ? { token } : {}),
+    ...(pinnedShaInput ? { pinnedShaInput } : {}),
+  };
+}
+
+interface CommitObjectMeta {
+  sha?: unknown;
+}
+
+/**
+ * Resolve a hub config to a `ResolvedHubRef` with a canonical 40-char
+ * commit SHA when `pinnedSha` is supplied (PR #617 review, P1).
+ *
+ * The caller-supplied `pinnedSha` may be 7–40 hex chars. The regex alone
+ * is not a trust boundary — GitHub's `?ref=` parameter accepts branch
+ * and tag names too, so a hub repo can create a hex-shaped branch and
+ * pass the regex without ever pointing at the same commit twice. To
+ * close that gap we:
+ *
+ *   1. Call `GET /repos/{owner}/{repo}/commits/{input}` which returns
+ *      the canonical 40-char SHA in `.sha` for any ref-like input.
+ *   2. Verify the canonical SHA's lowercase form starts with the input's
+ *      lowercase hex prefix. A real commit-SHA prefix expansion always
+ *      shares its hex with the canonical SHA; a branch/tag named like a
+ *      SHA resolves to its tip commit, whose SHA does not share that
+ *      hex prefix (collision probability for a 7-char prefix is ~1/2^28
+ *      and is negligible for the 40-char case).
+ *   3. Use the canonical full 40-char SHA as the `?ref=` value and as
+ *      `HubEntry.source.commitSha` going forward.
+ *
+ * When no `pinnedSha` is supplied we return immediately without an API
+ * call — branch-tip listings are still allowed but `commitSha` is left
+ * unset and `installHubEntry` will refuse to install.
+ */
+async function resolveHubRef(cfg?: HubConfig): Promise<ResolvedHubRef> {
+  const c = readHubConfig(cfg);
+  if (c.pinnedShaInput === undefined) {
+    return {
+      repo: c.repo,
+      branch: c.branch,
+      ref: c.branch,
+      ...(c.token ? { token: c.token } : {}),
+    };
+  }
+  const url = `https://api.github.com/repos/${c.repo}/commits/${encodeURIComponent(c.pinnedShaInput)}`;
+  let res: Response;
+  try {
+    res = await ghFetch(url, c.token);
+  } catch (err) {
+    throw new Error(
+      `Hub: failed to resolve pinnedSha "${c.pinnedShaInput}" to a commit object — ${(err as Error).message}`,
+    );
+  }
+  const meta = (await res.json()) as CommitObjectMeta;
+  if (typeof meta.sha !== 'string' || !FULL_COMMIT_SHA_PATTERN.test(meta.sha)) {
+    throw new Error(
+      `Hub: GitHub did not return a commit SHA for pinnedSha "${c.pinnedShaInput}"`,
+    );
+  }
+  const canonical = meta.sha.toLowerCase();
+  if (!canonical.startsWith(c.pinnedShaInput)) {
+    throw new Error(
+      `Hub: pinnedSha "${c.pinnedShaInput}" resolved to commit ${canonical} but does not share its hex prefix — refusing to treat a non-commit ref (likely a branch or tag named like a SHA) as immutable provenance`,
+    );
+  }
+  return {
+    repo: c.repo,
+    branch: c.branch,
+    ref: canonical,
+    commitSha: canonical,
+    ...(c.token ? { token: c.token } : {}),
   };
 }
 
@@ -144,7 +239,7 @@ export async function listHubEntries(
   namespace: HubNamespace,
   cfg?: HubConfig,
 ): Promise<HubEntry[]> {
-  const r = repoOf(cfg);
+  const r = await resolveHubRef(cfg);
   const key = cacheKey({ repo: r.repo, ref: r.ref, namespace });
   const hit = listCache.get(key);
   if (hit && Date.now() - hit.ts < CACHE_TTL_MS) return hit.data;
@@ -620,13 +715,19 @@ export function resolveSafeChild(targetRoot: string, name: string): string {
  *
  * What this starter already enforces:
  *   1. `listHubEntries` honors `HubConfig.pinnedSha` (or `OD_HUB_PINNED_SHA`)
- *      and routes the GitHub Contents API through `?ref=<sha>`, populating
- *      `HubEntry.source.commitSha` so the install gate can verify the bytes
- *      came from the approved commit (PR #617 review, P1).
+ *      and resolves the caller-supplied SHA prefix to a canonical 40-char
+ *      commit SHA via `GET /repos/{owner}/{repo}/commits/{input}`,
+ *      rejecting any input that resolves through a branch/tag named like
+ *      a SHA (the canonical SHA must share the input's hex prefix). The
+ *      Contents API is then routed through `?ref=<canonicalSha>` and
+ *      `HubEntry.source.commitSha` is stamped with that 40-char value, so
+ *      the install gate can verify the bytes came from the approved
+ *      commit (PR #617 review, P1).
  *   2. `installHubEntry` rejects any entry whose `source.commitSha` is
- *      missing or does not match `approval.pinnedSha` — defeating both the
- *      "list from `main`, approve any SHA-shaped string" attack and the
- *      "swap commits between approval and install" attack.
+ *      missing or does not match `approval.pinnedSha` — defeating the
+ *      "list from `main`, approve any SHA-shaped string" attack, the
+ *      "swap commits between approval and install" attack, and the
+ *      "branch named like a SHA" attack closed off in step 1.
  *
  * What the integration PR still needs to add:
  *   1. Surface provenance + a diff against the previously installed copy
