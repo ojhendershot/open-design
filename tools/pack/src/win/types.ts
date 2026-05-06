@@ -44,8 +44,24 @@ export type ElectronReadyAppCacheResult = ElectronReadyAppCacheMetadata & {
   key: string;
 };
 
+export type ElectronBuilderDirCacheMetadata = {
+  electronReadyAppKey: string;
+  packagedVersion: string;
+};
+
 export type ResourceTreeCacheMetadata = {
   resourceName: "open-design";
+};
+
+export type WinBuiltAppManifest = {
+  appBuilderOutputRoot: string;
+  cacheEntryPath: string | null;
+  configPath: string;
+  executablePath: string;
+  source: "cache" | "namespace";
+  unpackedRoot: string;
+  version: 1;
+  webStandaloneHookAuditPath: string | null;
 };
 
 export type WinPaths = {
@@ -55,6 +71,7 @@ export type WinPaths = {
   assembledMainEntryPath: string;
   assembledPackageJsonPath: string;
   blockmapPath: string;
+  builtManifestPath: string;
   exePath: string;
   installDir: string;
   installedExePath: string;
@@ -251,6 +268,9 @@ export type WinRemovalTarget = {
 
 export type WinListResult = {
   current: {
+    builtExecutableExists: boolean;
+    builtExecutablePath: string | null;
+    builtManifestPath: string;
     installDir: string;
     publicDesktopShortcutExists: boolean;
     publicDesktopShortcutPath: string;

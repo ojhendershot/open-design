@@ -25,12 +25,13 @@ import {
   WEB_STANDALONE_HOOK_CONFIG_ENV,
   WEB_STANDALONE_RESOURCE_NAME,
 } from "./constants.js";
-import { pathExists, removeTree, sizeExistingFileBytes, sizePathBytes, sumChildDirectorySizes } from "./fs.js";
+import { PathSizeIndex, pathExists, removeTree, sizeExistingFileBytes } from "./fs.js";
 import { ensureNsisPersianLanguageAlias, writeNsisInclude } from "./nsis.js";
 import { resolveWinPaths, sanitizeNamespace } from "./paths.js";
 import type {
   AssembledAppCacheMetadata,
   AssembledAppCacheResult,
+  ElectronBuilderDirCacheMetadata,
   ElectronReadyAppCacheMetadata,
   ElectronReadyAppCacheResult,
   NativeRebuildCacheMetadata,
@@ -39,6 +40,7 @@ import type {
   PackedTarballsCacheMetadata,
   PackedTarballsCacheResult,
   ResourceTreeCacheMetadata,
+  WinBuiltAppManifest,
   WinPackResult,
   WinPackTiming,
   WinPaths,
@@ -225,10 +227,21 @@ async function createResourceTreeCacheKey(config: ToolPackConfig): Promise<strin
   });
 }
 
-async function copyResourceTree(config: ToolPackConfig, paths: WinPaths, cache: ToolPackCache): Promise<void> {
+type ResourceTreeResult = {
+  key: string;
+  resourceRoot: string;
+};
+
+async function prepareResourceTree(
+  config: ToolPackConfig,
+  paths: WinPaths,
+  cache: ToolPackCache,
+  options: { materialize: boolean },
+): Promise<ResourceTreeResult> {
+  const key = await createResourceTreeCacheKey(config);
   const node = {
     id: "win.resource-tree",
-    key: await createResourceTreeCacheKey(config),
+    key,
     outputs: ["open-design"],
     invalidate: async () => null,
     build: async ({ entryRoot }: { entryRoot: string }): Promise<ResourceTreeCacheMetadata> => {
@@ -241,10 +254,14 @@ async function copyResourceTree(config: ToolPackConfig, paths: WinPaths, cache: 
       return { resourceName: "open-design" };
     },
   };
-  await cache.acquire({
-    materialize: [{ from: "open-design", to: paths.resourceRoot }],
+  const manifest = await cache.acquire({
+    materialize: options.materialize ? [{ from: "open-design", to: paths.resourceRoot }] : [],
     node,
   });
+  return {
+    key,
+    resourceRoot: options.materialize ? paths.resourceRoot : join(manifest.entryPath, "open-design"),
+  };
 }
 
 async function copyWinIcon(paths: WinPaths): Promise<void> {
@@ -306,21 +323,40 @@ async function collectWorkspaceTarballs(
   return { key, tarballs: manifest.payloadMetadata.tarballs };
 }
 
-async function writePackagedConfig(config: ToolPackConfig, paths: WinPaths, packagedVersion: string): Promise<void> {
+function createPackagedConfig(config: ToolPackConfig, packagedVersion: string): Record<string, unknown> {
+  return {
+    appVersion: packagedVersion,
+    namespace: config.namespace,
+    webOutputMode: config.webOutputMode,
+    ...(config.portable ? {} : { namespaceBaseRoot: config.roots.runtime.namespaceBaseRoot }),
+  };
+}
+
+async function writePackagedConfigFile(filePath: string, config: ToolPackConfig, packagedVersion: string): Promise<void> {
+  await mkdir(dirname(filePath), { recursive: true });
   await writeFile(
-    paths.packagedConfigPath,
-    `${JSON.stringify(
-      {
-        appVersion: packagedVersion,
-        namespace: config.namespace,
-        webOutputMode: config.webOutputMode,
-        ...(config.portable ? {} : { namespaceBaseRoot: config.roots.runtime.namespaceBaseRoot }),
-      },
-      null,
-      2,
-    )}\n`,
+    filePath,
+    `${JSON.stringify(createPackagedConfig(config, packagedVersion), null, 2)}\n`,
     "utf8",
   );
+}
+
+async function writePackagedConfig(config: ToolPackConfig, paths: WinPaths, packagedVersion: string): Promise<void> {
+  await writePackagedConfigFile(paths.packagedConfigPath, config, packagedVersion);
+}
+
+async function writeBuiltAppManifest(paths: WinPaths, manifest: Omit<WinBuiltAppManifest, "version">): Promise<void> {
+  await mkdir(dirname(paths.builtManifestPath), { recursive: true });
+  await writeFile(paths.builtManifestPath, `${JSON.stringify({ version: 1, ...manifest }, null, 2)}\n`, "utf8");
+}
+
+async function readBuiltAppManifest(paths: WinPaths): Promise<WinBuiltAppManifest | null> {
+  try {
+    const manifest = JSON.parse(await readFile(paths.builtManifestPath, "utf8")) as WinBuiltAppManifest;
+    return manifest.version === 1 ? manifest : null;
+  } catch {
+    return null;
+  }
 }
 
 function createAssembledAppDependencies(
@@ -468,7 +504,7 @@ function resolveWinTargets(to: ToolPackConfig["to"]): Array<"dir" | "nsis"> {
   }
 }
 
-async function runElectronBuilder(config: ToolPackConfig, paths: WinPaths, projectDir: string): Promise<void> {
+async function runElectronBuilderRaw(config: ToolPackConfig, paths: WinPaths, projectDir: string): Promise<void> {
   const namespaceToken = sanitizeNamespace(config.namespace);
   const packagedVersion = await readPackagedVersion(config);
   const webStandaloneHookConfigPath = config.webOutputMode === "standalone"
@@ -561,6 +597,123 @@ async function runElectronBuilder(config: ToolPackConfig, paths: WinPaths, proje
   }
 }
 
+function createCacheLocalWinPaths(paths: WinPaths, entryRoot: string): WinPaths {
+  return {
+    ...paths,
+    appBuilderConfigPath: join(entryRoot, "builder-config.json"),
+    appBuilderOutputRoot: join(entryRoot, "builder"),
+    nsisIncludePath: join(entryRoot, "nsis", "installer.nsh"),
+    webStandaloneHookAuditPath: join(entryRoot, "web-standalone-after-pack-audit.json"),
+    webStandaloneHookConfigPath: join(entryRoot, "web-standalone-after-pack-config.json"),
+  };
+}
+
+function rewriteAuditPaths(value: unknown, fromRoot: string, toRoot: string): unknown {
+  if (typeof value === "string") return value.split(fromRoot).join(toRoot);
+  if (Array.isArray(value)) return value.map((entry) => rewriteAuditPaths(entry, fromRoot, toRoot));
+  if (value == null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, rewriteAuditPaths(entry, fromRoot, toRoot)]),
+  );
+}
+
+async function materializeCachedElectronBuilderAudit(entryRoot: string, paths: WinPaths): Promise<void> {
+  if (!(await pathExists(join(entryRoot, "web-standalone-after-pack-audit.json")))) return;
+  const raw = JSON.parse(await readFile(join(entryRoot, "web-standalone-after-pack-audit.json"), "utf8")) as unknown;
+  const appPath = typeof (raw as { appPath?: unknown }).appPath === "string"
+    ? (raw as { appPath: string }).appPath
+    : null;
+  const sourceBuilderRoot = appPath == null ? join(entryRoot, "builder") : dirname(appPath);
+  await mkdir(dirname(paths.webStandaloneHookAuditPath), { recursive: true });
+  await writeFile(
+    paths.webStandaloneHookAuditPath,
+    `${JSON.stringify(rewriteAuditPaths(raw, sourceBuilderRoot, paths.appBuilderOutputRoot), null, 2)}\n`,
+    "utf8",
+  );
+}
+
+async function runElectronBuilder(
+  config: ToolPackConfig,
+  paths: WinPaths,
+  cache: ToolPackCache,
+  electronReadyApp: ElectronReadyAppCacheResult,
+  resourceTree: ResourceTreeResult,
+): Promise<void> {
+  if (config.to !== "dir") {
+    await runElectronBuilderRaw(config, paths, electronReadyApp.appRoot);
+    if (await pathExists(paths.unpackedExePath)) {
+      await writeBuiltAppManifest(paths, {
+        appBuilderOutputRoot: paths.appBuilderOutputRoot,
+        cacheEntryPath: null,
+        configPath: join(paths.unpackedRoot, "resources", "open-design-config.json"),
+        executablePath: paths.unpackedExePath,
+        source: "namespace",
+        unpackedRoot: paths.unpackedRoot,
+        webStandaloneHookAuditPath: (await pathExists(paths.webStandaloneHookAuditPath)) ? paths.webStandaloneHookAuditPath : null,
+      });
+    }
+    return;
+  }
+
+  const packagedVersion = await readPackagedVersion(config);
+  const key = hashJson({
+    afterPackHook: config.webOutputMode === "standalone" ? await hashPath(winResources.webStandaloneAfterPackHook) : null,
+    asar: ELECTRON_BUILDER_ASAR,
+    buildDependenciesFromSource: ELECTRON_BUILDER_BUILD_DEPENDENCIES_FROM_SOURCE,
+    electronBuilderCliPath: config.electronBuilderCliPath,
+    electronReadyAppKey: electronReadyApp.key,
+    electronVersion: config.electronVersion,
+    filePatterns: ELECTRON_BUILDER_FILE_PATTERNS,
+    node: "win.electron-builder-dir",
+    nodeGypRebuild: ELECTRON_BUILDER_NODE_GYP_REBUILD,
+    npmRebuild: ELECTRON_BUILDER_NPM_REBUILD,
+    packagedConfigSchemaVersion: 1,
+    portable: config.portable,
+    packagedVersion,
+    platform: "win32",
+    resourceTreeKey: resourceTree.key,
+    schemaVersion: 1,
+    target: "dir",
+    webOutputMode: config.webOutputMode,
+    winIcon: await hashPath(winResources.icon),
+  });
+  const auditOutput = "web-standalone-after-pack-audit.json";
+  const node = {
+    id: "win.electron-builder-dir",
+    key,
+    outputs: ["builder", ...(config.webOutputMode === "standalone" ? [auditOutput] : [])],
+    invalidate: async () => null,
+    build: async ({ entryRoot }: { entryRoot: string }): Promise<ElectronBuilderDirCacheMetadata> => {
+      await runElectronBuilderRaw(
+        config,
+        { ...createCacheLocalWinPaths(paths, entryRoot), resourceRoot: resourceTree.resourceRoot },
+        electronReadyApp.appRoot,
+      );
+      return { electronReadyAppKey: electronReadyApp.key, packagedVersion };
+    },
+  };
+  const manifest = await cache.acquire({
+    materialize: [],
+    node,
+  });
+
+  const cachedBuilderRoot = join(manifest.entryPath, "builder");
+  const cachedUnpackedRoot = join(cachedBuilderRoot, "win-unpacked");
+  const cachedExecutablePath = join(cachedUnpackedRoot, `${PRODUCT_NAME}.exe`);
+  await removeTree(paths.appBuilderOutputRoot);
+  await writePackagedConfig(config, paths, packagedVersion);
+  await materializeCachedElectronBuilderAudit(manifest.entryPath, paths);
+  await writeBuiltAppManifest(paths, {
+    appBuilderOutputRoot: cachedBuilderRoot,
+    cacheEntryPath: manifest.entryPath,
+    configPath: paths.packagedConfigPath,
+    executablePath: cachedExecutablePath,
+    source: "cache",
+    unpackedRoot: cachedUnpackedRoot,
+    webStandaloneHookAuditPath: (await pathExists(paths.webStandaloneHookAuditPath)) ? paths.webStandaloneHookAuditPath : null,
+  });
+}
+
 async function writeLocalLatestYml(config: ToolPackConfig, paths: WinPaths): Promise<void> {
   if (!(await pathExists(paths.setupPath))) return;
   const packagedVersion = await readPackagedVersion(config);
@@ -585,13 +738,16 @@ async function writeLocalLatestYml(config: ToolPackConfig, paths: WinPaths): Pro
   );
 }
 
-async function collectWinSizeReport(config: ToolPackConfig, paths: WinPaths): Promise<WinSizeReport> {
-  const appResourcesRoot = join(paths.unpackedRoot, "resources");
+async function collectWinSizeReport(config: ToolPackConfig, paths: WinPaths, builtApp: WinBuiltAppManifest | null): Promise<WinSizeReport> {
+  const unpackedRoot = builtApp?.unpackedRoot ?? paths.unpackedRoot;
+  const sizeIndex = await PathSizeIndex.create(unpackedRoot);
+  const namespaceSizeIndex = await PathSizeIndex.create(config.roots.output.namespaceRoot);
+  const appResourcesRoot = join(unpackedRoot, "resources");
   const appNodeModulesRoot = join(appResourcesRoot, "app", "node_modules");
   const copiedStandaloneRoot = join(appResourcesRoot, WEB_STANDALONE_RESOURCE_NAME);
   const copiedStandaloneNodeModulesRoot = join(copiedStandaloneRoot, "node_modules");
   const copiedStandaloneWebNodeModulesRoot = join(copiedStandaloneRoot, "apps", "web", "node_modules");
-  const electronLocalesRoot = join(paths.unpackedRoot, "locales");
+  const electronLocalesRoot = join(unpackedRoot, "locales");
   const rootWebPackageRoot = join(appNodeModulesRoot, "@open-design", "web");
   return {
     builder: {
@@ -610,60 +766,60 @@ async function collectWinSizeReport(config: ToolPackConfig, paths: WinPaths): Pr
     },
     generatedAt: new Date().toISOString(),
     installerBytes: await sizeExistingFileBytes(paths.setupPath),
-    outputRootBytes: await sizePathBytes(config.roots.output.namespaceRoot),
-    resourceRootBytes: await sizePathBytes(paths.resourceRoot),
+    outputRootBytes: namespaceSizeIndex.sizePathBytes(config.roots.output.namespaceRoot),
+    resourceRootBytes: sizeIndex.sizePathBytes(join(appResourcesRoot, "open-design")),
     runtimeNamespaceRoot: config.roots.runtime.namespaceRoot,
     topLevel: {
-      appResourcesBytes: await sizePathBytes(join(appResourcesRoot, "app")),
-      copiedStandaloneBytes: await sizePathBytes(copiedStandaloneRoot),
-      electronLocalesBytes: await sizePathBytes(electronLocalesRoot),
-      resourcesBytes: await sizePathBytes(appResourcesRoot),
+      appResourcesBytes: sizeIndex.sizePathBytes(join(appResourcesRoot, "app")),
+      copiedStandaloneBytes: sizeIndex.sizePathBytes(copiedStandaloneRoot),
+      electronLocalesBytes: sizeIndex.sizePathBytes(electronLocalesRoot),
+      resourcesBytes: sizeIndex.sizePathBytes(appResourcesRoot),
     },
     tracked: {
-      appNodeModulesBytes: await sizePathBytes(appNodeModulesRoot),
-      betterSqlite3Bytes: await sizePathBytes(join(appNodeModulesRoot, "better-sqlite3")),
-      betterSqlite3SourceResidueBytes: await sizePathBytes(paths.unpackedRoot, {
+      appNodeModulesBytes: sizeIndex.sizePathBytes(appNodeModulesRoot),
+      betterSqlite3Bytes: sizeIndex.sizePathBytes(join(appNodeModulesRoot, "better-sqlite3")),
+      betterSqlite3SourceResidueBytes: sizeIndex.sizePathBytes(unpackedRoot, {
         includeFile: isBetterSqlite3SourceResidue,
       }),
-      bundledNodeBytes: await sizePathBytes(join(paths.resourceRoot, "bin", "node.exe")),
+      bundledNodeBytes: sizeIndex.sizePathBytes(join(paths.resourceRoot, "bin", "node.exe")),
       copiedStandaloneNextBytes:
-        await sizePathBytes(join(copiedStandaloneNodeModulesRoot, "next")) +
-        await sizePathBytes(join(copiedStandaloneWebNodeModulesRoot, "next")),
+        sizeIndex.sizePathBytes(join(copiedStandaloneNodeModulesRoot, "next")) +
+        sizeIndex.sizePathBytes(join(copiedStandaloneWebNodeModulesRoot, "next")),
       copiedStandaloneNextSwcBytes:
-        await sumChildDirectorySizes(join(copiedStandaloneNodeModulesRoot, "@next"), (name) => name.startsWith("swc-win32-")) +
-        await sumChildDirectorySizes(join(copiedStandaloneWebNodeModulesRoot, "@next"), (name) => name.startsWith("swc-win32-")),
-      copiedStandaloneNodeModulesBytes: await sizePathBytes(copiedStandaloneNodeModulesRoot),
-      copiedStandalonePnpmHoistedNextBytes: await sizePathBytes(
+        sizeIndex.sumChildDirectorySizes(join(copiedStandaloneNodeModulesRoot, "@next"), (name) => name.startsWith("swc-win32-")) +
+        sizeIndex.sumChildDirectorySizes(join(copiedStandaloneWebNodeModulesRoot, "@next"), (name) => name.startsWith("swc-win32-")),
+      copiedStandaloneNodeModulesBytes: sizeIndex.sizePathBytes(copiedStandaloneNodeModulesRoot),
+      copiedStandalonePnpmHoistedNextBytes: sizeIndex.sizePathBytes(
         join(copiedStandaloneNodeModulesRoot, ".pnpm", "node_modules", "next"),
       ),
-      copiedStandaloneSharpLibvipsBytes: await sizePathBytes(
+      copiedStandaloneSharpLibvipsBytes: sizeIndex.sizePathBytes(
         join(copiedStandaloneNodeModulesRoot, "@img", "sharp-libvips-win32-x64"),
       ),
-      copiedStandaloneSourcemapBytes: await sizePathBytes(copiedStandaloneRoot, {
+      copiedStandaloneSourcemapBytes: sizeIndex.sizePathBytes(copiedStandaloneRoot, {
         includeFile: (path) => path.endsWith(".map"),
       }),
-      copiedStandaloneTsbuildInfoBytes: await sizePathBytes(copiedStandaloneRoot, {
+      copiedStandaloneTsbuildInfoBytes: sizeIndex.sizePathBytes(copiedStandaloneRoot, {
         includeFile: (path) => path.endsWith(".tsbuildinfo"),
       }),
-      copiedStandaloneWebNextBytes: await sizePathBytes(join(copiedStandaloneWebNodeModulesRoot, "next")),
-      copiedStandaloneWebNodeModulesBytes: await sizePathBytes(copiedStandaloneWebNodeModulesRoot),
-      electronLocalesBytes: await sizePathBytes(electronLocalesRoot),
-      markdownBytes: await sizePathBytes(paths.unpackedRoot, { includeFile: (path) => path.endsWith(".md") }),
-      nextBytes: await sizePathBytes(join(appNodeModulesRoot, "next")),
-      nextSwcBytes: await sumChildDirectorySizes(join(appNodeModulesRoot, "@next"), (name) => name.startsWith("swc-win32-")),
-      sharpLibvipsBytes: await sizePathBytes(join(appNodeModulesRoot, "@img", "sharp-libvips-win32-x64")),
-      sourcemapBytes: await sizePathBytes(paths.unpackedRoot, { includeFile: (path) => path.endsWith(".map") }),
-      tsbuildInfoBytes: await sizePathBytes(paths.unpackedRoot, { includeFile: (path) => path.endsWith(".tsbuildinfo") }),
-      webCopiedStandaloneBytes: await sizePathBytes(copiedStandaloneRoot),
-      webNextCacheBytes: await sizePathBytes(join(rootWebPackageRoot, ".next", "cache")),
-      webPackageAppBytes: await sizePathBytes(join(rootWebPackageRoot, "app")),
-      webPackageBytes: await sizePathBytes(rootWebPackageRoot),
-      webPackageDistBytes: await sizePathBytes(join(rootWebPackageRoot, "dist")),
-      webPackagePublicBytes: await sizePathBytes(join(rootWebPackageRoot, "public")),
-      webPackageSrcBytes: await sizePathBytes(join(rootWebPackageRoot, "src")),
-      webPackageStandaloneBytes: await sizePathBytes(join(rootWebPackageRoot, ".next", "standalone")),
+      copiedStandaloneWebNextBytes: sizeIndex.sizePathBytes(join(copiedStandaloneWebNodeModulesRoot, "next")),
+      copiedStandaloneWebNodeModulesBytes: sizeIndex.sizePathBytes(copiedStandaloneWebNodeModulesRoot),
+      electronLocalesBytes: sizeIndex.sizePathBytes(electronLocalesRoot),
+      markdownBytes: sizeIndex.sizePathBytes(unpackedRoot, { includeFile: (path) => path.endsWith(".md") }),
+      nextBytes: sizeIndex.sizePathBytes(join(appNodeModulesRoot, "next")),
+      nextSwcBytes: sizeIndex.sumChildDirectorySizes(join(appNodeModulesRoot, "@next"), (name) => name.startsWith("swc-win32-")),
+      sharpLibvipsBytes: sizeIndex.sizePathBytes(join(appNodeModulesRoot, "@img", "sharp-libvips-win32-x64")),
+      sourcemapBytes: sizeIndex.sizePathBytes(unpackedRoot, { includeFile: (path) => path.endsWith(".map") }),
+      tsbuildInfoBytes: sizeIndex.sizePathBytes(unpackedRoot, { includeFile: (path) => path.endsWith(".tsbuildinfo") }),
+      webCopiedStandaloneBytes: sizeIndex.sizePathBytes(copiedStandaloneRoot),
+      webNextCacheBytes: sizeIndex.sizePathBytes(join(rootWebPackageRoot, ".next", "cache")),
+      webPackageAppBytes: sizeIndex.sizePathBytes(join(rootWebPackageRoot, "app")),
+      webPackageBytes: sizeIndex.sizePathBytes(rootWebPackageRoot),
+      webPackageDistBytes: sizeIndex.sizePathBytes(join(rootWebPackageRoot, "dist")),
+      webPackagePublicBytes: sizeIndex.sizePathBytes(join(rootWebPackageRoot, "public")),
+      webPackageSrcBytes: sizeIndex.sizePathBytes(join(rootWebPackageRoot, "src")),
+      webPackageStandaloneBytes: sizeIndex.sizePathBytes(join(rootWebPackageRoot, ".next", "standalone")),
     },
-    unpackedBytes: (await pathExists(paths.unpackedRoot)) ? await sizePathBytes(paths.unpackedRoot) : null,
+    unpackedBytes: (await pathExists(unpackedRoot)) ? sizeIndex.sizePathBytes(unpackedRoot) : null,
   };
 }
 
@@ -685,9 +841,9 @@ export async function packWin(config: ToolPackConfig): Promise<WinPackResult> {
       await buildWorkspaceArtifacts(config);
     });
   });
-  await runPhase("resource-tree", async () => {
-    await copyResourceTree(config, paths, cache);
-  });
+  const resourceTree = await runPhase("resource-tree", async () =>
+    prepareResourceTree(config, paths, cache, { materialize: config.to !== "dir" })
+  );
   await runPhase("win-icon", async () => {
     await copyWinIcon(paths);
   });
@@ -696,24 +852,25 @@ export async function packWin(config: ToolPackConfig): Promise<WinPackResult> {
   const nativeRebuild = await runPhase("native-rebuild", async () => rebuildWinNativeDependencies(config, cache, assembledApp));
   const electronReadyApp = await runPhase("electron-ready-app", async () => prepareElectronReadyApp(assembledApp, nativeRebuild, cache));
   await runPhase("electron-builder", async () => {
-    await runElectronBuilder(config, paths, electronReadyApp.appRoot);
+    await runElectronBuilder(config, paths, cache, electronReadyApp, resourceTree);
   });
   await runPhase("latest-yml", async () => {
     await writeLocalLatestYml(config, paths);
   });
-  const sizeReport = await runPhase("size-report", async () => collectWinSizeReport(config, paths));
+  const builtApp = await readBuiltAppManifest(paths);
+  const sizeReport = await runPhase("size-report", async () => collectWinSizeReport(config, paths, builtApp));
   return {
     blockmapPath: (await pathExists(paths.blockmapPath)) ? paths.blockmapPath : null,
     installerPath: (await pathExists(paths.setupPath)) ? paths.setupPath : null,
     latestYmlPath: (await pathExists(paths.latestYmlPath)) ? paths.latestYmlPath : null,
     outputRoot: config.roots.output.namespaceRoot,
-    resourceRoot: paths.resourceRoot,
+    resourceRoot: builtApp == null ? paths.resourceRoot : join(builtApp.unpackedRoot, "resources", "open-design"),
     runtimeNamespaceRoot: config.roots.runtime.namespaceRoot,
     cacheReport: cache.report(),
     sizeReport,
     timings,
     to: config.to,
-    unpackedPath: (await pathExists(paths.unpackedRoot)) ? paths.unpackedRoot : null,
+    unpackedPath: builtApp?.unpackedRoot ?? ((await pathExists(paths.unpackedRoot)) ? paths.unpackedRoot : null),
     webStandaloneHookAuditPath: (await pathExists(paths.webStandaloneHookAuditPath)) ? paths.webStandaloneHookAuditPath : null,
   };
 }

@@ -22,6 +22,7 @@ export function resolveWinPaths(config: ToolPackConfig): WinPaths {
     assembledMainEntryPath: join(namespaceRoot, "assembled", "app", "main.cjs"),
     assembledPackageJsonPath: join(namespaceRoot, "assembled", "app", "package.json"),
     blockmapPath: join(namespaceRoot, "builder", `${PRODUCT_NAME}-${namespaceToken}-setup.exe.blockmap`),
+    builtManifestPath: join(namespaceRoot, "built-app.json"),
     exePath: join(namespaceRoot, "builder", `${PRODUCT_NAME}-${namespaceToken}.exe`),
     installDir,
     installedExePath: join(installDir, `${PRODUCT_NAME}.exe`),

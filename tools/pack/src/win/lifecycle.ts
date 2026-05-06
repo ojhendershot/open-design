@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import {
@@ -35,6 +35,7 @@ import {
 } from "./paths.js";
 import { cleanupWinRegistryResidues, queryWinRegistryEntries } from "./registry.js";
 import type {
+  WinBuiltAppManifest,
   WinCleanupResult,
   WinInspectResult,
   WinInstallResult,
@@ -46,6 +47,8 @@ import type {
   WinUninstallResult,
   WinPaths,
 } from "./types.js";
+
+const PACKAGED_CONFIG_PATH_ENV = "OD_PACKAGED_CONFIG_PATH";
 
 function desktopStamp(config: ToolPackConfig): SidecarStamp {
   return {
@@ -139,10 +142,23 @@ export async function installPackedWinApp(config: ToolPackConfig): Promise<WinIn
   };
 }
 
-async function resolveStartTarget(config: ToolPackConfig): Promise<{ executablePath: string; source: "built" | "installed" }> {
+async function readBuiltAppManifest(paths: WinPaths): Promise<WinBuiltAppManifest | null> {
+  try {
+    const manifest = JSON.parse(await readFile(paths.builtManifestPath, "utf8")) as WinBuiltAppManifest;
+    if (manifest.version !== 1) return null;
+    if (!(await pathExists(manifest.executablePath))) return null;
+    return manifest;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveStartTarget(config: ToolPackConfig): Promise<{ configPath: string | null; executablePath: string; source: "built" | "installed" }> {
   const paths = resolveWinPaths(config);
-  if (await pathExists(paths.installedExePath)) return { executablePath: paths.installedExePath, source: "installed" };
-  if (await pathExists(paths.unpackedExePath)) return { executablePath: paths.unpackedExePath, source: "built" };
+  if (await pathExists(paths.installedExePath)) return { configPath: null, executablePath: paths.installedExePath, source: "installed" };
+  const builtManifest = await readBuiltAppManifest(paths);
+  if (builtManifest != null) return { configPath: builtManifest.configPath, executablePath: builtManifest.executablePath, source: "built" };
+  if (await pathExists(paths.unpackedExePath)) return { configPath: null, executablePath: paths.unpackedExePath, source: "built" };
   throw new Error(`no windows app executable found for namespace=${config.namespace}; run tools-pack win build first or tools-pack win install after building an NSIS installer`);
 }
 
@@ -159,7 +175,11 @@ export async function startPackedWinApp(config: ToolPackConfig): Promise<WinStar
     env: createSidecarLaunchEnv({
       base: join(config.roots.runtime.namespaceRoot, "runtime"),
       contract: OPEN_DESIGN_SIDECAR_CONTRACT,
-      extraEnv: { ...process.env, [DESKTOP_LOG_ECHO_ENV]: "0" },
+      extraEnv: {
+        ...process.env,
+        [DESKTOP_LOG_ECHO_ENV]: "0",
+        ...(target.configPath == null ? {} : { [PACKAGED_CONFIG_PATH_ENV]: target.configPath }),
+      },
       stamp,
     }),
     logFd: null,
@@ -303,8 +323,12 @@ export async function listPackedWinNamespaces(config: ToolPackConfig): Promise<W
   const registryEntries = await queryWinRegistryEntries(paths);
   const productNamespaceRoot = resolveWinProductNamespaceRoot(config);
   const productUserDataRoot = resolveWinProductUserDataRoot();
+  const builtManifest = await readBuiltAppManifest(paths);
   return {
     current: {
+      builtExecutableExists: builtManifest != null || await pathExists(paths.unpackedExePath),
+      builtExecutablePath: builtManifest?.executablePath ?? ((await pathExists(paths.unpackedExePath)) ? paths.unpackedExePath : null),
+      builtManifestPath: paths.builtManifestPath,
       installDir: paths.installDir,
       installedExeExists: await pathExists(paths.installedExePath),
       installedExePath: paths.installedExePath,
