@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, appendFile, chmod, cp, lstat, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { access, appendFile, cp, lstat, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 import { promisify } from "node:util";
@@ -16,6 +16,7 @@ import {
   type DesktopScreenshotResult,
   type SidecarStamp,
 } from "@open-design/sidecar-proto";
+import { rebuild } from "@electron/rebuild";
 import { createSidecarLaunchEnv, requestJsonIpc, resolveAppIpcPath } from "@open-design/sidecar";
 import {
   collectProcessTreePids,
@@ -38,6 +39,11 @@ const DESKTOP_LOG_ECHO_ENV = "OD_DESKTOP_LOG_ECHO";
 const WEB_STANDALONE_HOOK_CONFIG_ENV = "OD_TOOLS_PACK_WEB_STANDALONE_HOOK_CONFIG";
 const WEB_STANDALONE_RESOURCE_NAME = "open-design-web-standalone";
 const ELECTRON_BUILDER_ASAR = false;
+const ELECTRON_BUILDER_BUILD_DEPENDENCIES_FROM_SOURCE = false;
+const ELECTRON_BUILDER_NODE_GYP_REBUILD = false;
+const ELECTRON_BUILDER_NPM_REBUILD = false;
+const ELECTRON_REBUILD_MODE = "sequential" as const;
+const ELECTRON_REBUILD_NATIVE_MODULES = ["better-sqlite3"] as const;
 const ELECTRON_BUILDER_FILE_PATTERNS = [
   "**/*",
   "!**/node_modules/.bin",
@@ -124,7 +130,15 @@ export type WinPackResult = {
 export type WinSizeReport = {
   builder: {
     asar: boolean;
+    buildDependenciesFromSource: boolean;
     filePatterns: readonly string[];
+    nativeRebuild: {
+      buildFromSource: boolean;
+      mode: "parallel" | "sequential";
+      modules: readonly string[];
+    };
+    nodeGypRebuild: boolean;
+    npmRebuild: boolean;
     targets: Array<"dir" | "nsis">;
     webOutputMode: ToolPackConfig["webOutputMode"];
   };
@@ -712,6 +726,30 @@ async function runNpmInstall(appRoot: string): Promise<void> {
   });
 }
 
+async function rebuildWinNativeDependencies(config: ToolPackConfig, paths: WinPaths): Promise<void> {
+  const foundModules = new Set<string>();
+  const rebuildResult = rebuild({
+    arch: "x64",
+    buildFromSource: ELECTRON_BUILDER_BUILD_DEPENDENCIES_FROM_SOURCE,
+    buildPath: paths.assembledAppRoot,
+    electronVersion: config.electronVersion,
+    force: true,
+    mode: ELECTRON_REBUILD_MODE,
+    onlyModules: [...ELECTRON_REBUILD_NATIVE_MODULES],
+    platform: "win32",
+    projectRootPath: paths.assembledAppRoot,
+  });
+  rebuildResult.lifecycle.on("modules-found", (modules: string[]) => {
+    for (const moduleName of modules) foundModules.add(moduleName);
+    process.stderr.write(`[tools-pack] rebuilding Electron ABI modules: ${modules.join(", ") || "none"}\n`);
+  });
+  await rebuildResult;
+  const missingModules = ELECTRON_REBUILD_NATIVE_MODULES.filter((moduleName) => !foundModules.has(moduleName));
+  if (missingModules.length > 0) {
+    throw new Error(`Electron ABI rebuild did not discover required native module(s): ${missingModules.join(", ")}`);
+  }
+}
+
 async function readPackagedVersion(config: ToolPackConfig): Promise<string> {
   const packageJsonPath = join(config.workspaceRoot, "apps", "packaged", "package.json");
   const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8")) as { version?: unknown };
@@ -791,9 +829,6 @@ async function copyResourceTree(config: ToolPackConfig, paths: WinPaths): Promis
     workspaceRoot: config.workspaceRoot,
     resourceRoot: paths.resourceRoot,
   });
-  await mkdir(join(paths.resourceRoot, "bin"), { recursive: true });
-  await cp(process.execPath, join(paths.resourceRoot, "bin", "node.exe"));
-  await chmod(join(paths.resourceRoot, "bin", "node.exe"), 0o755).catch(() => undefined);
 }
 
 async function copyWinIcon(paths: WinPaths): Promise<void> {
@@ -858,7 +893,6 @@ async function writeAssembledApp(config: ToolPackConfig, paths: WinPaths, packed
       {
         appVersion: packagedVersion,
         namespace: config.namespace,
-        nodeCommandRelative: join("open-design", "bin", "node.exe"),
         webOutputMode: config.webOutputMode,
         ...(config.portable ? {} : { namespaceBaseRoot: config.roots.runtime.namespaceBaseRoot }),
       },
@@ -893,7 +927,7 @@ async function runElectronBuilder(config: ToolPackConfig, paths: WinPaths): Prom
     appId: "io.open-design.desktop",
     afterPack: webStandaloneHookConfigPath == null ? undefined : winResources.webStandaloneAfterPackHook,
     asar: ELECTRON_BUILDER_ASAR,
-    buildDependenciesFromSource: false,
+    buildDependenciesFromSource: ELECTRON_BUILDER_BUILD_DEPENDENCIES_FROM_SOURCE,
     compression: "maximum",
     directories: { output: paths.appBuilderOutputRoot },
     electronDist: config.electronDistPath,
@@ -912,8 +946,8 @@ async function runElectronBuilder(config: ToolPackConfig, paths: WinPaths): Prom
     files: [...ELECTRON_BUILDER_FILE_PATTERNS],
     forceCodeSigning: false,
     icon: paths.winIconPath,
-    nodeGypRebuild: false,
-    npmRebuild: false,
+    nodeGypRebuild: ELECTRON_BUILDER_NODE_GYP_REBUILD,
+    npmRebuild: ELECTRON_BUILDER_NPM_REBUILD,
     nsis: {
       allowElevation: false,
       allowToChangeInstallationDirectory: true,
@@ -1011,7 +1045,15 @@ async function collectWinSizeReport(config: ToolPackConfig, paths: WinPaths): Pr
   return {
     builder: {
       asar: ELECTRON_BUILDER_ASAR,
+      buildDependenciesFromSource: ELECTRON_BUILDER_BUILD_DEPENDENCIES_FROM_SOURCE,
       filePatterns: ELECTRON_BUILDER_FILE_PATTERNS,
+      nativeRebuild: {
+        buildFromSource: ELECTRON_BUILDER_BUILD_DEPENDENCIES_FROM_SOURCE,
+        mode: ELECTRON_REBUILD_MODE,
+        modules: ELECTRON_REBUILD_NATIVE_MODULES,
+      },
+      nodeGypRebuild: ELECTRON_BUILDER_NODE_GYP_REBUILD,
+      npmRebuild: ELECTRON_BUILDER_NPM_REBUILD,
       targets: resolveWinTargets(config.to),
       webOutputMode: config.webOutputMode,
     },
@@ -1078,6 +1120,7 @@ export async function packWin(config: ToolPackConfig): Promise<WinPackResult> {
   await copyWinIcon(paths);
   const tarballs = await collectWorkspaceTarballs(config, paths);
   await writeAssembledApp(config, paths, tarballs);
+  await rebuildWinNativeDependencies(config, paths);
   await runElectronBuilder(config, paths);
   await writeLocalLatestYml(config, paths);
   const sizeReport = await collectWinSizeReport(config, paths);

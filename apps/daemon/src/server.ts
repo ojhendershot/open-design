@@ -1194,16 +1194,12 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     });
   });
 
-  // Surfaces the absolute paths to `node` + `apps/daemon/dist/cli.js`
-  // so the Settings → MCP server panel can render snippets that work
-  // even when `od` isn't on the user's PATH (the common case for
-  // source clones - and macOS/Linux ship a /usr/bin/od octal-dump
-  // tool that shadows ours anyway). Computed from import.meta.url so
-  // both src/ (tsx dev) and dist/ (built) launches resolve to the
-  // same dist/cli.js path. Cached for 5s because the panel pings on
-  // every open and the path lookup + two existsSync calls are cheap
-  // but not free, and these paths cannot change without a daemon
-  // restart anyway.
+  // Surfaces the absolute paths to the daemon's Node-compatible runtime and
+  // CLI entry so the Settings → MCP server panel can render snippets that work
+  // even when `od` isn't on the user's PATH (the common case for source clones
+  // - and macOS/Linux ship a /usr/bin/od octal-dump tool that shadows ours
+  // anyway). Cached for 5s because the panel pings on every open and these
+  // paths cannot change without a daemon restart.
   const INSTALL_INFO_TTL_MS = 5000;
   let installInfoCache: { t: number; payload: object } | null = null;
 
@@ -1215,20 +1211,14 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     if (installInfoCache && now - installInfoCache.t < INSTALL_INFO_TTL_MS) {
       return res.json(installInfoCache.payload);
     }
-    let cliPath;
-    try {
-      cliPath = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
-    } catch (err) {
-      return sendApiError(res, 500, 'CLI_RESOLVE_FAILED', String(err));
-    }
+    const cliPath = OD_BIN;
     const cliExists = fs.existsSync(cliPath);
-    // process.execPath is the absolute path to the node binary that
-    // is running the daemon RIGHT NOW. We prefer it over bare `node`
-    // because IDE-spawned MCP clients inherit a minimal PATH from the
-    // OS launcher (Spotlight, Dock, etc.) that often does not see
-    // user-level node installs (nvm, fnm, asdf). On rare occasions
-    // (uninstall mid-session, exotic embeds) the path may not exist
-    // by the time the user copies the snippet; catch that and warn.
+    // process.execPath is the absolute path to the Node-compatible runtime
+    // that is running the daemon RIGHT NOW. In packaged builds this may be
+    // Electron running with ELECTRON_RUN_AS_NODE=1 rather than a separate
+    // bundled Node binary; surface the env requirement with the command so
+    // IDE-spawned MCP clients can reproduce the same mode from a minimal OS
+    // launcher environment.
     const nodeExists = fs.existsSync(process.execPath);
     const hints: string[] = [];
     if (!cliExists) {
@@ -1238,12 +1228,16 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     }
     if (!nodeExists) {
       hints.push(
-        `Node binary at ${process.execPath} no longer exists. Reinstall Node and restart the daemon.`,
+        `Node-compatible runtime at ${process.execPath} no longer exists. Reinstall Open Design or Node and restart the daemon.`,
       );
     }
+    const commandEnv = process.env.ELECTRON_RUN_AS_NODE === '1'
+      ? { ELECTRON_RUN_AS_NODE: '1' }
+      : null;
     const payload = {
       command: process.execPath,
       args: [cliPath, 'mcp', '--daemon-url', `http://127.0.0.1:${resolvedPort}`],
+      ...(commandEnv == null ? {} : { env: commandEnv }),
       daemonUrl: `http://127.0.0.1:${resolvedPort}`,
       // Surface platform so the install panel can localize path hints
       // (~/.cursor vs %USERPROFILE%\.cursor) and keyboard shortcuts

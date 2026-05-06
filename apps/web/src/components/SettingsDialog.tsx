@@ -1258,8 +1258,8 @@ function MediaProvidersSection({
 // to the local config for you. Verified against each tool's official
 // docs in May 2026.
 //
-// Important: every snippet uses absolute paths to `node` and the
-// daemon's built cli.js, fetched from the daemon at runtime. macOS
+// Important: every snippet uses absolute paths to the daemon's current
+// Node-compatible runtime and built cli.js, fetched at runtime. macOS
 // and Linux ship a system /usr/bin/od (octal-dump) that shadows any
 // `od` we might add to PATH, and most Open Design users run from
 // source where `od` is not installed globally. The installer panel
@@ -1276,11 +1276,18 @@ type McpClientId =
 interface McpInstallInfo {
   command: string;
   args: string[];
+  env?: Record<string, string>;
   daemonUrl: string;
   platform: 'darwin' | 'linux' | 'win32' | string;
   cliExists: boolean;
   nodeExists: boolean;
   buildHint: string | null;
+}
+
+interface McpStdioServerConfig {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
 }
 
 interface McpClient {
@@ -1334,8 +1341,26 @@ function utf8Btoa(s: string): string {
   return btoa(bin);
 }
 
+function buildMcpStdioServerConfig(info: McpInstallInfo): McpStdioServerConfig {
+  const env = info.env && Object.keys(info.env).length > 0 ? info.env : undefined;
+  return {
+    command: info.command,
+    args: info.args,
+    ...(env ? { env } : {}),
+  };
+}
+
+function buildCodexEnvToml(info: McpInstallInfo): string {
+  const entries = Object.entries(info.env ?? {});
+  if (entries.length === 0) return '';
+  return `
+
+[mcp_servers.open-design.env]
+${entries.map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join('\n')}`;
+}
+
 function buildSharedMcpJson(info: McpInstallInfo): string {
-  const inner = { command: info.command, args: info.args };
+  const inner = buildMcpStdioServerConfig(info);
   const innerJson = JSON.stringify(inner, null, 2)
     .split('\n')
     .map((line, i) => (i === 0 ? line : `    ${line}`))
@@ -1361,7 +1386,7 @@ const MCP_CLIENTS: McpClient[] = [
     buildMethod: () => 'CLI command',
     buildInstruction: () => 'Run this in your terminal.',
     buildSnippet: (info) => {
-      const inner = JSON.stringify({ command: info.command, args: info.args });
+      const inner = JSON.stringify(buildMcpStdioServerConfig(info));
       return `claude mcp add-json --scope user open-design '${inner}'`;
     },
     buildSnippetLang: () => 'bash',
@@ -1390,7 +1415,7 @@ const MCP_CLIENTS: McpClient[] = [
     },
     buildSnippet: (info) => `[mcp_servers.open-design]
 command = ${JSON.stringify(info.command)}
-args = ${JSON.stringify(info.args)}`,
+args = ${JSON.stringify(info.args)}${buildCodexEnvToml(info)}`,
     buildSnippetLang: () => 'toml',
   },
   {
@@ -1402,7 +1427,7 @@ args = ${JSON.stringify(info.args)}`,
     buildSnippet: buildSharedMcpJson,
     buildSnippetLang: () => 'json',
     buildDeeplink: (info) => {
-      const inner = { command: info.command, args: info.args };
+      const inner = buildMcpStdioServerConfig(info);
       // Cursor expects the inner server-config object base64-encoded
       // as ?config=...; the handler decodes it and pops an approval
       // dialog before writing to mcp.json. We UTF-8-encode first so
@@ -1424,7 +1449,8 @@ args = ${JSON.stringify(info.args)}`,
     "open-design": {
       "type": "stdio",
       "command": ${JSON.stringify(info.command)},
-      "args": ${JSON.stringify(info.args)}
+      "args": ${JSON.stringify(info.args)}${info.env && Object.keys(info.env).length > 0 ? `,
+      "env": ${JSON.stringify(info.env)}` : ''}
     }
   }
 }`,
@@ -1450,7 +1476,8 @@ args = ${JSON.stringify(info.args)}`,
     "open-design": {
       "source": "custom",
       "command": ${JSON.stringify(info.command)},
-      "args": ${JSON.stringify(info.args)}
+      "args": ${JSON.stringify(info.args)}${info.env && Object.keys(info.env).length > 0 ? `,
+      "env": ${JSON.stringify(info.env)}` : ''}
     }
   }
 }`,
