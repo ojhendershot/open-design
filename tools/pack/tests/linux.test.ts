@@ -33,6 +33,7 @@ function makeConfig(): ToolPackConfig {
         namespaceBaseRoot: "/work/.tmp/tools-pack/runtime/linux/namespaces",
         namespaceRoot: "/work/.tmp/tools-pack/runtime/linux/namespaces/default",
       },
+      cacheRoot: "/work/.tmp/tools-pack/cache",
       toolPackRoot: "/work/.tmp/tools-pack",
     },
     silent: true,

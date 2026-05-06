@@ -30,6 +30,7 @@ import {
   stopProcesses,
 } from "@open-design/platform";
 
+import { hashJson, hashPath, ToolPackCache, type CacheReport } from "./cache.js";
 import type { ToolPackConfig } from "./config.js";
 import { copyBundledResourceTrees, winResources } from "./resources.js";
 
@@ -82,6 +83,10 @@ type PackedTarballInfo = {
   packageName: (typeof INTERNAL_PACKAGES)[number]["name"];
 };
 
+type PackedTarballsCacheMetadata = {
+  tarballs: PackedTarballInfo[];
+};
+
 type WinPaths = {
   appBuilderConfigPath: string;
   appBuilderOutputRoot: string;
@@ -121,6 +126,7 @@ export type WinPackResult = {
   outputRoot: string;
   resourceRoot: string;
   runtimeNamespaceRoot: string;
+  cacheReport: CacheReport;
   sizeReport: WinSizeReport;
   to: ToolPackConfig["to"];
   unpackedPath: string | null;
@@ -837,20 +843,57 @@ async function copyWinIcon(paths: WinPaths): Promise<void> {
   await cp(winResources.icon, paths.winIconPath);
 }
 
-async function collectWorkspaceTarballs(config: ToolPackConfig, paths: WinPaths): Promise<PackedTarballInfo[]> {
-  await removeTree(paths.tarballsRoot);
-  await mkdir(paths.tarballsRoot, { recursive: true });
-  const packedTarballs: PackedTarballInfo[] = [];
+async function createWorkspaceTarballsCacheKey(config: ToolPackConfig): Promise<string> {
+  const packageHashes: Record<string, string> = {};
   for (const packageInfo of INTERNAL_PACKAGES) {
-    const beforeEntries = new Set(await readdir(paths.tarballsRoot));
-    await runPnpm(config, ["-C", packageInfo.directory, "pack", "--pack-destination", paths.tarballsRoot]);
-    const newEntries = (await readdir(paths.tarballsRoot)).filter((entry) => !beforeEntries.has(entry));
-    if (newEntries.length !== 1 || newEntries[0] == null) {
-      throw new Error(`expected one tarball for ${packageInfo.name}, got ${newEntries.length}`);
-    }
-    packedTarballs.push({ fileName: newEntries[0], packageName: packageInfo.name });
+    packageHashes[packageInfo.name] = await hashPath(join(config.workspaceRoot, packageInfo.directory), {
+      ignoreDirectoryNames: [".next", "dist", "node_modules"],
+    });
   }
-  return packedTarballs;
+  const rootPackageJson = JSON.parse(await readFile(join(config.workspaceRoot, "package.json"), "utf8")) as {
+    packageManager?: unknown;
+  };
+
+  return hashJson({
+    node: "win.workspace-tarballs",
+    packageHashes,
+    packageManager: rootPackageJson.packageManager,
+    pnpmLock: await hashPath(join(config.workspaceRoot, "pnpm-lock.yaml")),
+    schemaVersion: 1,
+  });
+}
+
+async function collectWorkspaceTarballs(
+  config: ToolPackConfig,
+  paths: WinPaths,
+  cache: ToolPackCache,
+): Promise<PackedTarballInfo[]> {
+  const node = {
+    id: "win.workspace-tarballs",
+    key: await createWorkspaceTarballsCacheKey(config),
+    outputs: ["tarballs"],
+    invalidate: async () => null,
+    build: async ({ entryRoot }: { entryRoot: string }): Promise<PackedTarballsCacheMetadata> => {
+      const tarballsRoot = join(entryRoot, "tarballs");
+      await mkdir(tarballsRoot, { recursive: true });
+      const packedTarballs: PackedTarballInfo[] = [];
+      for (const packageInfo of INTERNAL_PACKAGES) {
+        const beforeEntries = new Set(await readdir(tarballsRoot));
+        await runPnpm(config, ["-C", packageInfo.directory, "pack", "--pack-destination", tarballsRoot]);
+        const newEntries = (await readdir(tarballsRoot)).filter((entry) => !beforeEntries.has(entry));
+        if (newEntries.length !== 1 || newEntries[0] == null) {
+          throw new Error(`expected one tarball for ${packageInfo.name}, got ${newEntries.length}`);
+        }
+        packedTarballs.push({ fileName: newEntries[0], packageName: packageInfo.name });
+      }
+      return { tarballs: packedTarballs };
+    },
+  };
+  const manifest = await cache.acquire({
+    materialize: [{ from: "tarballs", to: paths.tarballsRoot }],
+    node,
+  });
+  return manifest.payloadMetadata.tarballs;
 }
 
 async function writeAssembledApp(config: ToolPackConfig, paths: WinPaths, packedTarballs: PackedTarballInfo[]): Promise<void> {
@@ -1119,10 +1162,11 @@ async function collectWinSizeReport(config: ToolPackConfig, paths: WinPaths): Pr
 
 export async function packWin(config: ToolPackConfig): Promise<WinPackResult> {
   const paths = resolveWinPaths(config);
+  const cache = new ToolPackCache(config.roots.cacheRoot);
   await buildWorkspaceArtifacts(config);
   await copyResourceTree(config, paths);
   await copyWinIcon(paths);
-  const tarballs = await collectWorkspaceTarballs(config, paths);
+  const tarballs = await collectWorkspaceTarballs(config, paths, cache);
   await writeAssembledApp(config, paths, tarballs);
   await rebuildWinNativeDependencies(config, paths);
   await runElectronBuilder(config, paths);
@@ -1135,6 +1179,7 @@ export async function packWin(config: ToolPackConfig): Promise<WinPackResult> {
     outputRoot: config.roots.output.namespaceRoot,
     resourceRoot: paths.resourceRoot,
     runtimeNamespaceRoot: config.roots.runtime.namespaceRoot,
+    cacheReport: cache.report(),
     sizeReport,
     to: config.to,
     unpackedPath: (await pathExists(paths.unpackedRoot)) ? paths.unpackedRoot : null,

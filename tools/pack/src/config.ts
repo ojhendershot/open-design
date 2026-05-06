@@ -20,6 +20,7 @@ export type ToolPackMacCompression = "store" | "normal" | "maximum";
 export type ToolPackWebOutputMode = "server" | "standalone";
 
 export type ToolPackCliOptions = {
+  cacheDir?: string;
   containerized?: boolean;
   dir?: string;
   expr?: string;
@@ -48,6 +49,7 @@ export type ToolPackRoots = {
     namespaceBaseRoot: string;
     namespaceRoot: string;
   };
+  cacheRoot: string;
   toolPackRoot: string;
 };
 
@@ -128,6 +130,7 @@ export function resolveToolPackConfig(
     namespace: options.namespace ?? SIDECAR_DEFAULTS.namespace,
   });
   const toolPackRoot = resolve(options.dir ?? join(WORKSPACE_ROOT, ".tmp", "tools-pack"));
+  const cacheRoot = resolve(options.cacheDir ?? join(toolPackRoot, "cache"));
   const outputRoot = join(toolPackRoot, "out");
   const outputPlatformRoot = join(outputRoot, platform);
   const outputNamespaceRoot = join(outputPlatformRoot, "namespaces", namespace);
@@ -153,6 +156,7 @@ export function resolveToolPackConfig(
         namespaceBaseRoot: runtimeNamespaceBaseRoot,
         namespaceRoot: join(runtimeNamespaceBaseRoot, namespace),
       },
+      cacheRoot,
       toolPackRoot,
     },
     removeData: options.removeData === true,
