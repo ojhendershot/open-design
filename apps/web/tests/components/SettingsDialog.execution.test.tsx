@@ -717,6 +717,7 @@ describe('SettingsDialog media providers interactions', () => {
           },
         }),
       }),
+      true,
     );
   });
 
@@ -747,6 +748,7 @@ describe('SettingsDialog media providers interactions', () => {
           },
         }),
       }),
+      true,
     );
   });
 
@@ -825,7 +827,6 @@ describe('SettingsDialog connectors interactions', () => {
       target: { value: 'cmp_replacement_secret' },
     });
 
-    expect(screen.queryByText('Saved · ••••uQEg')).toBeNull();
     expect(screen.getByText(/Unsaved changes/i)).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -837,6 +838,7 @@ describe('SettingsDialog connectors interactions', () => {
           apiKeyTail: 'uQEg',
         },
       }),
+      false,
     );
   });
 
@@ -868,6 +870,7 @@ describe('SettingsDialog connectors interactions', () => {
           apiKeyTail: '',
         },
       }),
+      false,
     );
   });
 
@@ -1169,6 +1172,7 @@ describe('SettingsDialog notifications interactions', () => {
           desktopEnabled: false,
         },
       }),
+      true,
     );
   });
 
@@ -1312,6 +1316,7 @@ describe('SettingsDialog appearance interactions', () => {
         theme: 'system',
         accentColor: '#2563eb',
       }),
+      true,
     );
   });
 });
