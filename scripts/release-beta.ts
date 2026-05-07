@@ -1,6 +1,7 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { get as httpsGet } from "node:https";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -152,6 +153,64 @@ async function fetchReleaseAssetText(repository: string, assetId: number): Promi
   return stdout;
 }
 
+function fetchOptionalHttpsText(url: string, redirectCount = 0): Promise<string | null> {
+  return new Promise((resolvePromise, reject) => {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") {
+      reject(new Error(`expected HTTPS URL for beta feed lookup: ${parsed.protocol}`));
+      return;
+    }
+
+    const request = httpsGet(
+      parsed,
+      {
+        headers: {
+          "Cache-Control": "no-cache",
+        },
+      },
+      (response) => {
+        const statusCode = response.statusCode ?? 0;
+        if (statusCode === 404) {
+          response.resume();
+          resolvePromise(null);
+          return;
+        }
+
+        const location = response.headers.location;
+        if (statusCode >= 300 && statusCode < 400 && typeof location === "string") {
+          response.resume();
+          if (redirectCount >= 3) {
+            reject(new Error("too many redirects while reading beta feed"));
+            return;
+          }
+          const nextUrl = new URL(location, parsed).toString();
+          fetchOptionalHttpsText(nextUrl, redirectCount + 1).then(resolvePromise, reject);
+          return;
+        }
+
+        if (statusCode < 200 || statusCode >= 300) {
+          response.resume();
+          reject(new Error(`beta feed request failed with HTTP ${statusCode}`));
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => {
+          chunks.push(chunk);
+        });
+        response.on("end", () => {
+          resolvePromise(Buffer.concat(chunks).toString("utf8"));
+        });
+      },
+    );
+
+    request.setTimeout(10_000, () => {
+      request.destroy(new Error("timed out while reading beta feed"));
+    });
+    request.on("error", reject);
+  });
+}
+
 function setOutput(name: string, value: string): void {
   const outputPath = process.env.GITHUB_OUTPUT;
   if (outputPath == null || outputPath.length === 0) return;
@@ -191,6 +250,20 @@ const latestMacAsset = existingBetaRelease?.assets?.find((asset) => asset.name =
 if (latestMacAsset?.id != null) {
   const beta = extractBetaVersionFromLatestMacYml(await fetchReleaseAssetText(repository, latestMacAsset.id));
   if (beta != null) betaCandidates.push(beta);
+}
+
+const latestMacFeedUrl = process.env.OPEN_DESIGN_BETA_LATEST_MAC_URL;
+if (latestMacFeedUrl != null && latestMacFeedUrl.length > 0) {
+  const latestMacFeed = await fetchOptionalHttpsText(latestMacFeedUrl);
+  if (latestMacFeed == null) {
+    console.log("[release-beta] R2 beta latest-mac.yml: not found");
+  } else {
+    const beta = extractBetaVersionFromLatestMacYml(latestMacFeed);
+    if (beta != null) {
+      betaCandidates.push(beta);
+      console.log(`[release-beta] R2 beta latest-mac.yml version: ${beta.betaVersion}`);
+    }
+  }
 }
 
 let betaNumber = 1;
