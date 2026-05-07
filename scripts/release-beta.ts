@@ -26,10 +26,6 @@ type ParsedBetaMetadata = ParsedBetaVersion & {
   source: "metadata-json";
 };
 
-type ParsedLegacyMacFeed = ParsedBetaVersion & {
-  source: "legacy-latest-mac-yml";
-};
-
 function fail(message: string): never {
   console.error(`[release-beta] ${message}`);
   process.exit(1);
@@ -78,20 +74,6 @@ function parseBetaParts(baseVersion: string, betaNumber: string): ParsedBetaVers
     betaNumber: parsedBetaNumber,
     betaVersion: `${baseVersion}-beta.${betaNumber}`,
   };
-}
-
-function parseBetaVersionFromLatestMacYml(value: string): ParsedBetaVersion {
-  const match = value.match(/^version:\s*["']?([^"'\n]+)["']?\s*$/m);
-  if (match?.[1] == null) {
-    fail("R2 beta latest-mac.yml is missing a version field");
-  }
-
-  const betaMatch = betaVersionPattern.exec(match[1]);
-  if (betaMatch?.[1] == null || betaMatch[2] == null) {
-    fail(`R2 beta latest-mac.yml version must be x.y.z-beta.N; got ${match[1]}`);
-  }
-
-  return parseBetaParts(betaMatch[1], betaMatch[2]);
 }
 
 function readStringField(record: Record<string, unknown>, field: string): string | null {
@@ -277,31 +259,18 @@ if (metadataUrl == null || metadataUrl.length === 0) {
 }
 validateHttpsUrl(metadataUrl, "OPEN_DESIGN_BETA_METADATA_URL");
 
-const legacyLatestMacFeedUrl = process.env.OPEN_DESIGN_BETA_LEGACY_LATEST_MAC_URL;
-if (legacyLatestMacFeedUrl != null && legacyLatestMacFeedUrl.length > 0) {
-  validateHttpsUrl(legacyLatestMacFeedUrl, "OPEN_DESIGN_BETA_LEGACY_LATEST_MAC_URL");
-}
-
 let betaNumber = 1;
 let latestBeta: ParsedBetaVersion | null = null;
 let stateSource = "R2 metadata.json";
 const latestMetadataJson = await fetchOptionalHttpsText(metadataUrl);
 if (latestMetadataJson == null) {
-  console.log("[release-beta] R2 beta metadata.json: not found");
-  if (legacyLatestMacFeedUrl != null && legacyLatestMacFeedUrl.length > 0) {
-    const latestMacFeed = await fetchOptionalHttpsText(legacyLatestMacFeedUrl);
-    if (latestMacFeed == null) {
-      console.log("[release-beta] legacy R2 beta latest-mac.yml bootstrap: not found");
-    } else {
-      const parsedLegacy: ParsedLegacyMacFeed = {
-        ...parseBetaVersionFromLatestMacYml(latestMacFeed),
-        source: "legacy-latest-mac-yml",
-      };
-      latestBeta = parsedLegacy;
-      stateSource = "legacy R2 latest-mac.yml bootstrap";
-      console.log(`[release-beta] legacy R2 beta latest-mac.yml version: ${latestBeta.betaVersion}`);
-    }
-  }
+  latestBeta = {
+    baseVersion: packagedVersion,
+    betaNumber: 0,
+    betaVersion: `${packagedVersion}-beta.0`,
+  };
+  stateSource = "missing R2 metadata.json fallback beta.0";
+  console.log("[release-beta] R2 beta metadata.json: not found; using beta.0 fallback");
 } else {
   latestBeta = parseBetaMetadataJson(latestMetadataJson);
   console.log(`[release-beta] R2 beta metadata.json version: ${latestBeta.betaVersion}`);

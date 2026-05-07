@@ -36,7 +36,6 @@ jobs:
     name: Prepare beta metadata
     runs-on: ubuntu-latest
     env:
-      OPEN_DESIGN_BETA_LEGACY_LATEST_MAC_URL: ${{ secrets.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN }}/beta/latest/latest-mac.yml
       OPEN_DESIGN_BETA_METADATA_URL: ${{ secrets.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN }}/beta/latest/metadata.json
       OPEN_DESIGN_RELEASE_SIGNED: ${{ inputs.signed }}
     outputs:
