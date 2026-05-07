@@ -89,16 +89,20 @@ describe("buildDockerArgs", () => {
   it("re-invokes pnpm tools-pack linux build inside the container without --containerized", () => {
     const args = buildDockerArgs(makeConfig(), { uid: 1000, gid: 1000 });
     const last = args[args.length - 1];
-    expect(last).toMatch(/npx --yes pnpm@\d+\.\d+\.\d+ install --frozen-lockfile/);
-    expect(last).toMatch(/npx --yes pnpm@\d+\.\d+\.\d+ tools-pack linux build --to all --namespace default/);
+    expect(last).toMatch(/node-v24\.14\.1-linux-x64/);
+    expect(last).toMatch(/npm exec --yes --package pnpm@\d+\.\d+\.\d+ -- pnpm install --frozen-lockfile/);
+    expect(last).toMatch(/npm exec --yes --package pnpm@\d+\.\d+\.\d+ -- pnpm tools-pack linux build --to all --namespace default/);
     expect(last).not.toMatch(/--containerized/);
   });
 
-  it("invokes pnpm via `npx --yes pnpm@<version>` (electronuserland/builder:base strips corepack, and the non-root container can't write Node shim dir)", () => {
+  it("bootstraps Node 24 before invoking pnpm because electronuserland/builder:base has no Node/npm/npx", () => {
     const args = buildDockerArgs(makeConfig(), { uid: 1000, gid: 1000 });
     const last = args[args.length - 1];
+    expect(last).toMatch(/curl -fsSL "https:\/\/nodejs\.org\/dist\/v24\.14\.1\/node-v24\.14\.1-linux-x64\.tar\.xz"/);
+    expect(last).toMatch(/export PATH="\$node_dir\/bin:\$PATH"/);
     expect(last).not.toMatch(/corepack/);
-    expect(last).toMatch(/npx --yes pnpm@/);
+    expect(last).not.toMatch(/\bnpx\b/);
+    expect(last).toMatch(/npm exec --yes --package pnpm@/);
   });
 
   it("hardcoded pnpm version stays in lockstep with root package.json `packageManager`", () => {
@@ -115,7 +119,21 @@ describe("buildDockerArgs", () => {
 
     const args = buildDockerArgs(makeConfig(), { uid: 1000, gid: 1000 });
     const last = args[args.length - 1];
-    expect(last).toContain(`npx --yes pnpm@${expectedVersion}`);
+    expect(last).toContain(`npm exec --yes --package pnpm@${expectedVersion} -- pnpm`);
+  });
+
+  it("hardcoded Node major stays in lockstep with root package.json `engines.node`", () => {
+    const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+    const rootPkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf-8")) as {
+      engines?: { node?: string };
+    };
+    const match = String(rootPkg.engines?.node ?? "").match(/^~(\d+)$/);
+    expect(match, `expected root engines.node "~<major>", got ${rootPkg.engines?.node}`).not.toBeNull();
+    const expectedMajor = match![1];
+
+    const args = buildDockerArgs(makeConfig(), { uid: 1000, gid: 1000 });
+    const last = args[args.length - 1];
+    expect(last).toContain(`node-v${expectedMajor}.`);
   });
 
   it("forwards --dir /tools-pack so inner build output lands under the mounted host dir", () => {

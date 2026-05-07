@@ -102,20 +102,20 @@ export function buildDockerArgs(
   // None of these values can contain shell metacharacters, so direct
   // interpolation into the inner command string is safe.
   //
-  // We can't rely on `corepack pnpm` here: although Node 16.10+ ships corepack,
-  // the `electronuserland/builder:base` image strips the corepack binary, so
-  // the inner `bash -lc` fails with `corepack: command not found`. We also
-  // can't `corepack enable` ourselves — the container runs as the host's
-  // non-root uid (--user above) and corepack would try to write shims next
-  // to the system Node binary, which is owned by root in this image.
-  //
-  // Use `npx --yes pnpm@<version>` instead: `npx` ships with npm (always
-  // present in the image), `--yes` skips the install confirmation, and the
-  // package gets cached under `$HOME/.npm/_npx`, which is writable by the
-  // unprivileged user. The pinned version matches the `packageManager`
-  // field in the root package.json so reproducibility is preserved.
+  // The `electronuserland/builder:base` image provides the native Linux build
+  // dependencies but intentionally does not ship Node/npm/npx. Bootstrap the
+  // repo's supported Node major into the writable Docker home cache, then use
+  // that npm to execute a pinned pnpm version. Keeping the Node tarball under
+  // `$HOME/.cache` means repeated local/CI runs can reuse the mounted cache.
+  const NODE_VERSION = "24.14.1";
+  const NODE_DIST = `node-v${NODE_VERSION}-linux-x64`;
   const PNPM_VERSION = "10.33.2";
-  const pnpmCmd = `npx --yes pnpm@${PNPM_VERSION}`;
+  const nodeBootstrap = [
+    `node_dir="$HOME/.cache/${NODE_DIST}"`,
+    `if [ ! -x "$node_dir/bin/node" ]; then tmp_dir="$(mktemp -d)" && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/${NODE_DIST}.tar.xz" -o "$tmp_dir/node.tar.xz" && mkdir -p "$HOME/.cache" && rm -rf "$node_dir" && tar -xJf "$tmp_dir/node.tar.xz" -C "$HOME/.cache" && rm -rf "$tmp_dir"; fi`,
+    `export PATH="$node_dir/bin:$PATH"`,
+  ].join(" && ");
+  const pnpmCmd = `npm exec --yes --package pnpm@${PNPM_VERSION} -- pnpm`;
   const innerArgs = [
     `${pnpmCmd} tools-pack linux build`,
     `--to ${config.to}`,
@@ -125,7 +125,7 @@ export function buildDockerArgs(
   if (config.portable) {
     innerArgs.push("--portable");
   }
-  const innerCommand = `${pnpmCmd} install --frozen-lockfile && ` + innerArgs.join(" ");
+  const innerCommand = `${nodeBootstrap} && ${pnpmCmd} install --frozen-lockfile && ` + innerArgs.join(" ");
 
   return [
     "run",
