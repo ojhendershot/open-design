@@ -1354,6 +1354,16 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     );
   }
 
+  // Portless loopback origins (e.g. http://127.0.0.1 without a port).
+  // Chrome may strip the port from the Origin header on same-origin GET
+  // requests. Only used as a fallback for safe, idempotent GET requests;
+  // mutating routes (POST/PUT/PATCH/DELETE) always require an exact
+  // port-match via buildAllowedOrigins() or isLocalSameOrigin() to
+  // prevent local CSRF from a page on the default port (80).
+  function isPortlessLoopbackOrigin(origin) {
+    return /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])$/.test(origin);
+  }
+
   // Routes that serve content to sandboxed iframes (Origin: null) for
   // read-only purposes.  All other /api routes reject Origin: null.
   const _NULL_ORIGIN_SAFE_GET_RE =
@@ -1389,7 +1399,16 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     }
 
     if (!buildAllowedOrigins().has(String(origin))) {
-      return res.status(403).json({ error: 'Cross-origin requests are not allowed' });
+      // Fallback: Chrome may strip the port from the Origin header on
+      // same-origin requests (e.g. http://127.0.0.1 instead of
+      // http://127.0.0.1:6313). Allow portless loopback origins only
+      // for GET requests, which are idempotent and safe from CSRF.
+      // Mutating methods (POST/PUT/PATCH/DELETE) always require an
+      // exact port-match to prevent a page on the default port (80)
+      // from triggering state-changing operations.
+      if (req.method !== 'GET' || !isPortlessLoopbackOrigin(String(origin))) {
+        return res.status(403).json({ error: 'Cross-origin requests are not allowed' });
+      }
     }
     next();
   });
