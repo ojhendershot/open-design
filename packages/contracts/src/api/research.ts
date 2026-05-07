@@ -14,7 +14,7 @@ export interface ResearchOptions {
   depth?: ResearchDepth;
   /** Cap on returned sources. Defaults follow the depth. */
   maxSources?: number;
-  /** Provider preference order. Phase 1 supports ['tavily']. */
+  /** Web provider preference order. Supports ['exa', 'perplexity', 'tavily']. */
   providers?: string[];
 }
 
