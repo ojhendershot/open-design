@@ -59,8 +59,6 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
 
       - name: Prepare beta release metadata
         id: beta
@@ -215,6 +213,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Compute Windows tools-pack cache key
         id: win_tools_pack_cache_key
