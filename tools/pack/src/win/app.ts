@@ -116,7 +116,7 @@ export async function ensureWinWorkspaceBuild(config: ToolPackConfig, cache: Too
   });
 }
 
-async function createWorkspaceTarballsCacheKey(config: ToolPackConfig): Promise<string> {
+export async function createWorkspaceTarballsCacheKey(config: ToolPackConfig): Promise<string> {
   const packageHashes: Record<string, string> = {};
   for (const packageInfo of INTERNAL_PACKAGES) {
     packageHashes[packageInfo.name] = await hashPackageSourcePath(join(config.workspaceRoot, packageInfo.directory));
@@ -130,7 +130,8 @@ async function createWorkspaceTarballsCacheKey(config: ToolPackConfig): Promise<
     packageHashes,
     packageManager: rootPackageJson.packageManager,
     pnpmLock: await hashPath(join(config.workspaceRoot, "pnpm-lock.yaml")),
-    schemaVersion: 3,
+    schemaVersion: 4,
+    webOutputMode: config.webOutputMode,
   });
 }
 
