@@ -27,6 +27,12 @@ describe('renderResearchCommandContract', () => {
     expect(prompt).toContain(
       '"$OD_NODE_BIN" "$OD_BIN" research search --query "<search query>" --max-sources 15',
     );
+    expect(prompt).toContain(
+      '& $env:OD_NODE_BIN $env:OD_BIN research search --query "<search query>" --max-sources 15',
+    );
+    expect(prompt).toContain(
+      '"%OD_NODE_BIN%" "%OD_BIN%" research search --query "<search query>" --max-sources 15',
+    );
   });
 
   it('defaults and clamps the requested source cap to the supported range', () => {

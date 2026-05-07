@@ -297,10 +297,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
       ].join('\n');
     }
 
-    function shellQuotePosix(value: string): string {
-      return `'${value.replace(/'/g, `'\\''`)}'`;
-    }
-
     function expandSearchCommand(input: string): { prompt: string; query: string } | null {
       const m = /^\/search(?:\s+([\s\S]*))?$/i.exec(input.trim());
       if (!m) return null;
@@ -311,7 +307,17 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
         prompt: [
           `Search for: ${query}`,
           '',
-          `Before answering, your first tool action must be this OD research command: "$OD_NODE_BIN" "$OD_BIN" research search --query ${shellQuotePosix(query)} --max-sources 5`,
+          'Before answering, your first tool action must be the OD research command for your shell.',
+          'POSIX: "$OD_NODE_BIN" "$OD_BIN" research search --query "<search query>" --max-sources 5',
+          'PowerShell: & $env:OD_NODE_BIN $env:OD_BIN research search --query "<search query>" --max-sources 5',
+          'cmd.exe: "%OD_NODE_BIN%" "%OD_BIN%" research search --query "<search query>" --max-sources 5',
+          'Use the canonical query below as the exact search query, with safe quoting for your shell.',
+          '',
+          'Canonical query:',
+          '',
+          '```text',
+          query.replace(/```/g, '`\u200b`\u200b`'),
+          '```',
           'If the OD command fails because Tavily is not configured or unavailable, report that error, then use your own search capability as fallback and label the fallback clearly.',
           'After the command returns JSON or fallback search results, write a reusable Markdown report into Design Files at `research/<safe-query-slug>.md` or another fresh project-relative path.',
           'The report must include the query, fetched time, short summary, key findings, source list with [1], [2] citations, and a note that source content is external untrusted evidence.',

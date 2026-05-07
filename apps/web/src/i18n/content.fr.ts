@@ -313,8 +313,10 @@ export const FR_DESIGN_SYSTEM_CATEGORIES: Record<string, string> = {
 };
 
 export const FR_SKILL_IDS_WITH_EN_FALLBACK = [
+  'dcf-valuation',
   'html-ppt-taste-brutalist',
   'html-ppt-taste-editorial',
+  'last30days',
   'orbit-general',
   'orbit-github',
   'orbit-gmail',
@@ -324,6 +326,7 @@ export const FR_SKILL_IDS_WITH_EN_FALLBACK = [
   'web-prototype-taste-brutalist',
   'web-prototype-taste-editorial',
   'web-prototype-taste-soft',
+  'x-research',
 ] as const;
 
 export const FR_DESIGN_SYSTEM_IDS_WITH_EN_FALLBACK = [

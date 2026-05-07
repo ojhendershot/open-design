@@ -203,6 +203,19 @@ export function composeLiveInstructionPrompt({
   return parts.join('\n\n---\n\n');
 }
 
+export function resolveResearchCommandContract(research, message) {
+  if (!research || !research.enabled) return '';
+  const researchQuery =
+    typeof research.query === 'string' && research.query.trim()
+      ? research.query
+      : message;
+  return renderResearchCommandContract({
+    query: researchQuery,
+    maxSources:
+      typeof research.maxSources === 'number' ? research.maxSources : undefined,
+  });
+}
+
 export function resolveCodexGeneratedImagesDir(
   agentId,
   metadata,
@@ -3934,14 +3947,10 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
       codexGeneratedImagesDir,
       extraAllowedDirs,
     });
-    const researchCommandContract =
-      research && research.enabled
-        ? renderResearchCommandContract({
-            query: typeof research.query === 'string' ? research.query : undefined,
-            maxSources:
-              typeof research.maxSources === 'number' ? research.maxSources : undefined,
-          })
-        : '';
+    const researchCommandContract = resolveResearchCommandContract(
+      research,
+      message,
+    );
     const clientInstructionPrompt = [researchCommandContract, systemPrompt]
       .map((part) => (typeof part === 'string' ? part.trim() : ''))
       .filter(Boolean)

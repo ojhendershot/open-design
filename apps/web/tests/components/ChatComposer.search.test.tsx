@@ -32,11 +32,19 @@ describe('ChatComposer /search command', () => {
     expect(onSend).toHaveBeenCalledTimes(1);
     const [prompt, attachments, commentAttachments, meta] = onSend.mock.calls[0]!;
     expect(prompt).toContain(
-      'Before answering, your first tool action must be this OD research command:',
+      'Before answering, your first tool action must be the OD research command for your shell.',
     );
     expect(prompt).toContain(
-      '"$OD_NODE_BIN" "$OD_BIN" research search --query \'EV market 2025 trends\' --max-sources 5',
+      'POSIX: "$OD_NODE_BIN" "$OD_BIN" research search --query "<search query>" --max-sources 5',
     );
+    expect(prompt).toContain(
+      'PowerShell: & $env:OD_NODE_BIN $env:OD_BIN research search --query "<search query>" --max-sources 5',
+    );
+    expect(prompt).toContain(
+      'cmd.exe: "%OD_NODE_BIN%" "%OD_BIN%" research search --query "<search query>" --max-sources 5',
+    );
+    expect(prompt).toContain('Canonical query:');
+    expect(prompt).toContain('EV market 2025 trends');
     expect(prompt).toContain(
       'If the OD command fails because Tavily is not configured or unavailable',
     );
@@ -54,7 +62,7 @@ describe('ChatComposer /search command', () => {
     });
   });
 
-  it('shell-quotes /search queries in the concrete OD command', () => {
+  it('keeps shell metacharacters out of the concrete OD command examples', () => {
     const onSend = vi.fn();
 
     render(
@@ -77,11 +85,41 @@ describe('ChatComposer /search command', () => {
 
     const [prompt, _attachments, _commentAttachments, meta] = onSend.mock.calls[0]!;
     expect(prompt).toContain(
-      '"$OD_NODE_BIN" "$OD_BIN" research search --query \'$TSLA `date` $(echo hacked) Bob\'\\\'\'s\' --max-sources 5',
+      'POSIX: "$OD_NODE_BIN" "$OD_BIN" research search --query "<search query>" --max-sources 5',
     );
+    expect(prompt).toContain('Canonical query:');
+    expect(prompt).toContain(query);
     expect(meta).toEqual({
       research: { enabled: true, query },
     });
+  });
+
+  it('does not send research metadata for normal prompts', () => {
+    const onSend = vi.fn();
+
+    render(
+      <ChatComposer
+        projectId="project-1"
+        projectFiles={[]}
+        streaming={false}
+        researchAvailable
+        onEnsureProject={async () => 'project-1'}
+        onSend={onSend}
+        onStop={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId('chat-composer-input'), {
+      target: { value: 'EV market 2025 trends' },
+    });
+    fireEvent.click(screen.getByTestId('chat-send'));
+
+    expect(onSend).toHaveBeenCalledTimes(1);
+    const [prompt, attachments, commentAttachments, meta] = onSend.mock.calls[0]!;
+    expect(prompt).toBe('EV market 2025 trends');
+    expect(attachments).toEqual([]);
+    expect(commentAttachments).toEqual([]);
+    expect(meta).toBeUndefined();
   });
 
   it('does not expand manually typed /search when research is unavailable', () => {
