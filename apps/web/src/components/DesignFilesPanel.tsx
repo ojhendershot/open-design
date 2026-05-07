@@ -388,11 +388,11 @@ export function DesignFilesPanel({
                               .closest('.df-row-menu')
                               ?.getBoundingClientRect();
                             if (!rect) return;
-                            
+
                             const viewportHeight = window.innerHeight;
                             const spaceBelow = viewportHeight - rect.bottom;
                             const spaceAbove = rect.top;
-                            
+
                             let top: number;
                             if (spaceBelow >= MENU_ESTIMATED_HEIGHT + MENU_SAFE_PADDING) {
                               top = rect.bottom + 4;
@@ -404,9 +404,9 @@ export function DesignFilesPanel({
                                 viewportHeight - MENU_ESTIMATED_HEIGHT - MENU_SAFE_PADDING,
                               );
                             }
-                            
+
                             const left = Math.max(MENU_SAFE_PADDING, rect.right - 160);
-                            
+
                             setMenuPos({
                               name: f.name,
                               top,

@@ -170,6 +170,8 @@ export const ar: Dict = {
   'promptTemplates.emptyImage': 'لم يتم تثبيت قوالب صور بعد.',
   'promptTemplates.emptyVideo': 'لم يتم تثبيت قوالب فيديو بعد.',
   'promptTemplates.emptyNoMatch': 'لا توجد قوالب تطابق بحثك.',
+  'promptTemplates.allSources': 'جميع المصادر',
+  'promptTemplates.sourceFilterAria': 'تصفية حسب المصدر',
   'promptTemplates.attributionFooter': 'مقتبس من مكتبات الأوامر العامة. كل بطاقة تشير إلى المؤلف الأصلي.',
   'promptTemplates.openPreviewTitle': 'فتح الأمر والمعاينة',
   'promptTemplates.sourcePrefix': 'المصدر:',

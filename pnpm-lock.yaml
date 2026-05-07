@@ -333,6 +333,9 @@ importers:
       '@electron/notarize':
         specifier: 3.1.0
         version: 3.1.0
+      '@electron/rebuild':
+        specifier: 4.0.4
+        version: 4.0.4
       '@open-design/platform':
         specifier: workspace:*
         version: link:../../packages/platform

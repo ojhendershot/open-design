@@ -5,11 +5,26 @@ import { existsSync } from 'node:fs';
 import { delimiter } from 'node:path';
 import path from 'node:path';
 import { homedir } from 'node:os';
-import { wellKnownUserToolchainBins } from '@open-design/platform';
+import {
+  createCommandInvocation,
+  wellKnownUserToolchainBins,
+} from '@open-design/platform';
 import { detectAcpModels } from './acp.js';
 import { parsePiModels } from './pi-rpc.js';
 
 const execFileP = promisify(execFile);
+
+function execAgentFile(command, args, options = {}) {
+  const invocation = createCommandInvocation({
+    command,
+    args,
+    env: options.env,
+  });
+  return execFileP(invocation.command, invocation.args, {
+    ...options,
+    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+  });
+}
 
 // Capability flags detected at probe time (per agent id). buildArgs consults
 // this map so we only pass flags the installed CLI actually advertises in
@@ -629,7 +644,7 @@ export const AGENT_DEFS = [
     // so we use a custom fetchModels that reads stderr.
     fetchModels: async (resolvedBin, env) => {
       try {
-        const { stderr } = await execFileP(resolvedBin, ['--list-models'], {
+        const { stderr } = await execAgentFile(resolvedBin, ['--list-models'], {
           env,
           timeout: 20_000,
           maxBuffer: 8 * 1024 * 1024,
@@ -910,7 +925,7 @@ async function fetchModels(def, resolvedBin, env) {
   }
   if (!def.listModels) return def.fallbackModels;
   try {
-    const { stdout } = await execFileP(resolvedBin, def.listModels.args, {
+    const { stdout } = await execAgentFile(resolvedBin, def.listModels.args, {
       env,
       timeout: def.listModels.timeoutMs ?? 5000,
       // Models lists from popular CLIs (e.g. opencode) easily exceed the
@@ -948,7 +963,7 @@ async function probe(def, configuredEnv = {}) {
   );
   let version = null;
   try {
-    const { stdout } = await execFileP(resolved, def.versionArgs, {
+    const { stdout } = await execAgentFile(resolved, def.versionArgs, {
       env: probeEnv,
       timeout: 3000,
     });
@@ -961,7 +976,7 @@ async function probe(def, configuredEnv = {}) {
   if (def.helpArgs && def.capabilityFlags) {
     const caps = {};
     try {
-      const { stdout } = await execFileP(resolved, def.helpArgs, {
+      const { stdout } = await execAgentFile(resolved, def.helpArgs, {
         env: probeEnv,
         timeout: 5000,
         maxBuffer: 4 * 1024 * 1024,
@@ -1206,8 +1221,8 @@ function looksLikeWindowsPath(p) {
 //     never go through this path);
 //   - the resolved binary is a `.cmd` / `.bat` shim — that's handled by
 //     `checkWindowsCmdShimCommandLineBudget` so we don't double-emit;
-//   - the resolved binary is a POSIX path on a POSIX host (no
-//     CreateProcess in play);
+//   - the resolved binary is not a Windows path (no CreateProcess
+//     command-line shape to budget);
 //   - the assembled command line fits under the safe limit.
 //
 // Pure: takes `resolvedBin` and `args` explicitly so a test on macOS can
@@ -1220,12 +1235,11 @@ export function checkWindowsDirectExeCommandLineBudget(def, resolvedBin, args) {
   // The cmd-shim guard owns `.bat` / `.cmd`; skip those here so a single
   // oversized prompt doesn't trip both guards.
   if (/\.(bat|cmd)$/i.test(resolvedBin)) return null;
-  // Only fire when the spawn would actually go through Windows'
-  // CreateProcess. On POSIX hosts, `execvp` accepts each argv entry as a
-  // separate buffer — there's no command-line concatenation step that
-  // could expand past a kernel cap, so we have nothing to guard.
-  if (process.platform !== 'win32' && !looksLikeWindowsPath(resolvedBin))
-    return null;
+  // Only fire for Windows-shaped resolved binaries. On POSIX-shaped
+  // paths, `execvp` accepts each argv entry as a separate buffer —
+  // there's no command-line concatenation step that could expand past a
+  // kernel cap, so we have nothing to guard.
+  if (!looksLikeWindowsPath(resolvedBin)) return null;
   const argList = Array.isArray(args) ? args : [];
   // `[command, ...args].map(quote).join(' ')` is the exact shape libuv
   // builds before handing it to CreateProcess.

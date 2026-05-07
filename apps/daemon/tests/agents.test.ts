@@ -1590,12 +1590,19 @@ test('resolveAgentExecutable ignores relative CODEX_BIN overrides', () => {
 test('detectAgents applies configured env while probing the CLI', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'od-agent-env-'));
   try {
-    const bin = join(dir, 'claude');
-    writeFileSync(
-      bin,
-      '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "$CLAUDE_CONFIG_DIR"; exit 0; fi\nif [ "$1" = "-p" ]; then echo "--add-dir --include-partial-messages"; exit 0; fi\nexit 0\n',
-    );
-    chmodSync(bin, 0o755);
+    const bin = join(dir, process.platform === 'win32' ? 'claude.cmd' : 'claude');
+    if (process.platform === 'win32') {
+      writeFileSync(
+        bin,
+        '@echo off\r\nif "%~1"=="--version" (\r\n  echo %CLAUDE_CONFIG_DIR%\r\n  exit /b 0\r\n)\r\nif "%~1"=="-p" (\r\n  echo --add-dir --include-partial-messages\r\n  exit /b 0\r\n)\r\nexit /b 0\r\n',
+      );
+    } else {
+      writeFileSync(
+        bin,
+        '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "$CLAUDE_CONFIG_DIR"; exit 0; fi\nif [ "$1" = "-p" ]; then echo "--add-dir --include-partial-messages"; exit 0; fi\nexit 0\n',
+      );
+      chmodSync(bin, 0o755);
+    }
     process.env.PATH = dir;
     process.env.OD_AGENT_HOME = dir;
 

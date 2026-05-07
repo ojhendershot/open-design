@@ -170,6 +170,8 @@ export const fr: Dict = {
   'promptTemplates.emptyImage': 'Aucun modèle de prompt d\'image installé pour l\'instant.',
   'promptTemplates.emptyVideo': 'Aucun modèle de prompt vidéo installé pour l\'instant.',
   'promptTemplates.emptyNoMatch': 'Aucun modèle ne correspond à votre recherche.',
+  'promptTemplates.allSources': 'Toutes les sources',
+  'promptTemplates.sourceFilterAria': 'Filtrer par source',
   'promptTemplates.attributionFooter': 'Adapté de bibliothèques de prompts publiques. Chaque carte renvoie vers l\'auteur original.',
   'promptTemplates.openPreviewTitle': 'Ouvrir le prompt et l\'aperçu',
   'promptTemplates.sourcePrefix': 'Source :',
