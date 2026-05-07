@@ -22,6 +22,7 @@ jobs:
       GITHUB_REPOSITORY: ${{ github.repository }}
       OPEN_DESIGN_RELEASE_SIGNED: "true"
       OD_RELEASE_BETA_DRY_RUN_NAMESPACE: release-beta-win
+      OD_RELEASE_BETA_DRY_RUN_ROOT: C:\od-rb
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
@@ -91,13 +92,22 @@ jobs:
       - name: Apply beta package version
         run: npm pkg set "version=${{ steps.beta.outputs.beta_version }}" --prefix apps/packaged
 
+      - name: Prepare short tools-pack paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path $env:OD_RELEASE_BETA_DRY_RUN_ROOT | Out-Null
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $env:OD_RELEASE_BETA_DRY_RUN_ROOT "tools-pack")
+          Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $env:OD_RELEASE_BETA_DRY_RUN_ROOT "windows-tools-pack-build.json")
+          Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $env:OD_RELEASE_BETA_DRY_RUN_ROOT "open-design-win-smoke.png")
+
       - name: Build beta windows artifacts
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $toolsPackDir = Join-Path $env:RUNNER_TEMP "tools-pack"
-          $cacheDir = Join-Path $env:RUNNER_TEMP "tools-pack-cache"
-          $buildJsonPath = Join-Path $env:RUNNER_TEMP "windows-tools-pack-build.json"
+          $toolsPackDir = Join-Path $env:OD_RELEASE_BETA_DRY_RUN_ROOT "tools-pack"
+          $cacheDir = Join-Path $env:OD_RELEASE_BETA_DRY_RUN_ROOT "tools-pack-cache"
+          $buildJsonPath = Join-Path $env:OD_RELEASE_BETA_DRY_RUN_ROOT "windows-tools-pack-build.json"
           $buildOutput = node tools/pack/bin/tools-pack.mjs win build `
             --dir $toolsPackDir `
             --cache-dir $cacheDir `
@@ -117,7 +127,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $signtool = "${{ steps.signing.outputs.signtool_path }}"
-          $installer = Join-Path $env:RUNNER_TEMP "tools-pack/out/win/namespaces/$env:OD_RELEASE_BETA_DRY_RUN_NAMESPACE/builder/Open Design-$env:OD_RELEASE_BETA_DRY_RUN_NAMESPACE-setup.exe"
+          $installer = Join-Path $env:OD_RELEASE_BETA_DRY_RUN_ROOT "tools-pack/out/win/namespaces/$env:OD_RELEASE_BETA_DRY_RUN_NAMESPACE/builder/Open Design-$env:OD_RELEASE_BETA_DRY_RUN_NAMESPACE-setup.exe"
           if (!(Test-Path $installer)) {
             throw "expected installer not found at $installer"
           }
@@ -141,15 +151,15 @@ jobs:
         env:
           OD_PACKAGED_E2E_WIN: "1"
           OD_PACKAGED_E2E_NAMESPACE: release-beta-win
-          OD_PACKAGED_E2E_TOOLS_PACK_DIR: ${{ runner.temp }}/tools-pack
-          OD_PACKAGED_E2E_SCREENSHOT_PATH: ${{ runner.temp }}/open-design-win-smoke.png
+          OD_PACKAGED_E2E_TOOLS_PACK_DIR: C:\od-rb\tools-pack
+          OD_PACKAGED_E2E_SCREENSHOT_PATH: C:\od-rb\open-design-win-smoke.png
         run: pnpm test specs/win.spec.ts
 
       - name: Summarize dry run
         if: ${{ always() }}
         shell: pwsh
         run: |
-          $buildJsonPath = Join-Path $env:RUNNER_TEMP "windows-tools-pack-build.json"
+          $buildJsonPath = Join-Path $env:OD_RELEASE_BETA_DRY_RUN_ROOT "windows-tools-pack-build.json"
           "" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
           "### Release-beta dry run result" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
           "" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
