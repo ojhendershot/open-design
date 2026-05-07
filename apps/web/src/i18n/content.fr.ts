@@ -418,9 +418,10 @@ export const FR_PROMPT_TEMPLATE_CATEGORIES: Record<string, string> = {
   Product: 'Produit',
   'Short Form': 'Short form',
   Travel: 'Voyage',
+  'Live Artifact': 'Live artifact',
 };
 
-export const FR_PROMPT_TEMPLATE_IDS_WITH_EN_FALLBACK = [] as const;
+export const FR_PROMPT_TEMPLATE_IDS_WITH_EN_FALLBACK = ['notion-team-dashboard-live-artifact'] as const;
 
 export const FR_PROMPT_TEMPLATE_TAGS: Record<string, string> = {
   '3d': '3D',
@@ -477,6 +478,7 @@ export const FR_PROMPT_TEMPLATE_TAGS: Record<string, string> = {
   'key-visual': 'key visual',
   'kinetic-typography': 'typographie cinétique',
   'linear-style': 'style Linear',
+  'live-artifact': 'live artifact',
   logo: 'logo',
   lyubu: 'Lyu Bu',
   map: 'carte',
