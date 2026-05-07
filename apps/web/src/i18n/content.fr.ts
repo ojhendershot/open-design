@@ -314,18 +314,22 @@ export const FR_DESIGN_SYSTEM_CATEGORIES: Record<string, string> = {
 
 export const FR_SKILL_IDS_WITH_EN_FALLBACK = [
   'dcf-valuation',
+  'flowai-live-dashboard-template',
   'html-ppt-taste-brutalist',
   'html-ppt-taste-editorial',
   'last30days',
+  'live-dashboard',
   'orbit-general',
   'orbit-github',
   'orbit-gmail',
   'orbit-linear',
   'orbit-notion',
   'social-media-dashboard',
+  'social-media-matrix-tracker-template',
   'web-prototype-taste-brutalist',
   'web-prototype-taste-editorial',
   'web-prototype-taste-soft',
+  'waitlist-page',
   'x-research',
 ] as const;
 
@@ -418,9 +422,10 @@ export const FR_PROMPT_TEMPLATE_CATEGORIES: Record<string, string> = {
   Product: 'Produit',
   'Short Form': 'Short form',
   Travel: 'Voyage',
+  'Live Artifact': 'Live artifact',
 };
 
-export const FR_PROMPT_TEMPLATE_IDS_WITH_EN_FALLBACK = [] as const;
+export const FR_PROMPT_TEMPLATE_IDS_WITH_EN_FALLBACK = ['notion-team-dashboard-live-artifact'] as const;
 
 export const FR_PROMPT_TEMPLATE_TAGS: Record<string, string> = {
   '3d': '3D',
@@ -477,6 +482,7 @@ export const FR_PROMPT_TEMPLATE_TAGS: Record<string, string> = {
   'key-visual': 'key visual',
   'kinetic-typography': 'typographie cinétique',
   'linear-style': 'style Linear',
+  'live-artifact': 'live artifact',
   logo: 'logo',
   lyubu: 'Lyu Bu',
   map: 'carte',
