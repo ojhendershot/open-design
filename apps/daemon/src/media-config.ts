@@ -74,6 +74,12 @@ const ENV_KEYS = {
   udio: ['OD_UDIO_API_KEY'],
   elevenlabs: ['OD_ELEVENLABS_API_KEY', 'ELEVENLABS_API_KEY'],
   fishaudio: ['OD_FISHAUDIO_API_KEY', 'FISH_AUDIO_API_KEY'],
+  financialdatasets: [
+    'OD_FINANCIAL_DATASETS_API_KEY',
+    'FINANCIAL_DATASETS_API_KEY',
+  ],
+  exa: ['OD_EXASEARCH_API_KEY', 'EXASEARCH_API_KEY', 'EXA_API_KEY'],
+  perplexity: ['OD_PERPLEXITY_API_KEY', 'PERPLEXITY_API_KEY'],
   tavily: ['OD_TAVILY_API_KEY', 'TAVILY_API_KEY'],
 };
 

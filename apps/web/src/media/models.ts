@@ -44,6 +44,9 @@ export type MediaProviderId =
   | 'udio'
   | 'elevenlabs'
   | 'fishaudio'
+  | 'financialdatasets'
+  | 'exa'
+  | 'perplexity'
   | 'tavily'
   | 'stub';
 
@@ -196,9 +199,33 @@ export const MEDIA_PROVIDERS: MediaProvider[] = [
     docsUrl: 'https://fish.audio',
   },
   {
+    id: 'financialdatasets',
+    label: 'Financial Datasets',
+    hint: '股票/财报/市场数据',
+    integrated: true,
+    defaultBaseUrl: 'https://api.financialdatasets.ai',
+    docsUrl: 'https://financialdatasets.ai',
+  },
+  {
+    id: 'exa',
+    label: 'Exa',
+    hint: 'Web search 首选',
+    integrated: true,
+    defaultBaseUrl: 'https://api.exa.ai',
+    docsUrl: 'https://exa.ai',
+  },
+  {
+    id: 'perplexity',
+    label: 'Perplexity',
+    hint: 'Web search 第二选择',
+    integrated: true,
+    defaultBaseUrl: 'https://api.perplexity.ai',
+    docsUrl: 'https://docs.perplexity.ai',
+  },
+  {
     id: 'tavily',
-    label: 'Tavily Search',
-    hint: 'Agent-callable web research',
+    label: 'Tavily',
+    hint: 'Web search fallback',
     integrated: true,
     defaultBaseUrl: 'https://api.tavily.com',
     docsUrl: 'https://app.tavily.com/home',

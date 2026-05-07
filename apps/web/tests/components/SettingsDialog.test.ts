@@ -9,6 +9,7 @@ import {
   updateAgentCliEnvValue,
   updateCurrentApiProtocolConfig,
 } from '../../src/components/SettingsDialog';
+import { MEDIA_PROVIDERS } from '../../src/media/models';
 import type { AppConfig, ConnectionTestResponse } from '../../src/types';
 
 const baseConfig: AppConfig = {
@@ -182,6 +183,35 @@ describe('SettingsDialog provider connection test requirements', () => {
     expect(
       canRunProviderConnectionTest({ ...baseConfig, model: '' }),
     ).toBe(false);
+  });
+});
+
+describe('SettingsDialog media provider catalog', () => {
+  it('includes the research data provider credentials in Settings', () => {
+    const providers = Object.fromEntries(
+      MEDIA_PROVIDERS.map((provider) => [provider.id, provider]),
+    );
+
+    expect(providers.financialdatasets).toMatchObject({
+      label: 'Financial Datasets',
+      hint: '股票/财报/市场数据',
+    });
+    expect(providers.financialdatasets?.settingsVisible).not.toBe(false);
+    expect(providers.exa).toMatchObject({
+      label: 'Exa',
+      hint: 'Web search 首选',
+    });
+    expect(providers.exa?.settingsVisible).not.toBe(false);
+    expect(providers.perplexity).toMatchObject({
+      label: 'Perplexity',
+      hint: 'Web search 第二选择',
+    });
+    expect(providers.perplexity?.settingsVisible).not.toBe(false);
+    expect(providers.tavily).toMatchObject({
+      label: 'Tavily',
+      hint: 'Web search fallback',
+    });
+    expect(providers.tavily?.settingsVisible).not.toBe(false);
   });
 });
 

@@ -25,7 +25,10 @@ export const MEDIA_PROVIDERS = [
   { id: 'udio', label: 'Udio', hint: 'Music generation', integrated: false },
   { id: 'elevenlabs', label: 'ElevenLabs', hint: 'Voice / SFX', integrated: false },
   { id: 'fishaudio', label: 'FishAudio', hint: 'Speech / voice clone', integrated: true, defaultBaseUrl: 'https://api.fish.audio' },
-  { id: 'tavily', label: 'Tavily Search', hint: 'Agent-callable web research', integrated: true, defaultBaseUrl: 'https://api.tavily.com' },
+  { id: 'financialdatasets', label: 'Financial Datasets', hint: '股票/财报/市场数据', integrated: true, defaultBaseUrl: 'https://api.financialdatasets.ai' },
+  { id: 'exa', label: 'Exa', hint: 'Web search 首选', integrated: true, defaultBaseUrl: 'https://api.exa.ai' },
+  { id: 'perplexity', label: 'Perplexity', hint: 'Web search 第二选择', integrated: true, defaultBaseUrl: 'https://api.perplexity.ai' },
+  { id: 'tavily', label: 'Tavily', hint: 'Web search fallback', integrated: true, defaultBaseUrl: 'https://api.tavily.com' },
   { id: 'stub', label: 'Stub (placeholder)', hint: 'Deterministic local placeholder bytes', integrated: true },
 ];
 

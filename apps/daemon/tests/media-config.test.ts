@@ -18,12 +18,27 @@ const OPENAI_ENV_KEYS = [
   'AZURE_OPENAI_API_KEY',
 ];
 
+const RESEARCH_PROVIDER_ENV_KEYS = [
+  'OD_FINANCIAL_DATASETS_API_KEY',
+  'FINANCIAL_DATASETS_API_KEY',
+  'OD_EXASEARCH_API_KEY',
+  'EXASEARCH_API_KEY',
+  'EXA_API_KEY',
+  'OD_PERPLEXITY_API_KEY',
+  'PERPLEXITY_API_KEY',
+  'OD_TAVILY_API_KEY',
+  'TAVILY_API_KEY',
+];
+
 describe('media-config OpenAI OAuth fallback', () => {
   let homeDir: string;
   let projectRoot: string;
   const originalHome = process.env.HOME;
   const originalEnv = Object.fromEntries(
-    OPENAI_ENV_KEYS.map((key) => [key, process.env[key]]),
+    [...OPENAI_ENV_KEYS, ...RESEARCH_PROVIDER_ENV_KEYS].map((key) => [
+      key,
+      process.env[key],
+    ]),
   );
   const originalMediaConfigDir = process.env.OD_MEDIA_CONFIG_DIR;
   const originalDataDir = process.env.OD_DATA_DIR;
@@ -37,6 +52,9 @@ describe('media-config OpenAI OAuth fallback', () => {
     for (const key of OPENAI_ENV_KEYS) {
       delete process.env[key];
     }
+    for (const key of RESEARCH_PROVIDER_ENV_KEYS) {
+      delete process.env[key];
+    }
     delete process.env.OD_MEDIA_CONFIG_DIR;
     delete process.env.OD_DATA_DIR;
   });
@@ -47,7 +65,7 @@ describe('media-config OpenAI OAuth fallback', () => {
     } else {
       process.env.HOME = originalHome;
     }
-    for (const key of OPENAI_ENV_KEYS) {
+    for (const key of [...OPENAI_ENV_KEYS, ...RESEARCH_PROVIDER_ENV_KEYS]) {
       if (originalEnv[key] == null) {
         delete process.env[key];
       } else {
@@ -183,6 +201,126 @@ describe('media-config OpenAI OAuth fallback', () => {
     });
 
     delete process.env.OD_NANOBANANA_API_KEY;
+  });
+
+  it('resolves stored research provider credentials without exposing secrets in masked config', async () => {
+    await writeStoredMediaConfig({
+      providers: {
+        financialdatasets: {
+          apiKey: 'stored-financialdatasets-key',
+          baseUrl: 'https://financialdatasets.example.test',
+        },
+        exa: {
+          apiKey: 'stored-exa-key',
+          baseUrl: 'https://exa.example.test',
+        },
+        perplexity: {
+          apiKey: 'stored-perplexity-key',
+          baseUrl: 'https://perplexity.example.test',
+        },
+        tavily: {
+          apiKey: 'stored-tavily-key',
+          baseUrl: 'https://tavily.example.test',
+        },
+      },
+    });
+
+    await expect(
+      resolveProviderConfig(projectRoot, 'financialdatasets'),
+    ).resolves.toEqual({
+      apiKey: 'stored-financialdatasets-key',
+      baseUrl: 'https://financialdatasets.example.test',
+    });
+    await expect(resolveProviderConfig(projectRoot, 'exa')).resolves.toEqual({
+      apiKey: 'stored-exa-key',
+      baseUrl: 'https://exa.example.test',
+    });
+    await expect(
+      resolveProviderConfig(projectRoot, 'perplexity'),
+    ).resolves.toEqual({
+      apiKey: 'stored-perplexity-key',
+      baseUrl: 'https://perplexity.example.test',
+    });
+    await expect(resolveProviderConfig(projectRoot, 'tavily')).resolves.toEqual({
+      apiKey: 'stored-tavily-key',
+      baseUrl: 'https://tavily.example.test',
+    });
+
+    const masked = await readMaskedConfig(projectRoot);
+    const providers = masked.providers as Record<string, unknown>;
+    expect(providers.financialdatasets).toMatchObject({
+      configured: true,
+      source: 'stored',
+      apiKeyTail: '-key',
+      baseUrl: 'https://financialdatasets.example.test',
+    });
+    expect(JSON.stringify(masked)).not.toContain('stored-financialdatasets-key');
+    expect(JSON.stringify(masked)).not.toContain('stored-exa-key');
+    expect(JSON.stringify(masked)).not.toContain('stored-perplexity-key');
+    expect(JSON.stringify(masked)).not.toContain('stored-tavily-key');
+  });
+
+  it('resolves research provider credentials from canonical environment variables', async () => {
+    process.env.FINANCIAL_DATASETS_API_KEY = 'env-financialdatasets-key';
+    process.env.EXASEARCH_API_KEY = 'env-exasearch-key';
+    process.env.PERPLEXITY_API_KEY = 'env-perplexity-key';
+    process.env.TAVILY_API_KEY = 'env-tavily-key';
+    await writeStoredMediaConfig({
+      providers: {
+        financialdatasets: { apiKey: 'stored-financialdatasets-key' },
+        exa: { apiKey: 'stored-exa-key' },
+        perplexity: { apiKey: 'stored-perplexity-key' },
+        tavily: { apiKey: 'stored-tavily-key' },
+      },
+    });
+
+    await expect(
+      resolveProviderConfig(projectRoot, 'financialdatasets'),
+    ).resolves.toMatchObject({ apiKey: 'env-financialdatasets-key' });
+    await expect(resolveProviderConfig(projectRoot, 'exa')).resolves.toMatchObject({
+      apiKey: 'env-exasearch-key',
+    });
+    await expect(
+      resolveProviderConfig(projectRoot, 'perplexity'),
+    ).resolves.toMatchObject({ apiKey: 'env-perplexity-key' });
+    await expect(resolveProviderConfig(projectRoot, 'tavily')).resolves.toMatchObject({
+      apiKey: 'env-tavily-key',
+    });
+
+    const masked = await readMaskedConfig(projectRoot);
+    const providers = masked.providers as Record<string, unknown>;
+    expect(providers.financialdatasets).toMatchObject({
+      configured: true,
+      source: 'env',
+      apiKeyTail: '-key',
+    });
+    expect(providers.exa).toMatchObject({
+      configured: true,
+      source: 'env',
+      apiKeyTail: '-key',
+    });
+    expect(providers.perplexity).toMatchObject({
+      configured: true,
+      source: 'env',
+      apiKeyTail: '-key',
+    });
+    expect(providers.tavily).toMatchObject({
+      configured: true,
+      source: 'env',
+      apiKeyTail: '-key',
+    });
+    expect(JSON.stringify(masked)).not.toContain('env-financialdatasets-key');
+    expect(JSON.stringify(masked)).not.toContain('env-exasearch-key');
+    expect(JSON.stringify(masked)).not.toContain('env-perplexity-key');
+    expect(JSON.stringify(masked)).not.toContain('env-tavily-key');
+  });
+
+  it('accepts EXA_API_KEY as a compatibility fallback for Exa', async () => {
+    process.env.EXA_API_KEY = 'env-exa-compat-key';
+
+    await expect(resolveProviderConfig(projectRoot, 'exa')).resolves.toMatchObject({
+      apiKey: 'env-exa-compat-key',
+    });
   });
 
   describe('OD_MEDIA_CONFIG_DIR / OD_DATA_DIR storage routing', () => {
