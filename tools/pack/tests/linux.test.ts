@@ -106,6 +106,7 @@ describe("buildDockerArgs", () => {
     expect(last).toMatch(/export PATH="\$node_dir\/bin:\$PATH"/);
     expect(last).toMatch(/export COREPACK_HOME="\$HOME\/\.node\/corepack"/);
     expect(last).toMatch(/mkdir -p "\$COREPACK_HOME"/);
+    expect(last).toMatch(/corepack enable --install-directory "\$node_dir\/bin"/);
     expect(last).not.toMatch(/\.cache\/node/);
     expect(last).not.toMatch(/\bnpx\b/);
     expect(last).not.toMatch(/npm exec/);

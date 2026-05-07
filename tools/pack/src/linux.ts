@@ -118,6 +118,7 @@ export function buildDockerArgs(
     `export PATH="$node_dir/bin:$PATH"`,
     `export COREPACK_HOME="$HOME/.node/corepack"`,
     `mkdir -p "$COREPACK_HOME"`,
+    `corepack enable --install-directory "$node_dir/bin"`,
   ].join(" && ");
   const pnpmCmd = `corepack pnpm@${PNPM_VERSION}`;
   const innerArgs = [
