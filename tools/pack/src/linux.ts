@@ -121,7 +121,7 @@ export function buildDockerArgs(
   ].join(" && ");
   const pnpmCmd = `corepack pnpm@${PNPM_VERSION}`;
   const innerArgs = [
-    `${pnpmCmd} tools-pack linux build`,
+    `${pnpmCmd} exec tools-pack linux build`,
     `--to ${config.to}`,
     `--namespace ${config.namespace}`,
     "--dir /tools-pack",

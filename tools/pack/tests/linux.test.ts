@@ -92,7 +92,7 @@ describe("buildDockerArgs", () => {
     const last = args[args.length - 1];
     expect(last).toMatch(/node-v24\.14\.1-linux-x64/);
     expect(last).toMatch(/corepack pnpm@\d+\.\d+\.\d+ install --frozen-lockfile/);
-    expect(last).toMatch(/corepack pnpm@\d+\.\d+\.\d+ tools-pack linux build --to all --namespace default/);
+    expect(last).toMatch(/corepack pnpm@\d+\.\d+\.\d+ exec tools-pack linux build --to all --namespace default/);
     expect(last).not.toMatch(/--containerized/);
   });
 
