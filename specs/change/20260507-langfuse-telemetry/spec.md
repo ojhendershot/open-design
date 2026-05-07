@@ -328,7 +328,7 @@ export interface AppConfigPrefs {
 |---|---|---|
 | `LANGFUSE_PUBLIC_KEY` | GitHub Actions org/repo secret | `tools/pack` packaging step → bundled into Electron main env when launching daemon |
 | `LANGFUSE_SECRET_KEY` | same | same |
-| `LANGFUSE_BASE_URL` | same (default `https://cloud.langfuse.com`) | same |
+| `LANGFUSE_BASE_URL` | same (default `https://us.cloud.langfuse.com`, see Q3) | same |
 
 Concrete edits:
 
@@ -386,7 +386,7 @@ Each step touches a bounded surface; a partial landing leaves the system in
 | # | Decision | Notes |
 |---|---|---|
 | Q1 | First-run *Share usage data* button enables both `metrics` and `content`; wording must explicitly list both categories. Owner accepted the bundled-consent compliance risk; mitigation lives in transparent wording + per-toggle Settings exposure. | See §Privacy Defaults. |
-| Q3 | Langfuse EU (`https://cloud.langfuse.com`). Matches the nexu reference implementation's `DEFAULT_BASE_URL`. | Set as the `LANGFUSE_BASE_URL` default. |
+| Q3 | Langfuse **US** (`https://us.cloud.langfuse.com`). Initial preference was EU based on the nexu module's `DEFAULT_BASE_URL`, but an end-to-end smoke on 2026-05-07 with the actual dev key returned `401 Invalid credentials. Confirm that you've configured the correct host.` from `cloud.langfuse.com` and `207 Multi-Status` from `us.cloud.langfuse.com`, confirming the org lives in US. nexu commit `8ee2c801` injects `LANGFUSE_BASE_URL` from CI secrets so its hard-coded EU default was never authoritative. | Set as the `LANGFUSE_BASE_URL` default. |
 | Q5 | Random v4 uuid `installationId` generated at consent time, persisted in `app-config.json`. No machine-id / hardware fingerprint. | See §Identifier. |
 | Q8 | Owner: project owner (`lefarcen`). Holds Langfuse org admin, billing, key rotation. | Step 9 unblocked. |
 | Q10 | Right-to-deletion = "rotate `installationId` locally + let Langfuse retention expire". No active trace-deletion API call. **Implicitly binds us to a short retention promise** (see Q9 follow-up and R7). | See §Right to Deletion. |

@@ -39,7 +39,7 @@ function makeCtx(overrides: Partial<ReportContext> = {}): ReportContext {
 
 const TEST_CONFIG: LangfuseConfig = {
   authHeader: 'Basic dGVzdA==',
-  baseUrl: 'https://cloud.langfuse.com',
+  baseUrl: 'https://us.cloud.langfuse.com',
 };
 
 describe('readLangfuseConfig', () => {
@@ -69,21 +69,21 @@ describe('readLangfuseConfig', () => {
     expect(cfg!.authHeader).toBe(expected);
   });
 
-  it('uses default EU base URL when LANGFUSE_BASE_URL is absent', () => {
+  it('uses default US base URL when LANGFUSE_BASE_URL is absent', () => {
     const cfg = readLangfuseConfig({
       LANGFUSE_PUBLIC_KEY: 'pk',
       LANGFUSE_SECRET_KEY: 'sk',
     });
-    expect(cfg!.baseUrl).toBe('https://cloud.langfuse.com');
+    expect(cfg!.baseUrl).toBe('https://us.cloud.langfuse.com');
   });
 
   it('honours LANGFUSE_BASE_URL and strips trailing slashes', () => {
     const cfg = readLangfuseConfig({
       LANGFUSE_PUBLIC_KEY: 'pk',
       LANGFUSE_SECRET_KEY: 'sk',
-      LANGFUSE_BASE_URL: 'https://us.cloud.langfuse.com//',
+      LANGFUSE_BASE_URL: 'https://cloud.langfuse.com//',
     });
-    expect(cfg!.baseUrl).toBe('https://us.cloud.langfuse.com');
+    expect(cfg!.baseUrl).toBe('https://cloud.langfuse.com');
   });
 });
 
@@ -287,7 +287,7 @@ describe('reportRunCompleted', () => {
     const call = fetchSpy.mock.calls[0]!;
     const url = call[0] as string;
     const init = call[1] as RequestInit & { headers: Record<string, string> };
-    expect(url).toBe('https://cloud.langfuse.com/api/public/ingestion');
+    expect(url).toBe('https://us.cloud.langfuse.com/api/public/ingestion');
     expect(init.method).toBe('POST');
     expect(init.headers.Authorization).toBe('Basic dGVzdA==');
     expect(init.headers['Content-Type']).toBe('application/json');

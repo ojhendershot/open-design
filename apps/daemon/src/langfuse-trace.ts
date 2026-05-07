@@ -18,7 +18,11 @@ import { randomUUID } from 'node:crypto';
 
 import type { TelemetryPrefs } from './app-config.js';
 
-const DEFAULT_BASE_URL = 'https://cloud.langfuse.com';
+// Langfuse US region: confirmed by an end-to-end smoke on 2026-05-07 — the
+// project's keys authenticate against `us.cloud.langfuse.com` only. EU host
+// (`cloud.langfuse.com`) returns 401 with the matching error message.
+// See specs/change/20260507-langfuse-telemetry/spec.md Q3.
+const DEFAULT_BASE_URL = 'https://us.cloud.langfuse.com';
 
 const INPUT_MAX_CHARS = 8 * 1024;
 const OUTPUT_MAX_CHARS = 16 * 1024;
