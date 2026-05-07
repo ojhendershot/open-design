@@ -27,9 +27,10 @@ od:
 
 # DCF Valuation Skill
 
-This skill is adapted from Dexter's DCF valuation workflow. It is an OD-native
-skill contract only; it does not assume Dexter tools, Financial Datasets, or any
-finance-specific OD runtime exists.
+This skill is adapted from Dexter's DCF valuation workflow
+(`https://github.com/virattt/dexter`). It is an OD-native skill contract only;
+it does not assume Dexter tools, Financial Datasets, or any finance-specific OD
+runtime exists.
 
 ## Goal
 
@@ -133,3 +134,7 @@ grounding and citations.
 
 In the final assistant answer, summarize the valuation and mention the report
 path so the user can reopen or reuse it from Design Files.
+
+## Attribution
+
+This workflow is adapted from `https://github.com/virattt/dexter`.
