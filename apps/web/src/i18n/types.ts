@@ -399,6 +399,7 @@ export interface Dict {
   'examples.modeDeck': string;
   'examples.modeDocument': string;
   'examples.modeOrbit': string;
+  'examples.modeLive': string;
   'examples.scenarioGeneral': string;
   'examples.scenarioEngineering': string;
   'examples.scenarioProduct': string;

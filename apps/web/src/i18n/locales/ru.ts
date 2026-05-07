@@ -338,6 +338,7 @@ export const ru: Dict = {
   'examples.modeDeck': 'Презентации',
   'examples.modeDocument': 'Документы и шаблоны',
   'examples.modeOrbit': 'Orbit',
+  'examples.modeLive': 'Live',
   'examples.scenarioGeneral': 'Общее',
   'examples.scenarioEngineering': 'Инженерия',
   'examples.scenarioProduct': 'Продукт',

@@ -27,7 +27,7 @@ import {
   sanitizeCustomModel,
   spawnEnvForAgent,
 } from './agents.js';
-import { findSkillById, listSkills } from './skills.js';
+import { findSkillById, listSkills, splitDerivedSkillId } from './skills.js';
 import { validateLinkedDirs } from './linked-dirs.js';
 import { listCodexPets, readCodexPetSpritesheet } from './codex-pets.js';
 import { syncCommunityPets } from './community-pets-sync.js';
@@ -2288,18 +2288,56 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
   // so we resolve the actual directory via listSkills() rather than guessing.
   //
   // Resolution order:
-  //   1. <skillDir>/example.html — fully-baked static example (preferred)
-  //   2. <skillDir>/assets/template.html  +
+  //   1. Derived id (`<parent>:<child>`):
+  //      <parentDir>/examples/<child>.html — pre-baked single-file sample.
+  //      Subfolder layouts (e.g. live-artifact's
+  //      `examples/<name>/template.html`) are intentionally not served:
+  //      they still contain `{{data.x}}` placeholders that only the
+  //      daemon-side renderer fills in, and serving the raw template
+  //      would render visible placeholder braces in the gallery.
+  //   2. <skillDir>/example.html — fully-baked static example (preferred)
+  //   3. <skillDir>/assets/template.html  +
   //      <skillDir>/assets/example-slides.html — assemble at request time
   //      by replacing the `<!-- SLIDES_HERE -->` marker with the snippet
   //      and patching the placeholder <title>. Lets a skill ship one
   //      canonical seed plus a small content fragment, so the example
   //      never drifts from the seed.
-  //   3. <skillDir>/assets/template.html — raw template, no content slides
-  //   4. <skillDir>/assets/index.html — generic fallback
+  //   4. <skillDir>/assets/template.html — raw template, no content slides
+  //   5. <skillDir>/assets/index.html — generic fallback
+  //   6. First .html in <skillDir>/examples/ — used as a friendly fallback
+  //      so a skill that aggregates examples (like live-artifact) still has
+  //      a real preview on its parent card instead of returning 404.
   app.get('/api/skills/:id/example', async (req, res) => {
     try {
       const skills = await listSkills(SKILLS_DIR);
+
+      // 1. Derived `<parent>:<child>` id — resolve straight to the matching
+      // file under <parentDir>/examples/. Done before findSkillById so the
+      // parent's normal fallback chain never accidentally serves a stale
+      // file when a sample is missing (we'd rather 404 explicitly).
+      const derived = splitDerivedSkillId(req.params.id);
+      if (derived) {
+        const parent = findSkillById(skills, derived.parentId);
+        if (!parent) {
+          return res.status(404).type('text/plain').send('skill not found');
+        }
+        const candidate = path.join(
+          parent.dir,
+          'examples',
+          `${derived.childKey}.html`,
+        );
+        if (fs.existsSync(candidate)) {
+          const html = await fs.promises.readFile(candidate, 'utf8');
+          return res
+            .type('text/html')
+            .send(rewriteSkillAssetUrls(html, parent.id));
+        }
+        return res
+          .status(404)
+          .type('text/plain')
+          .send('derived example not found');
+      }
+
       const skill = findSkillById(skills, req.params.id);
       if (!skill) {
         return res.status(404).type('text/plain').send('skill not found');
@@ -2340,11 +2378,44 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
           .type('text/html')
           .send(rewriteSkillAssetUrls(html, skill.id));
       }
+
+      // Friendly fallback for skills that aggregate examples in a sibling
+      // `examples/` folder (e.g. live-artifact). The parent card would
+      // otherwise 404 even though plenty of perfectly valid samples ship
+      // alongside SKILL.md; pick the first .html file alphabetically so
+      // direct URL access (e.g. deep links) shows something representative.
+      // Subfolder layouts are excluded for the same reason as the derived
+      // resolver above — their `template.html` still has unresolved
+      // `{{data.x}}` placeholders.
+      const examplesDir = path.join(skill.dir, 'examples');
+      if (fs.existsSync(examplesDir)) {
+        let entries: string[] = [];
+        try {
+          entries = await fs.promises.readdir(examplesDir);
+        } catch {
+          entries = [];
+        }
+        entries.sort();
+        for (const name of entries) {
+          if (name.startsWith('.')) continue;
+          if (!name.toLowerCase().endsWith('.html')) continue;
+          const direct = path.join(examplesDir, name);
+          try {
+            const html = await fs.promises.readFile(direct, 'utf8');
+            return res
+              .type('text/html')
+              .send(rewriteSkillAssetUrls(html, skill.id));
+          } catch {
+            continue;
+          }
+        }
+      }
+
       res
         .status(404)
         .type('text/plain')
         .send(
-          'no example.html, assets/template.html, or assets/index.html for this skill',
+          'no example.html, assets/template.html, assets/index.html, or examples/*.html for this skill',
         );
     } catch (err) {
       res.status(500).type('text/plain').send(String(err));

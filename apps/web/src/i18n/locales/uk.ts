@@ -339,6 +339,7 @@ export const uk: Dict = {
   'examples.modeDeck': 'Слайди',
   'examples.modeDocument': 'Документи та шаблони',
   'examples.modeOrbit': 'Orbit',
+  'examples.modeLive': 'Live',
   'examples.scenarioGeneral': 'Загальне',
   'examples.scenarioEngineering': 'Інженерія',
   'examples.scenarioProduct': 'Продукт',

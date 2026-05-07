@@ -338,6 +338,7 @@ export const ptBR: Dict = {
   'examples.modeDeck': 'Slides',
   'examples.modeDocument': 'Docs e templates',
   'examples.modeOrbit': 'Orbit',
+  'examples.modeLive': 'Ao vivo',
   'examples.scenarioGeneral': 'Geral',
   'examples.scenarioEngineering': 'Engenharia',
   'examples.scenarioProduct': 'Produto',
