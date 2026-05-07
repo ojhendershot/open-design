@@ -25,7 +25,7 @@ const NSIS_LANGUAGES = [
 ] as const;
 
 function escapeNsisString(value: string): string {
-  return value.replace(/"/g, '$\\"').replace(/\r?\n/g, "$\\r$\\n");
+  return value.replace(/\$/g, "$$").replace(/"/g, '$\\"').replace(/\r?\n/g, "$\\r$\\n");
 }
 
 function createNsisLanguageInserts(): string {
@@ -98,7 +98,7 @@ async function writeInstallerScript(config: ToolPackConfig, paths: WinPaths): Pr
   const registryKey = escapeNsisString(identity.registryKey);
   const appPathsKey = escapeNsisString(identity.appPathsKey);
   const namespace = escapeNsisString(config.namespace);
-  const localDataRoot = escapeNsisString(`$APPDATA\\${PRODUCT_NAME}\\namespaces\\${sanitizeNamespace(config.namespace)}`);
+  const localDataRoot = `$APPDATA\\${escapeNsisString(PRODUCT_NAME)}\\namespaces\\${escapeNsisString(sanitizeNamespace(config.namespace))}`;
   const nsisLogPath = escapeNsisString(paths.nsisLogPath);
 
   await mkdir(dirname(paths.installerScriptPath), { recursive: true });

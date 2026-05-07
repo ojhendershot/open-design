@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { promisify } from "node:util";
 
@@ -77,6 +77,17 @@ async function runElectronRebuild(config: ToolPackConfig, appRoot: string): Prom
 
 function nativeRebuildOutputPath(appRoot: string): string {
   return join(appRoot, "node_modules", "better-sqlite3", "build", "Release", "better_sqlite3.node");
+}
+
+async function validateNativeRebuildOutput(appRoot: string): Promise<string | null> {
+  const nativePath = nativeRebuildOutputPath(appRoot);
+  try {
+    const metadata = await stat(nativePath);
+    if (metadata.size < 100_000) return `native module output is too small: ${nativePath}`;
+    return null;
+  } catch {
+    return `native module output is missing: ${nativePath}`;
+  }
 }
 
 async function buildWorkspaceArtifacts(config: ToolPackConfig): Promise<void> {
@@ -234,7 +245,10 @@ export async function prepareWinPackagedApp(
     id: "win.packaged-app",
     key,
     outputs: ["app"],
-    invalidate: async () => null,
+    invalidate: async ({ entryRoot }: { entryRoot: string }) => {
+      const nativeValidationError = await validateNativeRebuildOutput(join(entryRoot, "app"));
+      return nativeValidationError == null ? null : { reason: nativeValidationError };
+    },
     build: async ({ entryRoot }: { entryRoot: string }): Promise<PackagedAppCacheMetadata> => {
       const appRoot = join(entryRoot, "app");
       await writeAssembledAppEntrypoints(
@@ -244,9 +258,8 @@ export async function prepareWinPackagedApp(
       );
       await runNpmInstall(appRoot);
       await runElectronRebuild(config, appRoot);
-      if (!(await pathExists(nativeRebuildOutputPath(appRoot)))) {
-        throw new Error(`Electron ABI rebuild did not produce ${nativeRebuildOutputPath(appRoot)}`);
-      }
+      const nativeValidationError = await validateNativeRebuildOutput(appRoot);
+      if (nativeValidationError != null) throw new Error(nativeValidationError);
       return { packagedVersion };
     },
   };

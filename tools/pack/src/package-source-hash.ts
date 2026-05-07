@@ -1,17 +1,12 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, readlink } from "node:fs/promises";
-import { basename, dirname, join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 
 function normalizeRelativePath(path: string): string {
   return path.split("\\").join("/");
 }
 
-async function readNormalizedFile(filePath: string, relativePath: string): Promise<Buffer | string> {
-  if (basename(relativePath) === "package.json") {
-    const value = JSON.parse(await readFile(filePath, "utf8")) as Record<string, unknown>;
-    if (typeof value.version === "string") value.version = "0.0.0-cache";
-    return `${JSON.stringify(value)}\n`;
-  }
+async function readNormalizedFile(filePath: string): Promise<Buffer | string> {
   return await readFile(filePath);
 }
 
@@ -30,7 +25,7 @@ export async function hashPackageSourcePath(path: string): Promise<string> {
     }
     if (!metadata.isDirectory()) {
       hash.update("file");
-      hash.update(await readNormalizedFile(current, relativePath));
+      hash.update(await readNormalizedFile(current));
       return;
     }
     hash.update("dir");
