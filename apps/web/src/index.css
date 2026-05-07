@@ -969,15 +969,6 @@ code {
   white-space: nowrap;
 }
 
-.composer-import-item-enabled {
-  cursor: pointer;
-  color: var(--text);
-}
-.composer-import-item-enabled:hover {
-  background: var(--bg-subtle);
-  color: var(--text);
-}
-
 .user-attachments {
   display: flex;
   gap: 6px;
@@ -4550,6 +4541,9 @@ button.connector-action.is-loading {
   flex: 1 1 auto;
   min-width: 0;
   height: 100%;
+  /* thinner scrollbar to avoid overlap */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }
 
 .ws-tab {
@@ -8256,6 +8250,14 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   width: 100%;
 }
 .composer-import-item:hover {
+  background: var(--bg-subtle);
+  color: var(--text);
+}
+.composer-import-item-enabled {
+  cursor: pointer;
+  color: var(--text);
+}
+.composer-import-item-enabled:hover {
   background: var(--bg-subtle);
   color: var(--text);
 }
