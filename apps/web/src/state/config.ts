@@ -7,6 +7,7 @@ import type {
   NotificationsConfig,
   PetConfig,
 } from '../types';
+import { normalizeAccentColor } from './appearance';
 import {
   DEFAULT_FAILURE_SOUND_ID,
   DEFAULT_SUCCESS_SOUND_ID,
@@ -237,6 +238,7 @@ export function loadConfig(): AppConfig {
       composio: { ...(parsed.composio ?? {}) },
       agentModels: { ...(parsed.agentModels ?? {}) },
       agentCliEnv: { ...(parsed.agentCliEnv ?? {}) },
+      accentColor: normalizeAccentColor(parsed.accentColor) ?? DEFAULT_CONFIG.accentColor,
       pet: normalizePet(parsed.pet),
       notifications: normalizeNotifications(parsed.notifications),
     };
@@ -292,19 +294,20 @@ export async function fetchComposioConfigFromDaemon(): Promise<AppConfig['compos
 
 export async function syncComposioConfigToDaemon(
   config: AppConfig['composio'] | undefined,
-): Promise<void> {
+): Promise<boolean> {
   const apiKey = config?.apiKey ?? '';
   const payload = {
     ...(apiKey.trim() || !config?.apiKeyConfigured ? { apiKey } : {}),
   };
   try {
-    await fetch('/api/connectors/composio/config', {
+    const response = await fetch('/api/connectors/composio/config', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
     });
+    return response.ok;
   } catch {
-    // Daemon offline; localStorage keeps the user's copy for the next save.
+    return false;
   }
 }
 

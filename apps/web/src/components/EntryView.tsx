@@ -60,6 +60,7 @@ interface Props {
   promptTemplatesLoading?: boolean;
   onCreateProject: (input: CreateInput & { pendingPrompt?: string }) => void;
   onImportClaudeDesign: (file: File) => Promise<void> | void;
+  onImportFolder?: (baseDir: string) => Promise<void> | void;
   onOpenProject: (id: string) => void;
   onOpenLiveArtifact: (projectId: string, artifactId: string) => void;
   onDeleteProject: (id: string) => void;
@@ -240,6 +241,7 @@ export function EntryView({
   promptTemplatesLoading = false,
   onCreateProject,
   onImportClaudeDesign,
+  onImportFolder,
   onOpenProject,
   onOpenLiveArtifact,
   onDeleteProject,
@@ -521,6 +523,7 @@ export function EntryView({
           promptTemplates={promptTemplates}
           onCreate={handleCreate}
           onImportClaudeDesign={onImportClaudeDesign}
+          onImportFolder={onImportFolder}
           mediaProviders={config.mediaProviders}
           connectors={connectors}
           connectorsLoading={connectorsLoading}
@@ -569,6 +572,17 @@ export function EntryView({
               {envMetaLine}
             </span>
           </button>
+          <a
+            className="foot-pill"
+            href="https://x.com/nexudotio"
+            target="_blank"
+            rel="noreferrer noopener"
+            title="Follow @nexudotio on X for releases and milestones"
+            aria-label="Follow @nexudotio on X"
+          >
+            <Icon name="external-link" size={12} />
+            <span>Follow @nexudotio</span>
+          </a>
           <LanguageMenu />
         </div>
         <button
