@@ -1,0 +1,47 @@
+{
+  "summary": "Personal trading portfolio dashboard — total value, today's P&L, featured ticker chart, holdings table, watchlist, news/signals, and an AI-generated investment recommendation. Designed to be refreshable on demand: price/holdings/news fields can be rewritten in data.json without re-authoring the template.",
+  "generatedAt": "2026-05-06T14:32:18-05:00",
+  "generatedBy": "live-artifact skill · stock-portfolio demo",
+  "sources": [
+    {
+      "label": "Brokerage holdings (mocked)",
+      "kind": "demo",
+      "note": "Position-level data is illustrative. In a connected setup the refresh runner would pull positions from a brokerage connector (Robinhood, IBKR, Schwab) and write only normalized fields: symbol, shares, avgCost, marketValue, unrealizedPnl, allocation."
+    },
+    {
+      "label": "Quotes (mocked)",
+      "kind": "demo",
+      "note": "Featured ticker price + delta + 21-day series are illustrative. A connected refresh would call a quote provider (IEX Cloud, Polygon, Alpha Vantage) and write only the fields template.html binds to (price, delta, OHLC stats, line/area polyline points)."
+    },
+    {
+      "label": "AI recommendation",
+      "kind": "demo",
+      "note": "Signal #2417 is illustrative. A real refresh would re-run an analyst prompt over the holdings + market context and write headline, sub, conviction, target, suggested size, and 3 catalysts back into data.json."
+    }
+  ],
+  "transformations": [
+    {
+      "step": "Extract preview-shaped fields",
+      "note": "Data is normalized to display-ready strings — '$284,521.64', '+$3,182.40', '+1.13%' — so the template stays free of formatting logic. Numbers and percentages are pre-formatted; direction is encoded via an explicit dirClass field ('up' / 'down')."
+    },
+    {
+      "step": "Pre-compute SVG geometry",
+      "note": "Polyline 'points' strings (line + area) for the portfolio P&L chart, the featured ticker chart, and each watchlist sparkline are pre-computed and stored as plain strings. Template uses single attribute interpolation only — no expression evaluation."
+    },
+    {
+      "step": "Bound external links",
+      "note": "Each holding/watchlist row carries its own exchUrl (NASDAQ / NYSE quote page). Featured ticker carries three explicit URLs: primary exchange, Yahoo Finance, TradingView. No inline scripting; links are vanilla anchors."
+    }
+  ],
+  "refreshContract": {
+    "cadence": "On demand (manual or cron)",
+    "writes": ["data.json"],
+    "preserves": ["template.html", "artifact.json"],
+    "notes": "Refresh runner should write a fresh data.json that matches the template's binding shape. Daemon validates against bounded JSON limits and re-derives index.html from template.html + data.json. No raw HTML is ever stored in data.json — every binding lands in escaped text or attribute slots."
+  },
+  "safetyNotes": [
+    "No credentials, OAuth tokens, cookies, raw provider responses, or HTTP envelopes are persisted.",
+    "Forbidden keys (raw, payload, body, headers, cookie, authorization, token, secret, credential, password) are not present in data.json.",
+    "All template interpolation is escaped text or ordinary attributes — no script/style/event-handler attribute interpolation, no raw HTML insertion."
+  ]
+}
