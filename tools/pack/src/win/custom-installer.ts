@@ -180,6 +180,21 @@ Var RemoveDesktopShortcutState
 Var RemoveLocalDataState
 Var RunningInstancesOutput
 Var ExistingInstallLocation
+Var LE
+Var LT
+Var LX
+
+!macro LOG_PATH_STATE EVENT TARGET
+  StrCpy $LE "\${EVENT}"
+  StrCpy $LT "\${TARGET}"
+  Call LogPathState
+!macroend
+
+!macro UN_LOG_PATH_STATE EVENT TARGET
+  StrCpy $LE "\${EVENT}"
+  StrCpy $LT "\${TARGET}"
+  Call un.LogPathState
+!macroend
 
 Function LogInstallerEvent
   Exch $0
@@ -187,11 +202,25 @@ Function LogInstallerEvent
   CreateDirectory "${escapeNsisString(dirname(paths.nsisLogPath))}"
   FileOpen $1 "${nsisLogPath}" a
   IfErrors done
+  FileSeek $1 0 END
   FileWrite $1 "$0$\\r$\\n"
   FileClose $1
 done:
   Pop $1
   Pop $0
+FunctionEnd
+
+Function LogPathState
+  StrCpy $LX 0
+  IfFileExists "$LT" 0 check_dir
+  StrCpy $LX 1
+  Goto write
+check_dir:
+  IfFileExists "$LT\\*.*" 0 write
+  StrCpy $LX 1
+write:
+  Push "event=$LE target=$LT exists=$LX"
+  Call LogInstallerEvent
 FunctionEnd
 
 Function un.LogInstallerEvent
@@ -200,11 +229,25 @@ Function un.LogInstallerEvent
   CreateDirectory "${escapeNsisString(dirname(paths.nsisLogPath))}"
   FileOpen $1 "${nsisLogPath}" a
   IfErrors done
+  FileSeek $1 0 END
   FileWrite $1 "$0$\\r$\\n"
   FileClose $1
 done:
   Pop $1
   Pop $0
+FunctionEnd
+
+Function un.LogPathState
+  StrCpy $LX 0
+  IfFileExists "$LT" 0 check_dir
+  StrCpy $LX 1
+  Goto write
+check_dir:
+  IfFileExists "$LT\\*.*" 0 write
+  StrCpy $LX 1
+write:
+  Push "event=$LE target=$LT exists=$LX"
+  Call un.LogInstallerEvent
 FunctionEnd
 
 Function un.onInit
@@ -323,16 +366,20 @@ FunctionEnd
 Function CreateDesktopShortcut
   SetShellVarContext current
   SetOutPath "$INSTDIR"
+  !insertmacro LOG_PATH_STATE "desktop_shortcut_before_create" "$DESKTOP\\${shortcutName}"
   CreateShortCut "$DESKTOP\\${shortcutName}" "$INSTDIR\\${exeName}" "" "$INSTDIR\\${exeName}" 0
+  !insertmacro LOG_PATH_STATE "desktop_shortcut_after_create" "$DESKTOP\\${shortcutName}"
 FunctionEnd
 
 Function RemoveInstallDir
+  !insertmacro LOG_PATH_STATE "install_dir_before_remove" "$INSTDIR"
   Push $0
   nsExec::ExecToLog 'cmd.exe /d /s /c if exist "$INSTDIR" rmdir /s /q "$INSTDIR"'
   Pop $0
   Push "install dir remove exit=$0"
   Call LogInstallerEvent
   Pop $0
+  !insertmacro LOG_PATH_STATE "install_dir_after_remove" "$INSTDIR"
 FunctionEnd
 
 Function un.UninstallOptionsPage
@@ -365,27 +412,33 @@ done:
 FunctionEnd
 
 Function un.RemoveInstallDirContents
+  !insertmacro UN_LOG_PATH_STATE "install_dir_before_remove" "$INSTDIR"
   Push $0
   nsExec::ExecToLog 'cmd.exe /d /s /c if exist "$INSTDIR" rmdir /s /q "$INSTDIR"'
   Pop $0
   Push "install dir fast remove exit=$0"
   Call un.LogInstallerEvent
   Pop $0
+  !insertmacro UN_LOG_PATH_STATE "install_dir_after_remove" "$INSTDIR"
 FunctionEnd
 
 Function un.RemoveLocalDataRoot
+  !insertmacro UN_LOG_PATH_STATE "local_data_before_remove" "${localDataRoot}"
   Push $0
   nsExec::ExecToLog 'cmd.exe /d /s /c if exist "${localDataRoot}" rmdir /s /q "${localDataRoot}"'
   Pop $0
   Push "local data remove exit=$0"
   Call un.LogInstallerEvent
   Pop $0
+  !insertmacro UN_LOG_PATH_STATE "local_data_after_remove" "${localDataRoot}"
 FunctionEnd
 
 Section "Install"
   SetShellVarContext current
   Push "install section start"
   Call LogInstallerEvent
+  !insertmacro LOG_PATH_STATE "install_dir_before_install" "$INSTDIR"
+  !insertmacro LOG_PATH_STATE "installed_exe_before_install" "$INSTDIR\\${exeName}"
 
   IfFileExists "$INSTDIR\\${exeName}" 0 prepare_install_dir
   Call RemoveInstallDir
@@ -409,12 +462,19 @@ prepare_install_dir:
     Abort
   \${EndIf}
 
+  !insertmacro LOG_PATH_STATE "install_dir_after_extract" "$INSTDIR"
+  !insertmacro LOG_PATH_STATE "installed_exe_after_extract" "$INSTDIR\\${exeName}"
   WriteUninstaller "$INSTDIR\\${uninstallerName}"
+  !insertmacro LOG_PATH_STATE "uninstaller_after_write" "$INSTDIR\\${uninstallerName}"
   SetOutPath "$INSTDIR"
   IfSilent 0 skip_silent_desktop_shortcut
+  !insertmacro LOG_PATH_STATE "desktop_shortcut_before_create" "$DESKTOP\\${shortcutName}"
   CreateShortCut "$DESKTOP\\${shortcutName}" "$INSTDIR\\${exeName}" "" "$INSTDIR\\${exeName}" 0
+  !insertmacro LOG_PATH_STATE "desktop_shortcut_after_create" "$DESKTOP\\${shortcutName}"
 skip_silent_desktop_shortcut:
+  !insertmacro LOG_PATH_STATE "start_menu_shortcut_before_create" "$SMPROGRAMS\\${shortcutName}"
   CreateShortCut "$SMPROGRAMS\\${shortcutName}" "$INSTDIR\\${exeName}" "" "$INSTDIR\\${exeName}" 0
+  !insertmacro LOG_PATH_STATE "start_menu_shortcut_after_create" "$SMPROGRAMS\\${shortcutName}"
   WriteRegStr HKCU "${registryKey}" "DisplayName" "${productName} \${APP_VERSION}"
   WriteRegStr HKCU "${registryKey}" "DisplayVersion" "\${APP_VERSION}"
   WriteRegStr HKCU "${registryKey}" "InstallLocation" "$INSTDIR"
@@ -422,6 +482,8 @@ skip_silent_desktop_shortcut:
   WriteRegStr HKCU "${registryKey}" "QuietUninstallString" '"$INSTDIR\\${uninstallerName}" /currentuser /S'
   WriteRegStr HKCU "${registryKey}" "DisplayIcon" "$INSTDIR\\${exeName},0"
   WriteRegStr HKCU "${appPathsKey}" "" "$INSTDIR\\${exeName}"
+  Push "event=registry_after_write key=${registryKey} appPathsKey=${appPathsKey}"
+  Call LogInstallerEvent
   Push "install section done"
   Call LogInstallerEvent
 SectionEnd
@@ -439,15 +501,20 @@ check_desktop_shortcut_state:
 delete_desktop_shortcut:
   Delete "$DESKTOP\\${shortcutName}"
 after_desktop_shortcut:
+  !insertmacro UN_LOG_PATH_STATE "desktop_shortcut_after_delete" "$DESKTOP\\${shortcutName}"
   Delete "$SMPROGRAMS\\${shortcutName}"
+  !insertmacro UN_LOG_PATH_STATE "start_menu_shortcut_after_delete" "$SMPROGRAMS\\${shortcutName}"
   DeleteRegKey HKCU "${registryKey}"
   DeleteRegKey HKCU "${appPathsKey}"
+  Push "event=registry_after_delete key=${registryKey} appPathsKey=${appPathsKey}"
+  Call un.LogInstallerEvent
   \${If} $RemoveLocalDataState == \${BST_CHECKED}
     Call un.RemoveLocalDataRoot
   \${EndIf}
   Call un.RemoveInstallDirContents
   Delete "$INSTDIR\\${uninstallerName}"
   RMDir "$INSTDIR"
+  !insertmacro UN_LOG_PATH_STATE "install_dir_after_final_rmdir" "$INSTDIR"
   Push "uninstall section done"
   Call un.LogInstallerEvent
 SectionEnd
