@@ -131,6 +131,10 @@ export const tr: Dict = {
   'settings.mediaProviders': 'Medya sağlayıcıları',
   'settings.mediaProvidersHint':
     'Görsel, video ve ses oluşumu için API anahtarları. Yerel saklanır ve yerel arka plan servisiyle senkronize edilir.',
+  'settings.mcpServerTitle': 'MCP sunucusu',
+  'settings.mcpServerHint': 'Open Design\'ı kodlama ajanınız için MCP sunucusu olarak yayınlayın.',
+  'settings.externalMcpTitle': 'Dış MCP',
+  'settings.externalMcpHint': 'Dış servislerden (Higgsfield, GitHub, …) MCP araçları ekleyin.',
   'settings.mediaProviderApiKey': 'API anahtarı',
   'settings.mediaProviderBaseUrl': 'Temel URL',
   'settings.mediaProviderConfigured': 'Ayarlandı',
@@ -400,6 +404,7 @@ export const tr: Dict = {
   'examples.modeDeck': 'Slaytlar',
   'examples.modeDocument': 'Doküman & şablonlar',
   'examples.modeOrbit': 'Orbit',
+  'examples.modeLive': 'Canlı',
   'examples.scenarioGeneral': 'Genel',
   'examples.scenarioEngineering': 'Mühendislik',
   'examples.scenarioProduct': 'Ürün',

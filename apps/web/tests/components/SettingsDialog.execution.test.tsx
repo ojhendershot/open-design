@@ -1041,7 +1041,7 @@ describe('SettingsDialog MCP server interactions', () => {
       expect(fetchMock).toHaveBeenCalledWith('/api/mcp/install-info');
     });
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'MCP server' })).toBeTruthy();
+      expect(screen.getByRole('heading', { level: 3, name: 'MCP server' })).toBeTruthy();
     });
 
     expect(screen.getByText(/Run this in your terminal/i)).toBeTruthy();
@@ -1700,7 +1700,7 @@ describe('SettingsDialog about interactions', () => {
       },
     );
 
-    expect(screen.getByRole('heading', { name: 'About' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 3, name: 'About' })).toBeTruthy();
     expect(screen.getByText('Version')).toBeTruthy();
     expect(screen.getByText('0.4.1')).toBeTruthy();
     expect(screen.getByText('Channel')).toBeTruthy();

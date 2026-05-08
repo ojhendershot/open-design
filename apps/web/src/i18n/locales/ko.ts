@@ -137,6 +137,10 @@ export const ko: Dict = {
   'settings.mediaProviders': '미디어 프로바이더',
   'settings.mediaProvidersHint':
     '이미지, 비디오, 오디오 생성을 위한 API 키입니다. 로컬에 저장되며 로컬 데몬과 동기화됩니다.',
+  'settings.mcpServerTitle': 'MCP 서버',
+  'settings.mcpServerHint': 'Open Design을 코딩 에이전트용 MCP 서버로 노출합니다.',
+  'settings.externalMcpTitle': '외부 MCP',
+  'settings.externalMcpHint': '외부 서비스(Higgsfield, GitHub 등)의 MCP 도구를 추가합니다.',
   'settings.mediaProviderApiKey': 'API 키',
   'settings.mediaProviderBaseUrl': 'Base URL',
   'settings.mediaProviderConfigured': '설정됨',
@@ -407,6 +411,7 @@ export const ko: Dict = {
   'examples.modeDeck': '슬라이드',
   'examples.modeDocument': '문서 및 템플릿',
   'examples.modeOrbit': 'Orbit',
+  'examples.modeLive': '라이브',
   'examples.scenarioGeneral': '일반',
   'examples.scenarioEngineering': '엔지니어링',
   'examples.scenarioProduct': '제품',

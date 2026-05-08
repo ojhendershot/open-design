@@ -137,6 +137,10 @@ export const ar: Dict = {
   'settings.mediaProviders': 'مزودو الوسائط',
   'settings.mediaProvidersHint':
     'مفاتيح API لإنشاء الصور والفيديو والصوت. تخزن محلياً وتزامن مع البرنامج الخفي المحلي.',
+  'settings.mcpServerTitle': 'خادم MCP',
+  'settings.mcpServerHint': 'كشف Open Design كخادم MCP لوكيل البرمجة الخاص بك.',
+  'settings.externalMcpTitle': 'MCP خارجي',
+  'settings.externalMcpHint': 'أضف أدوات MCP من خدمات خارجية (Higgsfield، GitHub، …).',
   'settings.mediaProviderApiKey': 'مفتاح API',
   'settings.mediaProviderBaseUrl': 'رابط القاعدة',
   'settings.mediaProviderConfigured': 'تم التكوين',
@@ -407,6 +411,7 @@ export const ar: Dict = {
   'examples.modeDeck': 'شرائح',
   'examples.modeDocument': 'مستندات وقوالب',
   'examples.modeOrbit': 'Orbit',
+  'examples.modeLive': 'مباشر',
   'examples.scenarioGeneral': 'عام',
   'examples.scenarioEngineering': 'هندسة',
   'examples.scenarioProduct': 'منتج',

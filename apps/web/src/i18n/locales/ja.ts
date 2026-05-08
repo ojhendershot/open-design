@@ -137,6 +137,10 @@ export const ja: Dict = {
   'settings.mediaProviders': 'メディアプロバイダー',
   'settings.mediaProvidersHint':
     '画像・動画・音声生成のための API キー。ローカルに保存され、ローカルデーモンに同期されます。',
+  'settings.mcpServerTitle': 'MCP サーバー',
+  'settings.mcpServerHint': 'Open Design を MCP サーバーとしてコーディングエージェントに公開します。',
+  'settings.externalMcpTitle': '外部 MCP',
+  'settings.externalMcpHint': '外部サービス（Higgsfield、GitHub など）の MCP ツールを追加します。',
   'settings.mediaProviderApiKey': 'APIキー',
   'settings.mediaProviderBaseUrl': 'ベース URL',
   'settings.mediaProviderConfigured': '設定済み',
@@ -299,6 +303,7 @@ export const ja: Dict = {
   'examples.modeDeck': 'スライド',
   'examples.modeDocument': 'ドキュメント & テンプレート',
   'examples.modeOrbit': 'Orbit',
+  'examples.modeLive': 'ライブ',
   'examples.scenarioGeneral': '一般',
   'examples.scenarioEngineering': 'エンジニアリング',
   'examples.scenarioProduct': 'プロダクト',

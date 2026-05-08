@@ -135,6 +135,10 @@ export const en: Dict = {
   'settings.mediaProviders': 'Media providers',
   'settings.mediaProvidersHint':
     'API keys for image, video and audio generation. Stored locally and synced to the local daemon.',
+  'settings.mcpServerTitle': 'MCP server',
+  'settings.mcpServerHint': 'Expose Open Design as an MCP server for your coding agent.',
+  'settings.externalMcpTitle': 'External MCP',
+  'settings.externalMcpHint': 'Add MCP tools from external services (Higgsfield, GitHub, …).',
   'settings.mediaProviderApiKey': 'API key',
   'settings.mediaProviderBaseUrl': 'Base URL',
   'settings.mediaProviderConfigured': 'Configured',
@@ -418,6 +422,7 @@ export const en: Dict = {
   'examples.modeDeck': 'Slides',
   'examples.modeDocument': 'Docs & templates',
   'examples.modeOrbit': 'Orbit',
+  'examples.modeLive': 'Live',
   'examples.scenarioGeneral': 'General',
   'examples.scenarioEngineering': 'Engineering',
   'examples.scenarioProduct': 'Product',

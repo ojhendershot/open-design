@@ -136,6 +136,10 @@ export const uk: Dict = {
   'settings.mediaProviders': 'Медіа-провайдери',
   'settings.mediaProvidersHint':
     'API-ключі для генерації зображень, відео та аудіо. Зберігаються локально та синхронізуються з локальним фоновим процесом.',
+  'settings.mcpServerTitle': 'MCP-сервер',
+  'settings.mcpServerHint': 'Відкрийте Open Design як MCP-сервер для вашого кодинг-агента.',
+  'settings.externalMcpTitle': 'Зовнішній MCP',
+  'settings.externalMcpHint': 'Додайте MCP-інструменти із зовнішніх сервісів (Higgsfield, GitHub, …).',
   'settings.mediaProviderApiKey': 'API-ключ',
   'settings.mediaProviderBaseUrl': 'Базовий URL',
   'settings.mediaProviderConfigured': 'Налаштовано',
@@ -418,6 +422,7 @@ export const uk: Dict = {
   'examples.modeDeck': 'Слайди',
   'examples.modeDocument': 'Документи та шаблони',
   'examples.modeOrbit': 'Orbit',
+  'examples.modeLive': 'Live',
   'examples.scenarioGeneral': 'Загальне',
   'examples.scenarioEngineering': 'Інженерія',
   'examples.scenarioProduct': 'Продукт',
