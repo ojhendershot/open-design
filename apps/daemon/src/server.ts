@@ -1738,6 +1738,7 @@ function resolveChatRunShutdownGraceMs() {
 
 export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST || '127.0.0.1', returnServer = false } = {}) {
   let resolvedPort = port;
+  let daemonShuttingDown = false;
   const extraAllowedOrigins = configuredAllowedOrigins();
   const app = express();
   app.use(express.json({ limit: '4mb' }));
@@ -5874,6 +5875,9 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
   });
 
   app.post('/api/runs', (req, res) => {
+    if (daemonShuttingDown) {
+      return sendApiError(res, 503, 'UPSTREAM_UNAVAILABLE', 'daemon is shutting down');
+    }
     const run = design.runs.create(req.body || {});
     /** @type {import('@open-design/contracts').ChatRunCreateResponse} */
     const body = { runId: run.id };
@@ -5911,6 +5915,9 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
   });
 
   app.post('/api/chat', (req, res) => {
+    if (daemonShuttingDown) {
+      return sendApiError(res, 503, 'UPSTREAM_UNAVAILABLE', 'daemon is shutting down');
+    }
     const run = design.runs.create();
     design.runs.stream(run, req, res);
     design.runs.start(run, () => startChatRun(req.body || {}, run));
@@ -6609,6 +6616,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     const shutdownDaemonRuns = async () => {
       if (daemonShutdownStarted) return;
       daemonShutdownStarted = true;
+      daemonShuttingDown = true;
       await design.runs.shutdownActive({ graceMs: resolveChatRunShutdownGraceMs() });
     };
     let server;
