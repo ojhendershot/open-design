@@ -26,6 +26,7 @@ import {
   stopProcesses,
 } from "@open-design/platform";
 import type { ToolPackConfig } from "../config.js";
+import { PACKAGED_CONFIG_PATH_ENV, writeLaunchPackagedConfig } from "./app-config.js";
 import { DESKTOP_LOG_ECHO_ENV, PRODUCT_NAME } from "./constants.js";
 import { clearQuarantine, pathExists } from "./fs.js";
 import { desktopIdentityPath, desktopLogPath, macAppExecutablePath, resolveMacPaths } from "./paths.js";
@@ -517,6 +518,7 @@ export async function startPackedMacApp(config: ToolPackConfig): Promise<MacStar
   const target = await resolvePackedMacStartTarget(config);
   const stamp = desktopStamp(config);
   const logPath = desktopLogPath(config);
+  const launchConfigPath = await writeLaunchPackagedConfig(config, target.appPath);
   await mkdir(dirname(logPath), { recursive: true });
   await writeFile(logPath, "", "utf8");
 
@@ -534,6 +536,7 @@ export async function startPackedMacApp(config: ToolPackConfig): Promise<MacStar
         extraEnv: {
           ...process.env,
           [DESKTOP_LOG_ECHO_ENV]: "0",
+          [PACKAGED_CONFIG_PATH_ENV]: launchConfigPath,
         },
         stamp,
       }),

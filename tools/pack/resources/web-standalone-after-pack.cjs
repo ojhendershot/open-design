@@ -29,6 +29,15 @@ function requireBoolean(record, key) {
   return value;
 }
 
+function optionalBoolean(record, key, fallback) {
+  const value = record[key];
+  if (value == null) return fallback;
+  if (typeof value !== "boolean") {
+    throw new Error(`[tools-pack web-standalone] config.${key} must be a boolean`);
+  }
+  return value;
+}
+
 function requireAbsolutePath(record, key) {
   const value = requireString(record, key);
   if (!path.isAbsolute(value)) {
@@ -97,7 +106,7 @@ async function readHookConfig() {
 
   return {
     auditReportPath,
-    macAdhocBundleSign: requireBoolean(raw, "macAdhocBundleSign"),
+    macAdhocBundleSign: optionalBoolean(raw, "macAdhocBundleSign", false),
     pruneCopiedSharp: requireBoolean(raw, "pruneCopiedSharp"),
     pruneRootNext: requireBoolean(raw, "pruneRootNext"),
     pruneRootSharp: requireBoolean(raw, "pruneRootSharp"),
