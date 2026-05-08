@@ -314,6 +314,7 @@ export const RU_DESIGN_SYSTEM_CATEGORIES: Record<string, string> = {
 };
 
 export const RU_SKILL_IDS_WITH_EN_FALLBACK = [
+  'clinical-case-report',
   'dcf-valuation',
   'flowai-live-dashboard-template',
   'html-ppt-taste-brutalist',

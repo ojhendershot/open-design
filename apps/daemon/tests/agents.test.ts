@@ -195,6 +195,8 @@ test('codex model picker includes current OpenAI choices in priority order', asy
     'gpt-5.4',
     'gpt-5.4-mini',
     'gpt-5.3-codex',
+    'gpt-5.1',
+    'gpt-5.1-codex-mini',
     'gpt-5-codex',
     'gpt-5',
     'o3',
@@ -245,6 +247,13 @@ test('codex model picker includes current OpenAI choices in priority order', asy
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('codex picker includes gpt-5.1 model family', () => {
+  const pickerModels = new Set(codex.fallbackModels.map((model) => model.id));
+
+  assert.equal(pickerModels.has('gpt-5.1'), true);
+  assert.equal(pickerModels.has('gpt-5.1-codex-mini'), true);
 });
 
 // Recent Codex CLI versions reject a bare `-` argv sentinel; passing it

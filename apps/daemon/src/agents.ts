@@ -234,6 +234,8 @@ export const AGENT_DEFS = [
       { id: 'gpt-5.4', label: 'gpt-5.4' },
       { id: 'gpt-5.4-mini', label: 'gpt-5.4-mini' },
       { id: 'gpt-5.3-codex', label: 'gpt-5.3-codex' },
+      { id: 'gpt-5.1', label: 'gpt-5.1' },
+      { id: 'gpt-5.1-codex-mini', label: 'gpt-5.1-codex-mini' },
       { id: 'gpt-5-codex', label: 'gpt-5-codex' },
       { id: 'gpt-5', label: 'gpt-5' },
       { id: 'o3', label: 'o3' },
