@@ -368,6 +368,7 @@ export const FR_SKILL_IDS_WITH_EN_FALLBACK = [
   'waitlist-page',
   'x-research',
   'trading-analysis-dashboard-template',
+  'github-dashboard',
 ] as const;
 
 export const FR_DESIGN_SYSTEM_IDS_WITH_EN_FALLBACK = [
