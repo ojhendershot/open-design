@@ -13784,160 +13784,30 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   white-space: pre-wrap;
 }
 
-/* Settings → Privacy section. Welcome-state consent card sits above the
-   regular toggle row; both share the section's column layout. */
-.settings-privacy-consent {
+/* Privacy disclosure list inside the consent card. Inherits the section's
+   typography; the only Privacy-specific styling we need is the list reset
+   and a subtle row separator, since the surrounding shell (settings-section,
+   settings-subsection, seg-control, ghost) already handles the rest. */
+.settings-privacy-disclosure {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-elevated, var(--bg));
+  gap: 10px;
+  margin: 4px 0;
 }
 
-.settings-privacy-consent-body strong {
-  display: block;
-  font-size: 14px;
-  margin-bottom: 6px;
-}
-
-.settings-privacy-consent-body p {
-  margin: 0 0 8px;
-}
-
-.settings-privacy-consent-body ul {
-  list-style: none;
-  padding: 0;
-  margin: 8px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.settings-privacy-consent-body li {
+.settings-privacy-disclosure > div {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 10px;
-  border: 1px solid var(--border-soft, var(--border));
-  border-radius: 6px;
 }
 
-.settings-privacy-consent-body li > strong {
-  margin-bottom: 0;
+.settings-privacy-disclosure dt {
   font-size: 13px;
-}
-
-.settings-privacy-consent-body li > span {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.settings-privacy-consent-actions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.settings-privacy-consent-actions button {
-  flex: 1 1 0;
-  min-width: 140px;
-  padding: 9px 14px;
-  border-radius: 7px;
   font-weight: 600;
-  cursor: pointer;
 }
 
-.settings-privacy-consent-share {
-  border: 1px solid var(--accent, currentColor);
-  background: var(--accent, currentColor);
-  color: var(--accent-fg, white);
-}
-
-.settings-privacy-consent-decline {
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
-}
-
-.settings-privacy-toggles {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.settings-privacy-toggle {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  padding: 10px 12px;
-  border: 1px solid var(--border-soft, var(--border));
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.settings-privacy-toggle-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1 1 auto;
-}
-
-.settings-privacy-toggle-text strong {
-  font-size: 13px;
-}
-
-.settings-privacy-toggle-text small {
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.settings-privacy-toggle input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  flex: 0 0 auto;
-  cursor: pointer;
-}
-
-.settings-privacy-id {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 12px 0 0;
-}
-
-.settings-privacy-id dt {
-  font-size: 11px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.settings-privacy-id code {
+.settings-privacy-disclosure dd {
+  margin: 0;
   font-size: 12px;
   color: var(--text-muted);
-  word-break: break-all;
-}
-
-.settings-privacy-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.settings-privacy-delete {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  align-self: flex-start;
-  padding: 7px 12px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
-  border-radius: 6px;
-  font-size: 13px;
-  cursor: pointer;
 }

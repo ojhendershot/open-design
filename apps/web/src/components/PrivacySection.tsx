@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from 'react';
+import type { CSSProperties, Dispatch, SetStateAction } from 'react';
 import { useT } from '../i18n';
 import { Icon } from './Icon';
 import type { AppConfig, TelemetryConfig } from '../types';
@@ -12,9 +12,8 @@ function generateInstallationId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
-  // Fallback for environments without crypto.randomUUID (older test runners,
-  // some embedded webviews). Not cryptographically strong but sufficient
-  // for an opaque, non-PII install identifier.
+  // Older webviews / test runners that lack crypto.randomUUID. The output
+  // is opaque and non-PII; we only need uniqueness across installs.
   return `inst-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
@@ -23,8 +22,7 @@ export function PrivacySection({ cfg, setCfg }: Props): JSX.Element {
   const telemetry: TelemetryConfig = cfg.telemetry ?? {};
   // `installationId === undefined` means the user has never seen the consent
   // surface. After the first decision it's either a uuid (opted in) or
-  // `null` (declined). We use that to gate the welcome banner vs the regular
-  // toggle row.
+  // `null` (declined). That gates the consent card vs the toggle row.
   const hasMadeConsentDecision = cfg.installationId !== undefined;
 
   function patchTelemetry(patch: Partial<TelemetryConfig>): void {
@@ -47,16 +45,8 @@ export function PrivacySection({ cfg, setCfg }: Props): JSX.Element {
     }));
   }
 
-  function rotateInstallationId(): void {
-    setCfg((c) => ({
-      ...c,
-      installationId: null,
-      telemetry: { metrics: false, content: false, artifactManifest: false },
-    }));
-  }
-
   return (
-    <section className="settings-section settings-privacy">
+    <section className="settings-section">
       <div className="section-head">
         <div>
           <h3>{t('settings.privacy')}</h3>
@@ -65,81 +55,54 @@ export function PrivacySection({ cfg, setCfg }: Props): JSX.Element {
       </div>
 
       {!hasMadeConsentDecision ? (
-        <div className="settings-privacy-consent">
-          <div className="settings-privacy-consent-body">
-            <strong>{t('settings.privacyConsentKicker')}</strong>
-            <p>{t('settings.privacyConsentLead')}</p>
-            <ul>
-              <li>
-                <strong>{t('settings.privacyMetrics')}</strong>
-                <span>{t('settings.privacyMetricsHint')}</span>
-              </li>
-              <li>
-                <strong>{t('settings.privacyContent')}</strong>
-                <span>{t('settings.privacyContentHint')}</span>
-              </li>
-            </ul>
-            <p className="hint">{t('settings.privacyConsentFooter')}</p>
-          </div>
-          <div className="settings-privacy-consent-actions">
-            <button
-              type="button"
-              className="settings-privacy-consent-share"
-              onClick={shareUsage}
-            >
-              {t('settings.privacyConsentShare')}
-            </button>
-            <button
-              type="button"
-              className="settings-privacy-consent-decline"
-              onClick={declineUsage}
-            >
-              {t('settings.privacyConsentDecline')}
-            </button>
-          </div>
-        </div>
+        <ConsentCard onShare={shareUsage} onDecline={declineUsage} />
       ) : (
         <>
-          <div className="settings-privacy-toggles">
-            <PrivacyToggle
-              label={t('settings.privacyMetrics')}
-              hint={t('settings.privacyMetricsHint')}
-              checked={telemetry.metrics === true}
-              onChange={(v) => patchTelemetry({ metrics: v })}
-            />
-            <PrivacyToggle
-              label={t('settings.privacyContent')}
-              hint={t('settings.privacyContentHint')}
-              checked={telemetry.content === true}
-              onChange={(v) => patchTelemetry({ content: v })}
-            />
-            <PrivacyToggle
-              label={t('settings.privacyArtifacts')}
-              hint={t('settings.privacyArtifactsHint')}
-              checked={telemetry.artifactManifest === true}
-              onChange={(v) => patchTelemetry({ artifactManifest: v })}
-            />
-          </div>
+          <ToggleSubsection
+            title={t('settings.privacyMetrics')}
+            hint={t('settings.privacyMetricsHint')}
+            enabled={telemetry.metrics === true}
+            onToggle={() => patchTelemetry({ metrics: !(telemetry.metrics === true) })}
+          />
+          <ToggleSubsection
+            title={t('settings.privacyContent')}
+            hint={t('settings.privacyContentHint')}
+            enabled={telemetry.content === true}
+            onToggle={() => patchTelemetry({ content: !(telemetry.content === true) })}
+          />
+          <ToggleSubsection
+            title={t('settings.privacyArtifacts')}
+            hint={t('settings.privacyArtifactsHint')}
+            enabled={telemetry.artifactManifest === true}
+            onToggle={() =>
+              patchTelemetry({ artifactManifest: !(telemetry.artifactManifest === true) })
+            }
+          />
 
-          <dl className="settings-privacy-id">
-            <div>
-              <dt>{t('settings.privacyInstallationId')}</dt>
-              <dd>
-                <code>{cfg.installationId ?? t('settings.privacyOptedOut')}</code>
-              </dd>
+          <div className="settings-subsection">
+            <div className="section-head">
+              <div>
+                <h4>{t('settings.privacyInstallationId')}</h4>
+                <p className="hint">{t('settings.privacyDataDeletionHint')}</p>
+              </div>
             </div>
-          </dl>
-
-          <div className="settings-privacy-actions">
+            <div className="settings-field">
+              <input
+                type="text"
+                readOnly
+                value={cfg.installationId ?? t('settings.privacyOptedOut')}
+                aria-label={t('settings.privacyInstallationId')}
+              />
+            </div>
             <button
               type="button"
-              className="settings-privacy-delete"
-              onClick={rotateInstallationId}
+              className="ghost"
+              onClick={declineUsage}
+              style={{ alignSelf: 'flex-start' }}
             >
-              <Icon name="refresh" size={14} />
-              <span>{t('settings.privacyDataDeletion')}</span>
+              <Icon name="refresh" size={13} />
+              <span style={{ marginLeft: 6 }}>{t('settings.privacyDataDeletion')}</span>
             </button>
-            <p className="hint">{t('settings.privacyDataDeletionHint')}</p>
           </div>
         </>
       )}
@@ -148,24 +111,90 @@ export function PrivacySection({ cfg, setCfg }: Props): JSX.Element {
 }
 
 interface ToggleProps {
-  label: string;
+  title: string;
   hint: string;
-  checked: boolean;
-  onChange: (next: boolean) => void;
+  enabled: boolean;
+  onToggle: () => void;
 }
 
-function PrivacyToggle({ label, hint, checked, onChange }: ToggleProps): JSX.Element {
+function ToggleSubsection({ title, hint, enabled, onToggle }: ToggleProps): JSX.Element {
+  const t = useT();
   return (
-    <label className="settings-privacy-toggle">
-      <span className="settings-privacy-toggle-text">
-        <strong>{label}</strong>
-        <small>{hint}</small>
-      </span>
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-      />
-    </label>
+    <div className="settings-subsection">
+      <div className="section-head">
+        <div>
+          <h4>{title}</h4>
+          <p className="hint">{hint}</p>
+        </div>
+      </div>
+      <div
+        className="seg-control"
+        role="group"
+        aria-label={title}
+        style={{ ['--seg-cols' as string]: 1 } as CSSProperties}
+      >
+        <button
+          type="button"
+          className={'seg-btn' + (enabled ? ' active' : '')}
+          aria-pressed={enabled}
+          onClick={onToggle}
+        >
+          <span className="seg-title">
+            {enabled ? t('common.active') : t('common.offline')}
+          </span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface ConsentProps {
+  onShare: () => void;
+  onDecline: () => void;
+}
+
+function ConsentCard({ onShare, onDecline }: ConsentProps): JSX.Element {
+  const t = useT();
+  return (
+    <div className="settings-subsection">
+      <div className="section-head">
+        <div>
+          <h4>{t('settings.privacyConsentKicker')}</h4>
+          <p className="hint">{t('settings.privacyConsentLead')}</p>
+        </div>
+      </div>
+
+      <dl className="settings-privacy-disclosure">
+        <div>
+          <dt>{t('settings.privacyMetrics')}</dt>
+          <dd>{t('settings.privacyMetricsHint')}</dd>
+        </div>
+        <div>
+          <dt>{t('settings.privacyContent')}</dt>
+          <dd>{t('settings.privacyContentHint')}</dd>
+        </div>
+      </dl>
+
+      <p className="hint">{t('settings.privacyConsentFooter')}</p>
+
+      {/* Two-column seg-control gives both buttons identical visual weight,
+          which is what GDPR/EDPB asks for ("equal prominence" between
+          accept and reject). The accept side carries the active highlight
+          to mark it as the affirmative action without making the reject
+          side smaller or dimmer. */}
+      <div
+        className="seg-control"
+        role="group"
+        aria-label={t('settings.privacyConsentKicker')}
+        style={{ ['--seg-cols' as string]: 2 } as CSSProperties}
+      >
+        <button type="button" className="seg-btn active" onClick={onShare}>
+          <span className="seg-title">{t('settings.privacyConsentShare')}</span>
+        </button>
+        <button type="button" className="seg-btn" onClick={onDecline}>
+          <span className="seg-title">{t('settings.privacyConsentDecline')}</span>
+        </button>
+      </div>
+    </div>
   );
 }
