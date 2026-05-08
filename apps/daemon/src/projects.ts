@@ -578,6 +578,7 @@ const EXT_MIME = {
   '.cjs': 'text/javascript; charset=utf-8',
   '.jsx': 'text/javascript; charset=utf-8',
   '.ts': 'text/typescript; charset=utf-8',
+  '.py': 'text/x-python; charset=utf-8',
   // `.tsx` previously served as `text/typescript`, which browser module
   // loaders and strict CSPs do not accept as a JavaScript MIME. Multi-file
   // React prototypes that load `.tsx` via Babel-standalone (`<script
