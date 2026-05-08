@@ -833,7 +833,7 @@ describe('SettingsDialog connectors interactions', () => {
       target: { value: 'cmp_replacement_secret' },
     });
 
-    expect(screen.getByText(/Unsaved changes/i)).toBeTruthy();
+    expect(screen.getByText(/Unsaved replacement/i)).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(onSave).toHaveBeenCalledWith(
