@@ -1162,26 +1162,6 @@ export function SettingsDialog({
               <span className="kicker">{t('settings.welcomeKicker')}</span>
               <h2>{t('settings.welcomeTitle')}</h2>
               <p className="subtitle">{t('settings.welcomeSubtitle')}</p>
-              {/* First-run users see a mini pet teaser inside the welcome
-                  modal so adoption is part of the warm intro rather than
-                  hidden behind another nav click. The chip nudges them
-                  toward Pets without forcing them to leave the rest of
-                  the welcome flow. */}
-              <button
-                type="button"
-                className="welcome-pet-teaser"
-                onClick={() => setActiveSection('pet')}
-              >
-                <span className="welcome-pet-glyph" aria-hidden>🐾</span>
-                <span className="welcome-pet-copy">
-                  <strong>{t('pet.welcomeTeaserTitle')}</strong>
-                  <span>{t('pet.welcomeTeaserBody')}</span>
-                </span>
-                <span className="welcome-pet-cta">
-                  {t('pet.welcomeTeaserCta')}
-                  <Icon name="chevron-right" size={12} />
-                </span>
-              </button>
             </>
           ) : (
             <>
