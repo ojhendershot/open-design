@@ -299,6 +299,18 @@ export function EntryView({
     setPreviewSystemId(id);
   }
 
+  /** Persist workspace default, mirror sidebar picker state, and jump to media galleries when relevant. */
+  function selectDesignSystemFromGallery(id: string) {
+    onChangeDefaultDesignSystem(id);
+    const ds = designSystems.find((d) => d.id === id);
+    const surf = ds?.surface ?? 'web';
+    if (surf === 'image') {
+      setTopTab('image-templates');
+    } else if (surf === 'video') {
+      setTopTab('video-templates');
+    }
+  }
+
   const previewSystem = useMemo(
     () => (previewSystemId ? designSystems.find((d) => d.id === previewSystemId) ?? null : null),
     [designSystems, previewSystemId],
@@ -634,7 +646,7 @@ export function EntryView({
                 <DesignSystemsTab
                   systems={designSystems}
                   selectedId={defaultDesignSystemId}
-                  onSelect={onChangeDefaultDesignSystem}
+                  onSelect={selectDesignSystemFromGallery}
                   onPreview={previewDesignSystem}
                 />
               ) : null}
@@ -654,6 +666,8 @@ export function EntryView({
                 <PromptTemplatesTab
                   surface="image"
                   templates={promptTemplates}
+                  designSystemId={defaultDesignSystemId}
+                  designSystems={designSystems}
                   onPreview={setPreviewPromptTemplate}
                 />
               ) : null}
@@ -661,6 +675,8 @@ export function EntryView({
                 <PromptTemplatesTab
                   surface="video"
                   templates={promptTemplates}
+                  designSystemId={defaultDesignSystemId}
+                  designSystems={designSystems}
                   onPreview={setPreviewPromptTemplate}
                 />
               ) : null}

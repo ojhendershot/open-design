@@ -168,6 +168,8 @@ export const id: Dict = {
   'promptTemplates.emptyVideo': 'Belum ada templat prompt video.',
   'promptTemplates.emptyNoMatch': 'Tidak ada templat yang cocok dengan pencarianmu.',
   'promptTemplates.attributionFooter': 'Diadaptasi dari library prompt publik. Tiap kartu menautkan ke author asli.',
+  'promptTemplates.dsNarrowedHint': 'Menampilkan templat terkait "{title}".',
+  'promptTemplates.showAllTemplates': 'Tampilkan semua templat',
   'promptTemplates.openPreviewTitle': 'Buka prompt dan pratinjau',
   'promptTemplates.sourcePrefix': 'Sumber:',
   'promptTemplates.fetchError': 'Tidak bisa memuat isi templat ini.',
@@ -404,6 +406,7 @@ export const id: Dict = {
   'ds.tokens': 'Token',
   'ds.specToggle': 'Spesifikasi',
   'ds.specLoading': 'Memuat spesifikasi...',
+  'ds.selectForProject': 'Gunakan untuk proyek baru',
 
   'avatar.title': 'Akun & pengaturan',
   'avatar.localCli': 'CLI lokal',

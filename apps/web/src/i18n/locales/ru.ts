@@ -168,6 +168,8 @@ export const ru: Dict = {
   'promptTemplates.emptyVideo': 'Шаблоны промптов видео не установлены.',
   'promptTemplates.emptyNoMatch': 'Нет шаблонов, соответствующих поиску.',
   'promptTemplates.attributionFooter': 'Адаптировано из публичных библиотек промптов. Каждая карточка ссылается на исходного автора.',
+  'promptTemplates.dsNarrowedHint': 'Показаны шаблоны, связанные с «{title}».',
+  'promptTemplates.showAllTemplates': 'Показать все шаблоны',
   'promptTemplates.openPreviewTitle': 'Открыть промпт и предпросмотр',
   'promptTemplates.sourcePrefix': 'Источник:',
   'promptTemplates.fetchError': 'Не удалось загрузить текст шаблона.',
@@ -409,6 +411,7 @@ export const ru: Dict = {
   'ds.tokens': 'Токены',
   'ds.specToggle': 'DESIGN.md',
   'ds.specLoading': 'Загрузка DESIGN.md…',
+  'ds.selectForProject': 'Использовать в новом проекте',
 
   'avatar.title': 'Аккаунт и настройки',
   'avatar.localCli': 'Локальный CLI',

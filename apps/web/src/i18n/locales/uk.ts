@@ -172,6 +172,8 @@ export const uk: Dict = {
   'promptTemplates.emptyVideo': 'Шаблонів підказок для відео ще не встановлено.',
   'promptTemplates.emptyNoMatch': 'Немає шаблонів, що відповідають вашому пошуку.',
   'promptTemplates.attributionFooter': 'Адаптовано з публічних бібліотек підказок. Кожна картка посилається на автора.',
+  'promptTemplates.dsNarrowedHint': 'Показано шаблони, пов’язані з «{title}».',
+  'promptTemplates.showAllTemplates': 'Усі шаблони',
   'promptTemplates.openPreviewTitle': 'Відкрити підказку та попередній перегляд',
   'promptTemplates.sourcePrefix': 'Джерело:',
   'promptTemplates.fetchError': 'Не вдалося завантажити текст цього шаблону.',
@@ -410,6 +412,7 @@ export const uk: Dict = {
   'ds.tokens': 'Токени',
   'ds.specToggle': 'DESIGN.md',
   'ds.specLoading': 'Завантаження DESIGN.md…',
+  'ds.selectForProject': 'Використати в новому проєкті',
 
   'avatar.title': 'Обліковий запис та налаштування',
   'avatar.localCli': 'Локальний CLI',

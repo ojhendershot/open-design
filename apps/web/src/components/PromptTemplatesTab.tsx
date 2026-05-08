@@ -4,7 +4,12 @@ import {
   localizePromptTemplateCategory,
   localizePromptTemplateSummary,
 } from '../i18n/content';
-import type { PromptTemplateSource, PromptTemplateSummary } from '../types';
+import type {
+  DesignSystemSummary,
+  PromptTemplateSource,
+  PromptTemplateSummary,
+} from '../types';
+import { inferPromptTemplateCategoriesForDs } from '../utils/promptTemplateDsCategories';
 import { Icon } from './Icon';
 
 // Stable, human-readable provider name used by the source filter and the
@@ -27,6 +32,11 @@ function providerLabel(source: PromptTemplateSource): string {
 interface Props {
   surface: 'image' | 'video';
   templates: PromptTemplateSummary[];
+  // When the workspace default design system is media-aligned, pass it in to
+  // narrow the gallery to categories implied by the DS metadata. Templates
+  // themselves stay surface-grouped; only the visible card set narrows.
+  designSystemId?: string | null;
+  designSystems?: DesignSystemSummary[];
   onPreview: (tpl: PromptTemplateSummary) => void;
 }
 
@@ -35,11 +45,34 @@ interface Props {
 // card grid that lazy-loads remote thumbnails (the upstream README hosts
 // images on CMS / Cloudflare Stream, both public). Each card opens a
 // preview modal with the full prompt body and attribution.
-export function PromptTemplatesTab({ surface, templates, onPreview }: Props) {
+export function PromptTemplatesTab({
+  surface,
+  templates,
+  designSystemId,
+  designSystems,
+  onPreview,
+}: Props) {
   const { locale, t } = useI18n();
   const [filter, setFilter] = useState('');
   const [category, setCategory] = useState<string>('All');
   const [source, setSource] = useState<string>('All');
+  // When the user explicitly clears the DS narrowing, the hint disappears
+  // until they pick a different DS (which remounts the inferred set).
+  const [showAll, setShowAll] = useState(false);
+
+  const activeDs = useMemo(() => {
+    if (!designSystemId || !designSystems) return null;
+    return designSystems.find((d) => d.id === designSystemId) ?? null;
+  }, [designSystemId, designSystems]);
+
+  const dsNarrowCategories = useMemo(() => {
+    if (!activeDs) return null;
+    const inferred = inferPromptTemplateCategoriesForDs(activeDs);
+    if (!inferred || inferred.length === 0) return null;
+    return new Set(inferred.map((c) => c.toLowerCase()));
+  }, [activeDs]);
+
+  const dsNarrowActive = !!dsNarrowCategories && !showAll && category === 'All';
 
   const surfaceScoped = useMemo(
     () => templates.filter((tpl) => tpl.surface === surface),
@@ -67,6 +100,13 @@ export function PromptTemplatesTab({ surface, templates, onPreview }: Props) {
       if (category !== 'All' && (tpl.category || 'General') !== category) {
         return false;
       }
+      if (
+        dsNarrowActive
+        && dsNarrowCategories
+        && !dsNarrowCategories.has((tpl.category || 'General').toLowerCase())
+      ) {
+        return false;
+      }
       if (source !== 'All' && providerLabel(tpl.source) !== source) {
         return false;
       }
@@ -83,7 +123,7 @@ export function PromptTemplatesTab({ surface, templates, onPreview }: Props) {
         || providerLabel(tpl.source).toLowerCase().includes(q)
       );
     });
-  }, [surfaceScoped, filter, category, source, locale]);
+  }, [surfaceScoped, filter, category, source, locale, dsNarrowActive, dsNarrowCategories]);
 
   if (surfaceScoped.length === 0) {
     return (
@@ -97,6 +137,18 @@ export function PromptTemplatesTab({ surface, templates, onPreview }: Props) {
 
   return (
     <div className="tab-panel prompt-templates-panel">
+      {dsNarrowActive && activeDs ? (
+        <div className="prompt-templates-ds-hint">
+          <span>{t('promptTemplates.dsNarrowedHint', { title: activeDs.title })}</span>
+          <button
+            type="button"
+            className="prompt-templates-ds-hint-clear"
+            onClick={() => setShowAll(true)}
+          >
+            {t('promptTemplates.showAllTemplates')}
+          </button>
+        </div>
+      ) : null}
       <div className="tab-panel-toolbar">
         <input
           placeholder={t('promptTemplates.searchPlaceholder')}

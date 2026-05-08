@@ -358,6 +358,8 @@ export interface Dict {
   'promptTemplates.emptyVideo': string;
   'promptTemplates.emptyNoMatch': string;
   'promptTemplates.attributionFooter': string;
+  'promptTemplates.dsNarrowedHint': string;
+  'promptTemplates.showAllTemplates': string;
   'promptTemplates.openPreviewTitle': string;
   'promptTemplates.sourcePrefix': string;
   'promptTemplates.fetchError': string;
@@ -472,6 +474,7 @@ export interface Dict {
   'ds.tokens': string;
   'ds.specToggle': string;
   'ds.specLoading': string;
+  'ds.selectForProject': string;
 
   // Avatar menu (project topbar)
   'avatar.title': string;

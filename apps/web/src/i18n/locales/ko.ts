@@ -171,6 +171,8 @@ export const ko: Dict = {
   'promptTemplates.emptyVideo': '설치된 비디오 프롬프트 템플릿이 없습니다.',
   'promptTemplates.emptyNoMatch': '검색어와 일치하는 템플릿이 없습니다.',
   'promptTemplates.attributionFooter': '공개 프롬프트 라이브러리를 기반으로 합니다. 각 카드는 원작자 페이지로 연결됩니다.',
+  'promptTemplates.dsNarrowedHint': '「{title}」과 관련된 템플릿만 표시합니다.',
+  'promptTemplates.showAllTemplates': '모든 템플릿 표시',
   'promptTemplates.openPreviewTitle': '프롬프트 열기 및 미리보기',
   'promptTemplates.sourcePrefix': '출처:',
   'promptTemplates.fetchError': '이 템플릿의 본문을 불러올 수 없습니다.',
@@ -399,6 +401,7 @@ export const ko: Dict = {
   'ds.tokens': '토큰',
   'ds.specToggle': 'DESIGN.md',
   'ds.specLoading': 'DESIGN.md 불러오는 중…',
+  'ds.selectForProject': '새 프로젝트에 사용',
 
   'avatar.title': '계정 및 설정',
   'avatar.localCli': '로컬 CLI',

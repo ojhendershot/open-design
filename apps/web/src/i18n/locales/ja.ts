@@ -170,6 +170,8 @@ export const ja: Dict = {
   'promptTemplates.emptyVideo': '動画プロンプトテンプレートがまだインストールされていません。',
   'promptTemplates.emptyNoMatch': '検索に一致するテンプレートがありません。',
   'promptTemplates.attributionFooter': '公開プロンプトライブラリから引用。各カードは元の作者にリンクしています。',
+  'promptTemplates.dsNarrowedHint': '「{title}」に関連するテンプレートを表示しています。',
+  'promptTemplates.showAllTemplates': 'すべてのテンプレートを表示',
   'promptTemplates.openPreviewTitle': 'プロンプトとプレビューを開く',
   'promptTemplates.sourcePrefix': 'ソース:',
   'promptTemplates.fetchError': 'テンプレートの本文を読み込めませんでした。',
@@ -352,6 +354,7 @@ export const ja: Dict = {
   'ds.tokens': 'トークン',
   'ds.specToggle': 'DESIGN.md',
   'ds.specLoading': 'DESIGN.md を読み込み中…',
+  'ds.selectForProject': '新規プロジェクトで使う',
 
   'avatar.title': 'アカウントと設定',
   'avatar.localCli': 'ローカル CLI',

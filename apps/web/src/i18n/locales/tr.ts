@@ -165,6 +165,8 @@ export const tr: Dict = {
   'promptTemplates.emptyVideo': 'Henüz video istemi şablonu yüklenmedi.',
   'promptTemplates.emptyNoMatch': 'Aramanıza uygun şablon bulunamadı.',
   'promptTemplates.attributionFooter': 'Herkese açık istem kütüphanesinden adape edildi. Her kart orijinal yazara bağlantılıdır.',
+  'promptTemplates.dsNarrowedHint': '“{title}” ile ilişkili şablonlar gösteriliyor.',
+  'promptTemplates.showAllTemplates': 'Tüm şablonları göster',
   'promptTemplates.openPreviewTitle': 'istemi aç ve önizle',
   'promptTemplates.sourcePrefix': 'Kaynak:',
   'promptTemplates.fetchError': 'Bu şablon gövdesi yüklenemedi.',
@@ -392,6 +394,7 @@ export const tr: Dict = {
   'ds.tokens': 'Tokenler',
   'ds.specToggle': 'DESIGN.md',
   'ds.specLoading': 'DESIGN.md yükleniyor…',
+  'ds.selectForProject': 'Yeni projede kullan',
 
   'avatar.title': 'Hesap & ayarlar',
   'avatar.localCli': 'Yerel CLI',

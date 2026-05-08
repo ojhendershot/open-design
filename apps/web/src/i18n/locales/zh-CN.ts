@@ -167,6 +167,8 @@ export const zhCN: Dict = {
   'promptTemplates.emptyVideo': '还没有安装视频 Prompt 模板。',
   'promptTemplates.emptyNoMatch': '没有匹配的模板。',
   'promptTemplates.attributionFooter': '改编自公开 Prompt 库，每张卡片都链接到原作者。',
+  'promptTemplates.dsNarrowedHint': '正在显示与「{title}」相关的模板。',
+  'promptTemplates.showAllTemplates': '显示全部模板',
   'promptTemplates.openPreviewTitle': '打开 Prompt 与预览',
   'promptTemplates.sourcePrefix': '来源：',
   'promptTemplates.fetchError': '无法加载此模板正文。',
@@ -404,6 +406,7 @@ export const zhCN: Dict = {
   'ds.tokens': 'Token',
   'ds.specToggle': 'DESIGN.md',
   'ds.specLoading': '正在加载 DESIGN.md…',
+  'ds.selectForProject': '用于新项目',
 
   'avatar.title': '账户与设置',
   'avatar.localCli': '本机 CLI',

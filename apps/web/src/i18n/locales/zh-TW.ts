@@ -167,6 +167,8 @@ export const zhTW: Dict = {
   'promptTemplates.emptyVideo': '還沒有安裝影片 Prompt 範本。',
   'promptTemplates.emptyNoMatch': '沒有符合的範本。',
   'promptTemplates.attributionFooter': '改編自公開 Prompt 庫，每張卡片都連結到原作者。',
+  'promptTemplates.dsNarrowedHint': '正在顯示與「{title}」相關的模板。',
+  'promptTemplates.showAllTemplates': '顯示全部模板',
   'promptTemplates.openPreviewTitle': '開啟 Prompt 與預覽',
   'promptTemplates.sourcePrefix': '來源：',
   'promptTemplates.fetchError': '無法載入此範本文字。',
@@ -404,6 +406,7 @@ export const zhTW: Dict = {
   'ds.tokens': 'Token',
   'ds.specToggle': 'DESIGN.md',
   'ds.specLoading': '正在載入 DESIGN.md…',
+  'ds.selectForProject': '用於新專案',
 
   'avatar.title': '帳號與設定',
   'avatar.localCli': '本機 CLI',

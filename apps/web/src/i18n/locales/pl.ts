@@ -171,6 +171,8 @@ export const pl: Dict = {
   'promptTemplates.emptyVideo': 'Nie zainstalowano jeszcze szablonów promptów wideo.',
   'promptTemplates.emptyNoMatch': 'Brak szablonów pasujących do wyszukiwania.',
   'promptTemplates.attributionFooter': 'Zaadaptowano z publicznych bibliotek promptów. Każda karta linkuje do oryginalnego autora.',
+  'promptTemplates.dsNarrowedHint': 'Wyświetlane są szablony powiązane z „{title}”.',
+  'promptTemplates.showAllTemplates': 'Pokaż wszystkie szablony',
   'promptTemplates.openPreviewTitle': 'Otwórz prompt i podgląd',
   'promptTemplates.sourcePrefix': 'Źródło:',
   'promptTemplates.fetchError': 'Nie udało się załadować treści szablonu.',
@@ -399,6 +401,7 @@ export const pl: Dict = {
   'ds.tokens': 'Tokeny',
   'ds.specToggle': 'DESIGN.md',
   'ds.specLoading': 'Ładowanie DESIGN.md…',
+  'ds.selectForProject': 'Użyj w nowym projekcie',
 
   'avatar.title': 'Konto i ustawienia',
   'avatar.localCli': 'Lokalne CLI',

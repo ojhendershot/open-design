@@ -170,6 +170,8 @@ export const de: Dict = {
   'promptTemplates.emptyVideo': 'Noch keine Video-Prompt-Templates installiert.',
   'promptTemplates.emptyNoMatch': 'Keine Templates passen zu Ihrer Suche.',
   'promptTemplates.attributionFooter': 'Aus öffentlichen Prompt-Bibliotheken adaptiert. Jede Karte verlinkt zum ursprünglichen Autor.',
+  'promptTemplates.dsNarrowedHint': 'Zeigt Vorlagen im Kontext von „{title}“.',
+  'promptTemplates.showAllTemplates': 'Alle Vorlagen anzeigen',
   'promptTemplates.openPreviewTitle': 'Prompt und Vorschau öffnen',
   'promptTemplates.sourcePrefix': 'Quelle:',
   'promptTemplates.fetchError': 'Dieser Template-Inhalt konnte nicht geladen werden.',
@@ -353,6 +355,7 @@ export const de: Dict = {
   'ds.tokens': 'Tokens',
   'ds.specToggle': 'DESIGN.md',
   'ds.specLoading': 'DESIGN.md wird geladen…',
+  'ds.selectForProject': 'Für neues Projekt verwenden',
 
   'avatar.title': 'Konto & Einstellungen',
   'avatar.localCli': 'Lokale CLI',

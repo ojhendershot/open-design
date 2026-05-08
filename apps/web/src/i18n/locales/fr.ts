@@ -173,6 +173,8 @@ export const fr: Dict = {
   'promptTemplates.allSources': 'Toutes les sources',
   'promptTemplates.sourceFilterAria': 'Filtrer par source',
   'promptTemplates.attributionFooter': 'Adapté de bibliothèques de prompts publiques. Chaque carte renvoie vers l\'auteur original.',
+  'promptTemplates.dsNarrowedHint': 'Affiche les modèles liés à « {title} ».',
+  'promptTemplates.showAllTemplates': 'Afficher tous les modèles',
   'promptTemplates.openPreviewTitle': 'Ouvrir le prompt et l\'aperçu',
   'promptTemplates.sourcePrefix': 'Source :',
   'promptTemplates.fetchError': 'Impossible de charger le contenu de ce modèle.',
@@ -399,6 +401,7 @@ export const fr: Dict = {
   'ds.tokens': 'Jetons',
   'ds.specToggle': 'DESIGN.md',
   'ds.specLoading': 'Chargement du DESIGN.md…',
+  'ds.selectForProject': 'Utiliser pour un nouveau projet',
 
   'avatar.title': 'Compte et paramètres',
   'avatar.localCli': 'CLI local',

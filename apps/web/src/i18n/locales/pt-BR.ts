@@ -168,6 +168,8 @@ export const ptBR: Dict = {
   'promptTemplates.emptyVideo': 'Nenhum template de prompt de vídeo instalado.',
   'promptTemplates.emptyNoMatch': 'Nenhum template corresponde à busca.',
   'promptTemplates.attributionFooter': 'Adaptado de bibliotecas públicas de prompts. Cada card aponta para o autor original.',
+  'promptTemplates.dsNarrowedHint': 'Mostrando modelos relacionados a «{title}».',
+  'promptTemplates.showAllTemplates': 'Mostrar todos os modelos',
   'promptTemplates.openPreviewTitle': 'Abrir prompt e prévia',
   'promptTemplates.sourcePrefix': 'Fonte:',
   'promptTemplates.fetchError': 'Não foi possível carregar o corpo deste template.',
@@ -409,6 +411,7 @@ export const ptBR: Dict = {
   'ds.tokens': 'Tokens',
   'ds.specToggle': 'DESIGN.md',
   'ds.specLoading': 'Carregando DESIGN.md…',
+  'ds.selectForProject': 'Usar em novo projeto',
 
   'avatar.title': 'Conta e configurações',
   'avatar.localCli': 'CLI local',

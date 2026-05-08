@@ -171,6 +171,8 @@ export const hu: Dict = {
   'promptTemplates.emptyVideo': 'Még nincs telepített videósablon.',
   'promptTemplates.emptyNoMatch': 'Egy sablon sem felel meg a keresésnek.',
   'promptTemplates.attributionFooter': 'Nyilvános prompt-tárakból átvéve. Minden kártya az eredeti szerzőre mutat.',
+  'promptTemplates.dsNarrowedHint': 'A(z) „{title}” rendszerhez kapcsolódó sablonok láthatók.',
+  'promptTemplates.showAllTemplates': 'Összes sablon megjelenítése',
   'promptTemplates.openPreviewTitle': 'Prompt és előnézet megnyitása',
   'promptTemplates.sourcePrefix': 'Forrás:',
   'promptTemplates.fetchError': 'A sablon törzse nem tölthető be.',
@@ -399,6 +401,7 @@ export const hu: Dict = {
   'ds.tokens': 'Tokenek',
   'ds.specToggle': 'DESIGN.md',
   'ds.specLoading': 'DESIGN.md betöltése…',
+  'ds.selectForProject': 'Új projektben használom',
 
   'avatar.title': 'Fiók és beállítások',
   'avatar.localCli': 'Helyi CLI',

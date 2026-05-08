@@ -171,6 +171,8 @@ export const esES: Dict = {
   'promptTemplates.emptyNoMatch': 'Ninguna plantilla coincide con tu búsqueda.',
   'promptTemplates.attributionFooter':
     'Adaptadas de bibliotecas públicas de prompts. Cada tarjeta enlaza al autor original.',
+  'promptTemplates.dsNarrowedHint': 'Mostrando plantillas relacionadas con «{title}».',
+  'promptTemplates.showAllTemplates': 'Mostrar todas las plantillas',
   'promptTemplates.openPreviewTitle': 'Abrir prompt y vista previa',
   'promptTemplates.sourcePrefix': 'Fuente:',
   'promptTemplates.fetchError': 'No se pudo cargar el cuerpo de esta plantilla.',
@@ -354,6 +356,7 @@ export const esES: Dict = {
   'ds.tokens': 'Tokens',
   'ds.specToggle': 'DESIGN.md',
   'ds.specLoading': 'Cargando DESIGN.md…',
+  'ds.selectForProject': 'Usar en proyecto nuevo',
 
   'avatar.title': 'Cuenta y ajustes',
   'avatar.localCli': 'CLI local',

@@ -169,6 +169,8 @@ export const en: Dict = {
   'promptTemplates.emptyVideo': 'No video prompt templates installed yet.',
   'promptTemplates.emptyNoMatch': 'No templates match your search.',
   'promptTemplates.attributionFooter': 'Adapted from public prompt libraries. Each card links back to the original author.',
+  'promptTemplates.dsNarrowedHint': 'Showing templates related to “{title}”.',
+  'promptTemplates.showAllTemplates': 'Show all templates',
   'promptTemplates.openPreviewTitle': 'Open prompt and preview',
   'promptTemplates.sourcePrefix': 'Source:',
   'promptTemplates.fetchError': 'Could not load this template body.',
@@ -410,6 +412,7 @@ export const en: Dict = {
   'ds.tokens': 'Tokens',
   'ds.specToggle': 'DESIGN.md',
   'ds.specLoading': 'Loading DESIGN.md…',
+  'ds.selectForProject': 'Use for new project',
 
   'avatar.title': 'Account & settings',
   'avatar.localCli': 'Local CLI',

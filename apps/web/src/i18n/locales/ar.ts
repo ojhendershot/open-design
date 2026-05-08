@@ -173,6 +173,8 @@ export const ar: Dict = {
   'promptTemplates.allSources': 'جميع المصادر',
   'promptTemplates.sourceFilterAria': 'تصفية حسب المصدر',
   'promptTemplates.attributionFooter': 'مقتبس من مكتبات الأوامر العامة. كل بطاقة تشير إلى المؤلف الأصلي.',
+  'promptTemplates.dsNarrowedHint': 'عرض القوالب المتعلقة بـ «{title}».',
+  'promptTemplates.showAllTemplates': 'عرض كل القوالب',
   'promptTemplates.openPreviewTitle': 'فتح الأمر والمعاينة',
   'promptTemplates.sourcePrefix': 'المصدر:',
   'promptTemplates.fetchError': 'تعذر تحميل جسم هذا القالب.',
@@ -399,6 +401,7 @@ export const ar: Dict = {
   'ds.tokens': 'الرموز',
   'ds.specToggle': 'DESIGN.md',
   'ds.specLoading': 'جاري تحميل DESIGN.md...',
+  'ds.selectForProject': 'استخدام في مشروع جديد',
 
   'avatar.title': 'الحساب والإعدادات',
   'avatar.localCli': 'CLI محلي',

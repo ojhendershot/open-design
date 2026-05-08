@@ -170,6 +170,8 @@ export const fa: Dict = {
   'promptTemplates.emptyNoMatch': 'هیچ قالبی با جستجوی شما مطابقت ندارد.',
   'promptTemplates.attributionFooter':
     'برگرفته از کتابخانه‌های عمومی پرامپت. هر کارت به نویسنده اصلی لینک دارد.',
+  'promptTemplates.dsNarrowedHint': 'نمایش قالب‌های مرتبط با «{title}».',
+  'promptTemplates.showAllTemplates': 'نمایش همه قالب‌ها',
   'promptTemplates.openPreviewTitle': 'باز کردن پرامپت و پیش‌نمایش',
   'promptTemplates.sourcePrefix': 'منبع:',
   'promptTemplates.fetchError': 'بارگذاری متن این قالب ممکن نبود.',
@@ -410,6 +412,7 @@ export const fa: Dict = {
   'ds.tokens': 'توکن‌ها',
   'ds.specToggle': 'DESIGN.md',
   'ds.specLoading': 'بارگذاری DESIGN.md…',
+  'ds.selectForProject': 'استفاده در پروژه جدید',
 
   'avatar.title': 'حساب و تنظیمات',
   'avatar.localCli': 'CLI محلی',

@@ -294,6 +294,27 @@ export function NewProjectPanel({
     setSelectedDsIds(ids);
   }
 
+  // Selecting a design system from the gallery is an explicit intent that
+  // should win over any earlier in-panel picker tweaks: mirror it into the
+  // primary slot, drop multi-select, and clear the touched flag so the
+  // existing default-sync effect above keeps things aligned afterwards.
+  useEffect(() => {
+    if (!defaultDesignSystemId) return;
+    setSelectedDsIds([defaultDesignSystemId]);
+    setDsMulti(false);
+    setDsSelectionTouched(false);
+  }, [defaultDesignSystemId]);
+
+  // Media-oriented design systems pair with their create tabs so the sidebar
+  // matches what the image/video template galleries imply.
+  useEffect(() => {
+    if (!defaultDesignSystemId) return;
+    const ds = designSystems.find((d) => d.id === defaultDesignSystemId);
+    const surf = ds?.surface ?? 'web';
+    if (surf === 'image') setTab('image');
+    else if (surf === 'video') setTab('video');
+  }, [defaultDesignSystemId, designSystems]);
+
   useEffect(() => {
     const el = tabsRef.current;
     if (!el) return;

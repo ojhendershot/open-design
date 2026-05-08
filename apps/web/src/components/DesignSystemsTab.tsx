@@ -223,19 +223,7 @@ function DesignSystemCard({
   );
 
   return (
-    <div
-      ref={ref}
-      className={`ds-card ${active ? 'active' : ''}`}
-      role="button"
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onSelect();
-        }
-      }}
-    >
+    <div ref={ref} className={`ds-card ${active ? 'active' : ''}`}>
       <div
         className="ds-card-thumb"
         onClick={(e) => {
@@ -297,6 +285,19 @@ function DesignSystemCard({
               ))}
             </div>
           ) : null}
+        </div>
+        <div className="ds-card-actions">
+          <button
+            type="button"
+            className="ds-card-select-btn"
+            data-testid="design-system-select"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect();
+            }}
+          >
+            {t('ds.selectForProject')}
+          </button>
         </div>
       </div>
     </div>
