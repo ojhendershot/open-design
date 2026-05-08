@@ -254,6 +254,13 @@ export function loadConfig(): AppConfig {
       };
     }
     const parsed = JSON.parse(raw) as Partial<AppConfig>;
+    // Strip daemon-owned privacy fields if a stale localStorage payload
+    // still carries them. Older builds wrote these to localStorage; we
+    // now treat the daemon as authoritative so the user can rotate /
+    // revoke without leaving residue in browser storage.
+    for (const key of DAEMON_OWNED_KEYS) {
+      delete (parsed as Record<string, unknown>)[key];
+    }
     const parsedHasApiProtocol = Object.prototype.hasOwnProperty.call(
       parsed,
       'apiProtocol',
@@ -341,8 +348,22 @@ export async function syncComposioConfigToDaemon(
   }
 }
 
+// Privacy-sensitive fields the user can revoke. We deliberately keep
+// these out of localStorage so the daemon remains the single source of
+// truth: clearing app-config.json (or rotating via "Delete my data")
+// fully resets the install identity, with no residual cohort key
+// silently sitting in browser storage where the user can't see it.
+const DAEMON_OWNED_KEYS = new Set<keyof AppConfig>([
+  'installationId',
+  'telemetry',
+]);
+
 export function saveConfig(config: AppConfig): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+  const sanitized: AppConfig = { ...config };
+  for (const key of DAEMON_OWNED_KEYS) {
+    delete (sanitized as unknown as Record<string, unknown>)[key];
+  }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
 }
 
 export function mergeDaemonConfig(
