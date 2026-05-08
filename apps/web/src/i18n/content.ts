@@ -362,6 +362,7 @@ const DE_DESIGN_SYSTEM_CATEGORIES: Record<string, string> = {
 };
 
 const DE_SKILL_IDS_WITH_EN_FALLBACK = [
+  'dcf-valuation',
   'flowai-live-dashboard-template',
   'html-ppt-taste-brutalist',
   'html-ppt-taste-editorial',
@@ -399,6 +400,7 @@ const DE_SKILL_IDS_WITH_EN_FALLBACK = [
   'html-ppt-zhangzara-stencil-tablet',
   'html-ppt-zhangzara-studio',
   'html-ppt-zhangzara-vellum',
+  'last30days',
   'live-dashboard',
   'orbit-general',
   'orbit-github',
@@ -408,10 +410,12 @@ const DE_SKILL_IDS_WITH_EN_FALLBACK = [
   // TODO: add localized copy for social-media-dashboard (introduced in #678).
   // Fallback for now so the localized-content coverage test passes.
   'social-media-dashboard',
+  'social-media-matrix-tracker-template',
   'web-prototype-taste-brutalist',
   'web-prototype-taste-editorial',
   'web-prototype-taste-soft',
   'waitlist-page',
+  'x-research',
 ] as const;
 
 const DE_DESIGN_SYSTEM_IDS_WITH_EN_FALLBACK = [
