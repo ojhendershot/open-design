@@ -42,6 +42,8 @@ import { createClaudeStreamHandler } from './claude-stream.js';
 import { loadCritiqueConfigFromEnv } from './critique/config.js';
 import { reconcileStaleRuns } from './critique/persistence.js';
 import { runOrchestrator } from './critique/orchestrator.js';
+import { createRunRegistry } from './critique/run-registry.js';
+import { handleCritiqueInterrupt } from './critique/interrupt-handler.js';
 import { createCopilotStreamHandler } from './copilot-stream.js';
 import { createJsonEventStreamHandler } from './json-event-stream.js';
 import { createQoderStreamHandler } from './qoder-stream.js';
@@ -74,6 +76,8 @@ import {
 } from './media-models.js';
 import { readMaskedConfig, writeConfig } from './media-config.js';
 import { agentCliEnvForAgent, readAppConfig, writeAppConfig } from './app-config.js';
+import { OrbitService, formatLocalProjectTimestamp, renderOrbitTemplateSystemPrompt } from './orbit.js';
+import { buildMcpInstallPayload } from './mcp-install-info.js';
 import {
   buildProjectArchive,
   buildBatchArchive,
@@ -144,6 +148,7 @@ import { composioConnectorProvider } from './connectors/composio.js';
 import { configureComposioConfigStore, readComposioConfig, readPublicComposioConfig, writeComposioConfig } from './connectors/composio-config.js';
 import { CHAT_TOOL_ENDPOINTS, CHAT_TOOL_OPERATIONS, toolTokenRegistry } from './tool-tokens.js';
 import {
+  aggregateCloudflarePagesStatus,
   buildDeployFileSet,
   checkDeploymentUrl,
   CLOUDFLARE_PAGES_PROVIDER_ID,
@@ -152,12 +157,20 @@ import {
   deployToCloudflarePages,
   deployToVercel,
   isDeployProviderId,
+  listCloudflarePagesZones,
   prepareDeployPreflight,
   publicDeployConfigForProvider,
   readDeployConfig,
+  readCloudflarePagesDomain,
   VERCEL_PROVIDER_ID,
   writeDeployConfig,
 } from './deploy.js';
+import {
+  allowedBrowserPorts,
+  configuredAllowedOrigins,
+  isAllowedBrowserOrigin,
+  isLocalSameOrigin,
+} from './origin-validation.js';
 
 /** @typedef {import('@open-design/contracts').ApiErrorCode} ApiErrorCode */
 /** @typedef {import('@open-design/contracts').ApiError} ApiError */
@@ -725,18 +738,22 @@ export function resolveDataDir(raw, projectRoot) {
       `OD_DATA_DIR "${resolved}" is not writable: ${e.message}`,
     );
   }
-  // Canonicalize via realpath so that any callers comparing user-supplied
-  // realpath() output against RUNTIME_DATA_DIR get a stable result. On
-  // macOS, /var is itself a symlink to /private/var, so a user's import
-  // realpath would land in /private/var/... and would never start-with
-  // a non-canonicalized RUNTIME_DATA_DIR.
-  try {
-    return fs.realpathSync(resolved);
-  } catch {
-    return resolved;
-  }
+  return resolved;
 }
 const RUNTIME_DATA_DIR = resolveDataDir(process.env.OD_DATA_DIR, PROJECT_ROOT);
+// Canonical (realpath-resolved) form of RUNTIME_DATA_DIR for the few callers
+// that compare it against a user-supplied realpath() result. On macOS, /var
+// is a symlink to /private/var, so an import realpath lands in /private/var
+// and would never start-with the raw RUNTIME_DATA_DIR. Keep RUNTIME_DATA_DIR
+// itself as the stable, user-shaped path so OD_DATA_DIR resolution stays
+// predictable; only this canonical alias is used for symlink-aware checks.
+const RUNTIME_DATA_DIR_CANONICAL = (() => {
+  try {
+    return fs.realpathSync(RUNTIME_DATA_DIR);
+  } catch {
+    return RUNTIME_DATA_DIR;
+  }
+})();
 // One-shot legacy data migration. When OD_LEGACY_DATA_DIR is set and the
 // new data root is fresh (no app.sqlite), copy the 0.3.x .od/ payload
 // across before SQLite opens. Synchronous on purpose: openDatabase below
@@ -749,6 +766,7 @@ migrateLegacyDataDirSync({
 const ARTIFACTS_DIR = path.join(RUNTIME_DATA_DIR, 'artifacts');
 const PROJECTS_DIR = path.join(RUNTIME_DATA_DIR, 'projects');
 fs.mkdirSync(PROJECTS_DIR, { recursive: true });
+const orbitService = new OrbitService(RUNTIME_DATA_DIR);
 
 const activeChatAgentEventSinks = new Map();
 const activeProjectEventSinks = new Map();
@@ -819,6 +837,11 @@ const critiqueCfg = loadCritiqueConfigFromEnv();
 // Adapter denylist for orchestrator routing is implicit: anything that is
 // not the 'plain' streamFormat falls through to legacy single-pass.
 const critiqueWarnedAdapters = new Set<string>();
+
+// In-process registry of in-flight critique runs so the interrupt endpoint
+// can cascade an AbortController to the matching orchestrator invocation.
+// Created once per process; not persisted across daemon restarts.
+const critiqueRunRegistry = createRunRegistry();
 export const SSE_KEEPALIVE_INTERVAL_MS = 25_000;
 
 export function createAgentRuntimeEnv(
@@ -954,6 +977,89 @@ function cloudflarePagesProjectNameForDeploy(db, projectId, projectName, prior) 
   }
 
   return cloudflarePagesProjectNameForProject(projectId, projectName);
+}
+
+function publicDeployment(deployment) {
+  if (!deployment || typeof deployment !== 'object') return deployment;
+  const { providerMetadata: _providerMetadata, ...publicShape } = deployment;
+  return publicShape;
+}
+
+function publicDeployments(deployments) {
+  return (deployments || []).map(publicDeployment);
+}
+
+async function checkCloudflarePagesDeploymentLinks(existing) {
+  const current = existing.cloudflarePages || {};
+  const projectName = current.projectName || cloudflarePagesProjectNameFromDeployment(existing);
+  const config = await readDeployConfig(CLOUDFLARE_PAGES_PROVIDER_ID);
+  const pagesDevUrl = current.pagesDev?.url || existing.url;
+  const pagesDevResult = await checkDeploymentUrl(pagesDevUrl);
+  const pagesDev = {
+    ...(current.pagesDev || {}),
+    url: pagesDevUrl,
+    status: pagesDevResult.reachable ? 'ready' : pagesDevResult.status || 'link-delayed',
+    statusMessage: pagesDevResult.reachable
+      ? 'Public link is ready.'
+      : pagesDevResult.statusMessage || current.pagesDev?.statusMessage || 'Cloudflare Pages is still preparing the pages.dev link.',
+    reachableAt: pagesDevResult.reachable ? Date.now() : current.pagesDev?.reachableAt,
+  };
+  let customDomain = current.customDomain;
+  if (customDomain?.url && customDomain.status !== 'conflict') {
+    let pagesDomain = null;
+    if (config?.token && config?.accountId && projectName) {
+      try {
+        pagesDomain = await readCloudflarePagesDomain({ ...config, projectName }, customDomain.hostname);
+      } catch {
+        pagesDomain = null;
+      }
+    }
+    const customResult = await checkDeploymentUrl(customDomain.url);
+    const pagesDomainStatus = pagesDomain?.status || customDomain.pagesDomainStatus;
+    const failedByApi = ['error', 'blocked', 'deactivated'].includes(String(pagesDomainStatus || '').toLowerCase());
+    const activeByApi = String(pagesDomainStatus || '').toLowerCase() === 'active';
+    const readyByReachability = customResult.reachable && activeByApi;
+    customDomain = {
+      ...customDomain,
+      domainStatus: pagesDomain
+        ? pagesDomain.status === 'active'
+          ? 'active'
+          : failedByApi
+            ? 'failed'
+            : 'pending'
+        : customDomain.domainStatus,
+      pagesDomainStatus,
+      validationData: pagesDomain?.validation_data ?? customDomain.validationData,
+      verificationData: pagesDomain?.verification_data ?? customDomain.verificationData,
+      status: readyByReachability
+        ? 'ready'
+        : customDomain.status === 'failed' || failedByApi
+          ? 'failed'
+          : 'pending',
+      statusMessage: readyByReachability
+        ? 'Custom domain is ready.'
+        : failedByApi
+          ? 'Cloudflare Pages reported a custom-domain error.'
+        : customResult.statusMessage || customDomain.statusMessage || 'Custom domain is still being prepared.',
+    };
+  }
+  const cloudflarePages = {
+    ...current,
+    projectName,
+    pagesDev,
+    ...(customDomain ? { customDomain } : {}),
+  };
+  const aggregate = aggregateCloudflarePagesStatus(pagesDev, customDomain);
+  return {
+    url: pagesDev.url,
+    status: aggregate.status,
+    statusMessage: aggregate.statusMessage,
+    cloudflarePages,
+    providerMetadata: {
+      ...(existing.providerMetadata || {}),
+      cloudflarePages,
+    },
+  };
 }
 
 // Filename slug for the Content-Disposition header on archive downloads.
@@ -1423,36 +1529,13 @@ export function createSseResponse(
 
 export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST || '127.0.0.1', returnServer = false } = {}) {
   let resolvedPort = port;
+  const extraAllowedOrigins = configuredAllowedOrigins();
   const app = express();
   app.use(express.json({ limit: '4mb' }));
 
-  // Build the set of allowed browser origins for the current bind config.
-  // Shared by the global origin middleware and isLocalSameOrigin() so
-  // both use the same policy (loopback + explicit bind host, HTTP + HTTPS,
-  // OD_WEB_PORT support).
-  function buildAllowedOrigins() {
-    const ports = [resolvedPort];
-    const webPort = Number(process.env.OD_WEB_PORT);
-    if (webPort && webPort !== resolvedPort) ports.push(webPort);
-    const schemes = ['http', 'https'];
-    const loopbackHosts = ['127.0.0.1', 'localhost', '[::1]'];
-    return new Set(
-      ports.flatMap((p) => [
-        ...schemes.flatMap((s) => loopbackHosts.map((h) => `${s}://${h}:${p}`)),
-        // When bound to a specific non-loopback address (e.g. Tailscale,
-        // LAN IP, or 0.0.0.0), allow browser requests from that address
-        // too so the documented --host escape hatch remains usable.
-        ...schemes.map((s) => `${s}://${host}:${p}`),
-      ]),
-    );
-  }
-
-  // Portless loopback origins (e.g. http://127.0.0.1 without a port).
   // Chrome may strip the port from the Origin header on same-origin GET
-  // requests. Only used as a fallback for safe, idempotent GET requests;
-  // mutating routes (POST/PUT/PATCH/DELETE) always require an exact
-  // port-match via buildAllowedOrigins() or isLocalSameOrigin() to
-  // prevent local CSRF from a page on the default port (80).
+  // requests. Only use this as a fallback for safe, idempotent GET requests;
+  // mutating routes always require an exact origin/host match.
   function isPortlessLoopbackOrigin(origin) {
     return /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])$/.test(origin);
   }
@@ -1491,14 +1574,8 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
       return res.status(403).json({ error: 'Server initializing' });
     }
 
-    if (!buildAllowedOrigins().has(String(origin))) {
-      // Fallback: Chrome may strip the port from the Origin header on
-      // same-origin requests (e.g. http://127.0.0.1 instead of
-      // http://127.0.0.1:6313). Allow portless loopback origins only
-      // for GET requests, which are idempotent and safe from CSRF.
-      // Mutating methods (POST/PUT/PATCH/DELETE) always require an
-      // exact port-match to prevent a page on the default port (80)
-      // from triggering state-changing operations.
+    const ports = allowedBrowserPorts(resolvedPort);
+    if (!isAllowedBrowserOrigin(origin, req.headers.host, ports, host, extraAllowedOrigins)) {
       if (req.method !== 'GET' || !isPortlessLoopbackOrigin(String(origin))) {
         return res.status(403).json({ error: 'Cross-origin requests are not allowed' });
       }
@@ -1513,6 +1590,8 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
   };
   configureConnectorCredentialStore(new FileConnectorCredentialStore(RUNTIME_DATA_DIR));
   configureComposioConfigStore(RUNTIME_DATA_DIR);
+  composioConnectorProvider.configureCatalogCache(RUNTIME_DATA_DIR);
+  composioConnectorProvider.startCatalogRefreshLoop();
   let daemonUrl = `http://127.0.0.1:${port}`;
 
   // Boot reconcile: any critique_runs row left in 'running' state by a prior
@@ -1533,7 +1612,10 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
   // build advertises --include-partial-messages) so the first /api/chat
   // hits a populated cache even if /api/agents hasn't been called yet.
   void readAppConfig(RUNTIME_DATA_DIR)
-    .then((config) => detectAgents(config.agentCliEnv ?? {}))
+    .then((config) => {
+      orbitService.configure(config.orbit);
+      return detectAgents(config.agentCliEnv ?? {});
+    })
     .catch(() => detectAgents().catch(() => {}));
 
   await recoverStaleLiveArtifactRefreshes({ projectsRoot: PROJECTS_DIR }).catch((error) => {
@@ -1660,26 +1742,13 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     if (installInfoCache && now - installInfoCache.t < INSTALL_INFO_TTL_MS) {
       return res.json(installInfoCache.payload);
     }
+    // process.execPath is the absolute path to the Node-compatible
+    // runtime that is running the daemon RIGHT NOW. In packaged builds
+    // this may be Electron running with ELECTRON_RUN_AS_NODE=1 rather
+    // than a separate bundled Node binary; the helper surfaces that env
+    // requirement with the command so IDE-spawned MCP clients can
+    // reproduce the same mode from a minimal OS launcher environment.
     const cliPath = OD_BIN;
-    const cliExists = fs.existsSync(cliPath);
-    // process.execPath is the absolute path to the Node-compatible runtime
-    // that is running the daemon RIGHT NOW. In packaged builds this may be
-    // Electron running with ELECTRON_RUN_AS_NODE=1 rather than a separate
-    // bundled Node binary; surface the env requirement with the command so
-    // IDE-spawned MCP clients can reproduce the same mode from a minimal OS
-    // launcher environment.
-    const nodeExists = fs.existsSync(process.execPath);
-    const hints: string[] = [];
-    if (!cliExists) {
-      hints.push(
-        `Open Design CLI entry is missing at ${cliPath}. Rebuild the daemon or packaged app and refresh.`,
-      );
-    }
-    if (!nodeExists) {
-      hints.push(
-        `Node-compatible runtime at ${process.execPath} no longer exists. Reinstall Open Design or Node and restart the daemon.`,
-      );
-    }
     // The daemon was bootstrapped as a sidecar (tools-dev, packaged) iff
     // bootstrapSidecarRuntime stamped OD_SIDECAR_IPC_PATH into the env.
     // In sidecar mode the snippet omits --daemon-url and the spawned
@@ -1689,13 +1758,12 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     // when overridden) so a non-default namespace daemon stays
     // reachable - the MCP client does not inherit the daemon's env,
     // so without this the spawned `od mcp` would probe the default
-    // namespace socket and miss.
-    //
-    // For direct `od` / `od --port X` launches there is no IPC
-    // socket; bake --daemon-url so custom ports keep working.
+    // namespace socket and miss. For direct `od` / `od --port X`
+    // launches there is no IPC socket; the helper bakes --daemon-url
+    // so custom ports keep working.
     const sidecarIpcPath = process.env[SIDECAR_ENV.IPC_PATH];
     const isSidecarMode = sidecarIpcPath != null && sidecarIpcPath.length > 0;
-    const sidecarEnv = {};
+    const sidecarEnv: Record<string, string> = {};
     if (isSidecarMode) {
       const ns = process.env[SIDECAR_ENV.NAMESPACE];
       if (ns != null && ns !== SIDECAR_DEFAULTS.namespace) {
@@ -1706,28 +1774,18 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
         sidecarEnv[SIDECAR_ENV.IPC_BASE] = ipcBase;
       }
     }
-    const electronEnv = process.env.ELECTRON_RUN_AS_NODE === '1'
-      ? { ELECTRON_RUN_AS_NODE: '1' }
-      : null;
-    const env = { ...sidecarEnv, ...(electronEnv ?? {}) };
-    const args = isSidecarMode
-      ? [cliPath, 'mcp']
-      : [cliPath, 'mcp', '--daemon-url', `http://127.0.0.1:${resolvedPort}`];
-    const payload = {
-      command: process.execPath,
-      args,
-      ...(Object.keys(env).length > 0 ? { env } : {}),
-      daemonUrl: `http://127.0.0.1:${resolvedPort}`,
-      // Surface platform so the install panel can localize path hints
-      // (~/.cursor vs %USERPROFILE%\.cursor) and keyboard shortcuts
-      // (Cmd vs Ctrl). One of 'darwin' | 'linux' | 'win32' in
-      // practice; the panel falls back to POSIX wording for anything
-      // else.
+    const payload = buildMcpInstallPayload({
+      cliPath,
+      cliExists: fs.existsSync(cliPath),
+      execPath: process.execPath,
+      nodeExists: fs.existsSync(process.execPath),
+      port: resolvedPort,
       platform: process.platform,
-      cliExists,
-      nodeExists,
-      buildHint: hints.length ? hints.join(' ') : null,
-    };
+      dataDir: RUNTIME_DATA_DIR,
+      electronAsNode: process.env.ELECTRON_RUN_AS_NODE === '1',
+      isSidecarMode,
+      sidecarEnv,
+    });
     installInfoCache = { t: now, payload };
     res.json(payload);
   });
@@ -1977,10 +2035,13 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
         return sendApiError(res, 400, 'BAD_REQUEST', 'path must be a directory');
       }
       // Prevent importing the data directory into itself (post-realpath so
-      // a symlink pointing into RUNTIME_DATA_DIR is also caught).
+      // a symlink pointing into RUNTIME_DATA_DIR is also caught). Compare
+      // against the canonical alias because `normalizedPath` is the import
+      // folder's realpath; on macOS the data dir at /var/... resolves to
+      // /private/var/... and would never start-with the user-shaped path.
       if (
-        normalizedPath === RUNTIME_DATA_DIR ||
-        normalizedPath.startsWith(RUNTIME_DATA_DIR + path.sep)
+        normalizedPath === RUNTIME_DATA_DIR_CANONICAL ||
+        normalizedPath.startsWith(RUNTIME_DATA_DIR_CANONICAL + path.sep)
       ) {
         return sendApiError(res, 400, 'BAD_REQUEST', 'cannot import the data directory');
       }
@@ -3160,10 +3221,25 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     }
   });
 
+  app.get('/api/deploy/cloudflare-pages/zones', async (_req, res) => {
+    try {
+      /** @type {import('@open-design/contracts').CloudflarePagesZonesResponse} */
+      const body = await listCloudflarePagesZones(await readDeployConfig(CLOUDFLARE_PAGES_PROVIDER_ID));
+      res.json(body);
+    } catch (err) {
+      const status = err instanceof DeployError ? err.status : 400;
+      const init =
+        err instanceof DeployError && err.details
+          ? { details: err.details }
+          : {};
+      sendApiError(res, status, 'BAD_REQUEST', String(err?.message || err), init);
+    }
+  });
+
   app.get('/api/projects/:id/deployments', (req, res) => {
     try {
       /** @type {import('@open-design/contracts').ProjectDeploymentsResponse} */
-      const body = { deployments: listDeployments(db, req.params.id) };
+      const body = { deployments: publicDeployments(listDeployments(db, req.params.id)) };
       res.json(body);
     } catch (err) {
       sendApiError(res, 400, 'BAD_REQUEST', String(err?.message || err));
@@ -3172,7 +3248,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
 
   app.post('/api/projects/:id/deploy', async (req, res) => {
     try {
-      const { fileName, providerId = VERCEL_PROVIDER_ID } = req.body || {};
+      const { fileName, providerId = VERCEL_PROVIDER_ID, cloudflarePages } = req.body || {};
       if (!isDeployProviderId(providerId)) {
         return sendApiError(
           res,
@@ -3206,6 +3282,8 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
             },
             files,
             projectId: req.params.id,
+            cloudflarePages,
+            priorMetadata: prior?.providerMetadata,
           })
         : await deployToVercel({
             config: await readDeployConfig(VERCEL_PROVIDER_ID),
@@ -3226,14 +3304,15 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
         status: result.status,
         statusMessage: result.statusMessage,
         reachableAt: result.reachableAt,
+        cloudflarePages: result.cloudflarePages,
         providerMetadata:
           providerId === CLOUDFLARE_PAGES_PROVIDER_ID
-            ? cloudflarePagesDeploymentMetadata(cloudflarePagesProjectName)
+            ? (result.providerMetadata ?? cloudflarePagesDeploymentMetadata(cloudflarePagesProjectName))
             : prior?.providerMetadata,
         createdAt: prior?.createdAt ?? now,
         updatedAt: now,
       });
-      res.json(body);
+      res.json(publicDeployment(body));
     } catch (err) {
       const status = err instanceof DeployError ? err.status : 400;
       const init =
@@ -3312,6 +3391,18 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
           existing.providerId === CLOUDFLARE_PAGES_PROVIDER_ID
             ? cloudflarePagesProjectNameFromDeployment(existing)
             : '';
+        if (existing.providerId === CLOUDFLARE_PAGES_PROVIDER_ID && existing.cloudflarePages?.pagesDev?.url) {
+          const checked = await checkCloudflarePagesDeploymentLinks(existing);
+          const now = Date.now();
+          /** @type {import('@open-design/contracts').CheckDeploymentLinkResponse} */
+          const body = upsertDeployment(db, {
+            ...existing,
+            ...checked,
+            reachableAt: checked.status === 'ready' ? now : existing.reachableAt,
+            updatedAt: now,
+          });
+          return res.json(publicDeployment(body));
+        }
         const checkUrl = stableCloudflareProjectName
           ? `https://${stableCloudflareProjectName}.pages.dev`
           : existing.url;
@@ -3329,7 +3420,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
           reachableAt: result.reachable ? now : existing.reachableAt,
           updatedAt: now,
         });
-        res.json(body);
+        res.json(publicDeployment(body));
       } catch (err) {
         sendApiError(res, 400, 'BAD_REQUEST', String(err?.message || err));
       }
@@ -3714,7 +3805,34 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     }
     try {
       const config = await writeAppConfig(RUNTIME_DATA_DIR, req.body);
+      orbitService.configure(config.orbit);
       res.json({ config });
+    } catch (err) {
+      res
+        .status(500)
+        .json({ error: String(err && err.message ? err.message : err) });
+    }
+  });
+
+  app.get('/api/orbit/status', async (req, res) => {
+    if (!isLocalSameOrigin(req, resolvedPort)) {
+      return res.status(403).json({ error: 'cross-origin request rejected' });
+    }
+    try {
+      res.json(await orbitService.status());
+    } catch (err) {
+      res
+        .status(500)
+        .json({ error: String(err && err.message ? err.message : err) });
+    }
+  });
+
+  app.post('/api/orbit/run', async (req, res) => {
+    if (!isLocalSameOrigin(req, resolvedPort)) {
+      return res.status(403).json({ error: 'cross-origin request rejected' });
+    }
+    try {
+      res.json(await orbitService.start('manual'));
     } catch (err) {
       res
         .status(500)
@@ -3780,6 +3898,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
             : undefined,
         voice: req.body?.voice,
         audioKind: req.body?.audioKind,
+        language: typeof req.body?.language === 'string' ? req.body.language : undefined,
         compositionDir: req.body?.compositionDir,
         image: req.body?.image,
         onProgress: (line) => appendTaskProgress(task, line),
@@ -4648,6 +4767,19 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
         // contract payload as event.data.
         const critiqueBus = { emit: (e) => send(e.event, e.data) };
 
+        // Register this run with the in-process registry so the interrupt
+        // endpoint can cascade an AbortController to the orchestrator. The
+        // register call must run BEFORE runOrchestrator is invoked, so a
+        // request that arrives between spawn and orchestrator-start cannot
+        // miss a runId that already has a live child process.
+        const critiqueAbort = new AbortController();
+        critiqueRunRegistry.register({
+          runId: critiqueRunId,
+          projectId: critiqueProjectKey,
+          abort: critiqueAbort,
+          startedAt: Date.now(),
+        });
+
         // Stderr forwarding and child.on('error') must be wired BEFORE the
         // orchestrator awaits stdout. Otherwise a CLI that floods stderr can
         // fill the OS pipe and deadlock the run until the total timeout, and
@@ -4680,6 +4812,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
             stdout: stdoutIterable,
             child,
             childExitPromise,
+            signal: critiqueAbort.signal,
           });
           // Map the critique terminal status to the chat run lifecycle.
           // 'shipped' and 'below_threshold' both ran to a ship decision and
@@ -4698,6 +4831,8 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
         } catch (err) {
           send('error', createSseErrorPayload('AGENT_EXECUTION_FAILED', err instanceof Error ? err.message : String(err)));
           design.runs.finish(run, 'failed', 1, null);
+        } finally {
+          critiqueRunRegistry.unregister(critiqueProjectKey, critiqueRunId);
         }
         return;
       }
@@ -4876,6 +5011,155 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     }
   };
 
+  orbitService.setRunHandler(async ({
+    trigger,
+    startedAt,
+    prompt,
+    systemPrompt,
+    template,
+  }) => {
+    // Each Orbit run gets its own project so the conversation, messages, and
+    // live artifact are isolated. The handler does the synchronous prep here
+    // (insert project/conversation/run rows, kick off the chat run) and
+    // returns immediately with the new project id; the daemon endpoint
+    // resolves the HTTP request with that id so the client can navigate to
+    // the new project before the agent has finished. Anything that depends
+    // on the agent's final status (live artifact discovery, lastRun summary
+    // metadata) lives inside the `completion` promise.
+    const appConfig = await readAppConfig(RUNTIME_DATA_DIR);
+    let agentId = typeof appConfig.agentId === 'string' && appConfig.agentId
+      ? appConfig.agentId
+      : null;
+    if (!agentId) {
+      const agents = await detectAgents(appConfig.agentCliEnv ?? {}).catch(() => []);
+      agentId = agents.find((agent) => agent.available)?.id ?? null;
+    }
+    if (!agentId) throw new Error('No available agent is configured for Orbit. Choose an agent in Settings first.');
+
+    const now = Date.now();
+    const projectId = `orbit-${randomUUID()}`;
+    const conversationId = `orbit-conv-${randomUUID()}`;
+    const assistantMessageId = `orbit-assistant-${randomUUID()}`;
+    const projectName = `Orbit · ${formatLocalProjectTimestamp(startedAt)}`;
+
+    const orbitDesignSystemId = template?.designSystemRequired === false
+      ? null
+      : appConfig.designSystemId ?? null;
+
+    insertProject(db, {
+      id: projectId,
+      name: projectName,
+      skillId: 'live-artifact',
+      designSystemId: orbitDesignSystemId,
+      pendingPrompt: null,
+      metadata: { kind: 'orbit', trigger },
+      createdAt: now,
+      updatedAt: now,
+    });
+    insertConversation(db, {
+      id: conversationId,
+      projectId,
+      title: projectName,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const run = design.runs.create({
+      projectId,
+      conversationId,
+      assistantMessageId,
+      clientRequestId: `orbit-${trigger}-${randomUUID()}`,
+      agentId,
+    });
+    upsertMessage(db, conversationId, {
+      id: `orbit-user-${run.id}`,
+      role: 'user',
+      content: prompt,
+    });
+    upsertMessage(db, conversationId, {
+      id: assistantMessageId,
+      role: 'assistant',
+      content: '',
+      agentId,
+      agentName: getAgentDef(agentId)?.name ?? agentId,
+      runId: run.id,
+      runStatus: 'queued',
+      startedAt: now,
+    });
+
+    if (template?.dir) {
+      const cwd = await ensureProject(PROJECTS_DIR, projectId);
+      const result = await stageActiveSkill(
+        cwd,
+        path.basename(template.dir),
+        template.dir,
+        (msg) => console.warn(msg),
+      );
+      if (!result.staged) {
+        console.warn(
+          `[od] orbit template skill-stage skipped: ${result.reason ?? 'unknown reason'}; falling back to prompt-embedded instructions`,
+        );
+      }
+    }
+
+    const modelPrefs = appConfig.agentModels?.[agentId] ?? {};
+    design.runs.start(run, () => startChatRun({
+      agentId,
+      projectId,
+      conversationId: run.conversationId,
+      assistantMessageId: run.assistantMessageId,
+      clientRequestId: run.clientRequestId,
+      skillId: 'live-artifact',
+      designSystemId: orbitDesignSystemId,
+      model: modelPrefs.model ?? null,
+      reasoning: modelPrefs.reasoning ?? null,
+      message: prompt,
+      systemPrompt: [
+        renderOrbitTemplateSystemPrompt(template),
+        systemPrompt,
+        'You are Orbit, an autonomous activity-summary agent inside Open Design.',
+        'You must discover connectors and connector tools yourself through the OD CLI; the daemon has not chosen tools for you.',
+        'You must create and register a Live Artifact as the final deliverable. Do not merely describe what you would do.',
+        'Do not ask follow-up questions, do not emit <question-form>, and do not wait for user input. This run is unattended; pick reasonable defaults and complete the artifact.',
+        'Keep connector credentials and OD_TOOL_TOKEN private; never print or persist secrets.',
+      ].join('\n'),
+    }, run));
+
+    const completion = (async () => {
+      const finalStatus = await design.runs.wait(run);
+      db.prepare(
+        `UPDATE messages SET run_status = ?, ended_at = ? WHERE id = ?`,
+      ).run(finalStatus.status, Date.now(), assistantMessageId);
+      const artifacts = await listLiveArtifacts({ projectsRoot: PROJECTS_DIR, projectId });
+      const artifact = artifacts.find((candidate) => candidate.createdByRunId === run.id);
+      const status = finalStatus.status === 'succeeded' && !artifact ? 'failed' : finalStatus.status;
+      return {
+        agentRunId: run.id,
+        status,
+        ...(artifact?.id ? { artifactId: artifact.id, artifactProjectId: projectId } : {}),
+        summary: artifact?.id
+          ? `Agent ${finalStatus.status} and registered live artifact ${artifact.title}.`
+          : `Agent ${finalStatus.status} but did not register a live artifact for this Orbit run.`,
+      };
+    })();
+
+    return { projectId, agentRunId: run.id, completion };
+  });
+
+  orbitService.setTemplateResolver(async (skillId) => {
+    const skills = await listSkills(SKILLS_DIR);
+    const skill = findSkillById(skills, skillId);
+    if (!skill || skill.scenario !== 'orbit') return null;
+    return {
+      id: skill.id,
+      name: skill.name,
+      examplePrompt: skill.examplePrompt,
+      dir: skill.dir,
+      body: skill.body,
+      designSystemRequired: skill.designSystemRequired !== false,
+    };
+  });
+
   app.post('/api/runs', (req, res) => {
     const run = design.runs.create(req.body || {});
     /** @type {import('@open-design/contracts').ChatRunCreateResponse} */
@@ -5045,6 +5329,15 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
       res.off('close', abortIfResponseClosed);
     }
   });
+
+  // ---- Critique Theater endpoints (Phase 6) --------------------------------
+
+  // POST /api/projects/:projectId/critique/:runId/interrupt
+  // Cascades an AbortController to the in-flight orchestrator for the given run.
+  app.post(
+    '/api/projects/:projectId/critique/:runId/interrupt',
+    handleCritiqueInterrupt(db, critiqueRunRegistry),
+  );
 
   // ---- API Proxy (SSE) for API-compatible endpoints ------------------------
   // Browser → daemon → external API. Avoids CORS issues with third-party
@@ -5591,39 +5884,54 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
   //   - `apps/daemon/sidecar/server.ts`     → expects `{ url, server }`
   //   - `apps/daemon/tests/version-route.test.ts` → expects `{ url, server }`
   return await new Promise((resolve, reject) => {
-    const server = app.listen(port, host, () => {
-      const address = server.address();
-      // `address()` can in theory return `string | AddressInfo | null`. For
-      // a TCP listener it's always `AddressInfo` with a `.port` — the guard
-      // is belt-and-braces so an unexpected null never silently produces a
-      // `http://127.0.0.1:0` URL that callers would then try to fetch.
-      const boundPort =
-        address && typeof address === 'object' ? address.port : null;
-      if (!boundPort) {
-        reject(
-          new Error(
-            `[od] daemon failed to resolve listening port (address=${JSON.stringify(address)})`,
-          ),
-        );
-        return;
-      }
-      resolvedPort = boundPort;
-      // When binding to all interfaces report localhost for local callers;
-      // when binding to a specific address (e.g. a Tailscale IP) report that
-      // address so remote callers and the sidecar use the correct URL.
-      const reportHost = host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host;
-      const url = `http://${reportHost}:${resolvedPort}`;
-      if (!returnServer) {
-        console.log(`[od] daemon listening on ${url}`);
-      }
-      daemonUrl = url;
-      resolve(returnServer ? { url, server } : url);
-    });
+    const cleanupDaemonBackgroundWork = () => {
+      composioConnectorProvider.stopCatalogRefreshLoop();
+      orbitService.stop();
+    };
+    let server;
+    try {
+      server = app.listen(port, host, () => {
+        const address = server.address();
+        // `address()` can in theory return `string | AddressInfo | null`. For
+        // a TCP listener it's always `AddressInfo` with a `.port` — the guard
+        // is belt-and-braces so an unexpected null never silently produces a
+        // `http://127.0.0.1:0` URL that callers would then try to fetch.
+        const boundPort =
+          address && typeof address === 'object' ? address.port : null;
+        if (!boundPort) {
+          reject(
+            new Error(
+              `[od] daemon failed to resolve listening port (address=${JSON.stringify(address)})`,
+            ),
+          );
+          return;
+        }
+        resolvedPort = boundPort;
+        // When binding to all interfaces report localhost for local callers;
+        // when binding to a specific address (e.g. a Tailscale IP) report that
+        // address so remote callers and the sidecar use the correct URL.
+        const reportHost = host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host;
+        const url = `http://${reportHost}:${resolvedPort}`;
+        if (!returnServer) {
+          console.log(`[od] daemon listening on ${url}`);
+        }
+        daemonUrl = url;
+        resolve(returnServer ? { url, server } : url);
+      });
+    } catch (error) {
+      cleanupDaemonBackgroundWork();
+      reject(error);
+      return;
+    }
+    server.once('close', cleanupDaemonBackgroundWork);
     // `app.listen` throws synchronously when the port is already in use on
     // some Node versions, but emits an `error` event on others (and for
     // EACCES / EADDRNOTAVAIL even on the same Node). Wire the event so the
     // returned Promise always settles instead of hanging forever.
-    server.on('error', reject);
+    server.on('error', (error) => {
+      cleanupDaemonBackgroundWork();
+      reject(error);
+    });
   });
 }
 
@@ -5671,41 +5979,4 @@ export function rewriteSkillAssetUrls(html: string, skillId: string): string {
       return `${attr}${openQuote}${prefix}${relPath}${closeQuote}`;
     },
   );
-}
-
-export function isLocalSameOrigin(req, port) {
-  // Accepts http + https, loopback hosts, OD_WEB_PORT, and the explicit
-  // bind host — matching the global origin middleware policy exactly.
-  const host = String(req.headers.host || '');
-  const origin = req.headers.origin;
-
-  // Build allowed set inline (same logic as buildAllowedOrigins in
-  // startServer, but self-contained so the exported helper works
-  // without closing over server-scoped variables).
-  const ports = [port];
-  const webPort = Number(process.env.OD_WEB_PORT);
-  if (webPort && webPort !== port) ports.push(webPort);
-  const bindHost = process.env.OD_BIND_HOST || '127.0.0.1';
-  const loopbackHosts = ['127.0.0.1', 'localhost', '[::1]'];
-  const allowedHosts = new Set(
-    ports.flatMap((p) => [
-      ...loopbackHosts.map((h) => `${h}:${p}`),
-      `${bindHost}:${p}`,
-    ]),
-  );
-
-  // Reject unknown Host first (DNS rebinding / Host header attack)
-  if (!allowedHosts.has(host)) return false;
-
-  // Non-browser client with valid Host → allow
-  if (origin == null || origin === '') return true;
-
-  const schemes = ['http', 'https'];
-  const allowedOrigins = new Set(
-    ports.flatMap((p) => [
-      ...schemes.flatMap((s) => loopbackHosts.map((h) => `${s}://${h}:${p}`)),
-      ...schemes.map((s) => `${s}://${bindHost}:${p}`),
-    ]),
-  );
-  return allowedOrigins.has(String(origin));
 }

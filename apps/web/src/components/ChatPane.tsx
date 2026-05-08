@@ -162,6 +162,9 @@ export function ChatPane({
 
   useEffect(() => {
     didInitialScrollRef.current = false;
+    // A new conversation should land at the bottom (its own initial
+    // scroll), not inherit the previous conversation's saved position.
+    savedChatScrollRef.current = null;
   }, [activeConversationId]);
 
   useEffect(() => {
@@ -172,7 +175,13 @@ export function ChatPane({
       el.scrollTop = el.scrollHeight;
       setScrolledFromBottom(false);
     });
-  }, [activeConversationId, messages.length]);
+    // `tab` is in the deps so that switching conversations while
+    // Comments is open doesn't strand the new conversation at scrollTop:
+    // 0. The activeConversationId-reset effect above clears
+    // didInitialScrollRef while the chat-log is unmounted; this effect
+    // then re-runs when the user returns to Chat and the element is
+    // available, scrolling the new conversation to its initial bottom.
+  }, [activeConversationId, messages.length, tab]);
 
   useEffect(() => {
     const el = logRef.current;
@@ -186,19 +195,72 @@ export function ChatPane({
     }
   }, [messages, error]);
 
+  // Saved chat-log scroll state, preserved across tab switches. The
+  // chat-log <div> is conditionally rendered so it unmounts when the
+  // user switches to Comments. On remount it would default to
+  // scrollTop: 0 and the initial-bottom-scroll effect skips because
+  // didInitialScrollRef is already true. We capture either the absolute
+  // scrollTop or a "pinned to bottom" flag while Chat is visible, so
+  // bottom-followers stay pinned even when new messages stream in
+  // off-tab. Issue #790.
+  const savedChatScrollRef = useRef<
+    { pinnedToBottom: true } | { pinnedToBottom: false; scrollTop: number } | null
+  >(null);
   useEffect(() => {
+    if (tab !== 'chat') return;
     const el = logRef.current;
     if (!el) return;
+
+    // Restore previously-saved position on remount. Defer to the next
+    // frame so the conditional <> contents finish layout before the
+    // scrollTop write lands.
+    const saved = savedChatScrollRef.current;
+    if (saved !== null) {
+      requestAnimationFrame(() => {
+        const target = logRef.current;
+        if (!target) return;
+        if (saved.pinnedToBottom) {
+          target.scrollTop = target.scrollHeight;
+        } else {
+          target.scrollTop = saved.scrollTop;
+        }
+        // Resync the jump-to-latest affordance with the restored
+        // position. Without this, a user who left Chat ~60px from the
+        // bottom and returns to find new messages stacked underneath
+        // would land hundreds of pixels above the latest turn while
+        // scrolledFromBottom remained false until they scrolled.
+        const distance =
+          target.scrollHeight - target.scrollTop - target.clientHeight;
+        setScrolledFromBottom(distance > 120);
+      });
+    }
+
+    function snapshot(target: HTMLDivElement) {
+      const distance =
+        target.scrollHeight - target.scrollTop - target.clientHeight;
+      savedChatScrollRef.current =
+        distance < 50
+          ? { pinnedToBottom: true }
+          : { pinnedToBottom: false, scrollTop: target.scrollTop };
+    }
+
     function onScroll() {
       const target = logRef.current;
       if (!target) return;
+      snapshot(target);
       const distance =
         target.scrollHeight - target.scrollTop - target.clientHeight;
       setScrolledFromBottom(distance > 120);
     }
     el.addEventListener('scroll', onScroll);
-    return () => el.removeEventListener('scroll', onScroll);
-  }, []);
+    return () => {
+      // Capture final scroll state before unmount; the ref normally
+      // tracks via onScroll, but programmatic scrolls or layout shifts
+      // right before unmount can leave it stale.
+      snapshot(el);
+      el.removeEventListener('scroll', onScroll);
+    };
+  }, [tab]);
 
   // Close the conversation history dropdown on outside click / Escape.
   useEffect(() => {
