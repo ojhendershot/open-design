@@ -44,6 +44,18 @@ const TEST_CONFIG: LangfuseConfig = {
   retries: 0,
 };
 
+function bodyOf(
+  batch: unknown[],
+  type: string,
+  name?: string,
+): Record<string, any> {
+  const event = (batch as Array<{ type: string; body: Record<string, any> }>).find(
+    (item) => item.type === type && (name === undefined || item.body.name === name),
+  );
+  expect(event).toBeTruthy();
+  return event!.body;
+}
+
 describe('readLangfuseConfig', () => {
   it('returns null when keys are missing', () => {
     expect(readLangfuseConfig({})).toBeNull();
@@ -112,19 +124,35 @@ describe('readLangfuseConfig', () => {
 });
 
 describe('buildTracePayload', () => {
-  it('emits a trace-create + generation-create pair', () => {
+  it('emits a trace with nested agent + generation observations', () => {
     const batch = buildTracePayload(makeCtx());
-    expect(batch).toHaveLength(2);
     const types = (batch as Array<{ type: string }>).map((e) => e.type);
-    expect(types).toEqual(['trace-create', 'generation-create']);
+    expect(types).toEqual([
+      'trace-create',
+      'span-create',
+      'generation-create',
+      'event-create',
+    ]);
+    const span = bodyOf(batch, 'span-create', 'agent-run');
+    const gen = bodyOf(batch, 'generation-create', 'llm');
+    const tools = bodyOf(batch, 'event-create', 'tool-summary');
+    expect(span.id).toBe('run-1-agent');
+    expect(span.traceId).toBe('run-1');
+    expect(gen.traceId).toBe('run-1');
+    expect(gen.parentObservationId).toBe('run-1-agent');
+    expect(tools.parentObservationId).toBe('run-1-agent');
+    expect(tools.metadata.toolCalls).toBe(4);
   });
 
   it('omits prompt + output when content gate is off', () => {
     const batch = buildTracePayload(makeCtx());
     const trace = (batch[0] as any).body;
-    const gen = (batch[1] as any).body;
+    const span = bodyOf(batch, 'span-create', 'agent-run');
+    const gen = bodyOf(batch, 'generation-create', 'llm');
     expect(trace.input).toBeUndefined();
     expect(trace.output).toBeUndefined();
+    expect(span.input).toBeUndefined();
+    expect(span.output).toBeUndefined();
     expect(gen.input).toBeUndefined();
     expect(gen.output).toBeUndefined();
   });
@@ -226,7 +254,7 @@ describe('buildTracePayload', () => {
   it('records token counts in metadata.tokens and generation.usage', () => {
     const batch = buildTracePayload(makeCtx());
     const trace = (batch[0] as any).body;
-    const gen = (batch[1] as any).body;
+    const gen = bodyOf(batch, 'generation-create', 'llm');
     expect(trace.metadata.tokens).toEqual({
       input: 1234,
       output: 567,
@@ -302,7 +330,7 @@ describe('buildTracePayload', () => {
         turn: { model: 'claude-sonnet-4-5', reasoning: 'high' },
       }),
     );
-    const gen = (batch[1] as any).body;
+    const gen = bodyOf(batch, 'generation-create', 'llm');
     expect(gen.model).toBe('claude-sonnet-4-5');
     expect(gen.modelParameters).toEqual({ reasoning: 'high' });
   });
@@ -311,7 +339,7 @@ describe('buildTracePayload', () => {
     const batch = buildTracePayload(
       makeCtx({ turn: { model: 'gpt-4o' } }),
     );
-    const gen = (batch[1] as any).body;
+    const gen = bodyOf(batch, 'generation-create', 'llm');
     expect(gen.model).toBe('gpt-4o');
     expect(gen.modelParameters).toBeUndefined();
   });
@@ -357,9 +385,13 @@ describe('buildTracePayload', () => {
         },
       }),
     );
-    const gen = (batch[1] as any).body;
+    const span = bodyOf(batch, 'span-create', 'agent-run');
+    const gen = bodyOf(batch, 'generation-create', 'llm');
     expect(gen.level).toBe('ERROR');
     expect(gen.statusMessage).toBe('boom');
+    expect(span.level).toBe('ERROR');
+    expect(span.statusMessage).toBe('boom');
+    expect(bodyOf(batch, 'event-create', 'run-error').statusMessage).toBe('boom');
     expect((batch[0] as any).body.metadata.error).toBe('boom');
     expect((batch[0] as any).body.metadata.success).toBe(false);
   });
@@ -420,7 +452,12 @@ describe('reportRunCompleted', () => {
     expect(init.headers['Content-Type']).toBe('application/json');
     const body = JSON.parse(init.body as string);
     expect(Array.isArray(body.batch)).toBe(true);
-    expect(body.batch).toHaveLength(2);
+    expect(body.batch.map((item: any) => item.type)).toEqual([
+      'trace-create',
+      'span-create',
+      'generation-create',
+      'event-create',
+    ]);
   });
 
   it('warns and drops when serialized batch exceeds the hard cap', async () => {

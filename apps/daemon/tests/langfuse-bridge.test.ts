@@ -49,6 +49,18 @@ function makeRun(over: Partial<Parameters<typeof reportRunCompletedFromDaemon>[0
   };
 }
 
+function bodyOf(
+  batch: unknown[],
+  type: string,
+  name?: string,
+): Record<string, any> {
+  const event = (batch as Array<{ type: string; body: Record<string, any> }>).find(
+    (item) => item.type === type && (name === undefined || item.body.name === name),
+  );
+  expect(event).toBeTruthy();
+  return event!.body;
+}
+
 describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
   let dataDir: string;
 
@@ -126,12 +138,34 @@ describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const init = fetchSpy.mock.calls[0]![1] as RequestInit;
     const batch = JSON.parse(init.body as string).batch as any[];
-    expect(batch).toHaveLength(2);
+    expect(batch.map((item) => item.type)).toEqual([
+      'trace-create',
+      'span-create',
+      'generation-create',
+      'event-create',
+      'event-create',
+    ]);
     const trace = batch[0].body;
+    const span = bodyOf(batch, 'span-create', 'agent-run');
+    const generation = bodyOf(batch, 'generation-create', 'llm');
+    const tools = bodyOf(batch, 'event-create', 'tool-summary');
+    const artifacts = bodyOf(batch, 'event-create', 'artifact-summary');
     expect(trace.userId).toBe('install-uuid-1');
     expect(trace.sessionId).toBe('conv-1');
     expect(trace.input).toBe('design a coffee landing page');
     expect(trace.output).toBe('Here is a draft …');
+    expect(span.id).toBe('run-id-1-agent');
+    expect(span.traceId).toBe('run-id-1');
+    expect(span.input).toBe('design a coffee landing page');
+    expect(span.output).toBe('Here is a draft …');
+    expect(generation.parentObservationId).toBe('run-id-1-agent');
+    expect(tools.parentObservationId).toBe('run-id-1-agent');
+    expect(tools.metadata.toolCalls).toBe(2);
+    expect(artifacts.parentObservationId).toBe('run-id-1-agent');
+    expect(artifacts.metadata.artifacts).toEqual([
+      { slug: 'index.html', type: 'html', sizeBytes: 4096 },
+      { slug: 'style.css', type: 'code', sizeBytes: 800 },
+    ]);
     // Core tags must be present. The bridge also tacks on an `os:<...>`
     // tag derived from the host (`darwin` / `linux` / `win32`), which is
     // useful telemetry but varies between dev / CI environments — assert
@@ -191,7 +225,7 @@ describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
     const init = fetchSpy.mock.calls[0]![1] as RequestInit;
     const batch = JSON.parse(init.body as string).batch as any[];
     const trace = batch[0].body;
-    const generation = batch[1].body;
+    const generation = bodyOf(batch, 'generation-create', 'llm');
 
     // Turn-level: trace metadata + tags carry it for filtering / grouping.
     expect(trace.metadata.model).toBe('claude-sonnet-4-5');
@@ -302,8 +336,14 @@ describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
     expect(batch[0].body.metadata.status).toBe('failed');
     expect(batch[0].body.metadata.success).toBe(false);
     expect(batch[0].body.metadata.error).toBe('agent stream blew up');
-    expect(batch[1].body.level).toBe('ERROR');
-    expect(batch[1].body.statusMessage).toBe('agent stream blew up');
+    expect(bodyOf(batch, 'span-create', 'agent-run').level).toBe('ERROR');
+    expect(bodyOf(batch, 'generation-create', 'llm').level).toBe('ERROR');
+    expect(bodyOf(batch, 'generation-create', 'llm').statusMessage).toBe(
+      'agent stream blew up',
+    );
+    expect(bodyOf(batch, 'event-create', 'run-error').statusMessage).toBe(
+      'agent stream blew up',
+    );
   });
 
   it('survives a missing assistant message (web has not PUT yet)', async () => {

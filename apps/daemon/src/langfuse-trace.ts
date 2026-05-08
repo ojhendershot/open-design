@@ -1,8 +1,8 @@
 // Langfuse trace forwarding for completed agent runs.
 //
 // This module is intentionally dependency-free (no `langfuse` SDK). It posts
-// a {trace, generation} pair to Langfuse's public ingestion endpoint when a
-// run reaches a terminal state. Without LANGFUSE_PUBLIC_KEY /
+// a trace with nested observations to Langfuse's public ingestion endpoint when
+// a run reaches a terminal state. Without LANGFUSE_PUBLIC_KEY /
 // LANGFUSE_SECRET_KEY in the env, every entry point becomes a no-op so that
 // dev runs and forks of this open-source repo do not accidentally report.
 //
@@ -236,6 +236,7 @@ export function buildTracePayload(ctx: ReportContext): unknown[] {
 
   const success = ctx.run.status === 'succeeded';
   const traceId = ctx.run.runId;
+  const agentSpanId = `${ctx.run.runId}-agent`;
   const generationId = `${ctx.run.runId}-gen`;
 
   // Trace metadata is the queryable + exportable fact-sheet for each turn.
@@ -271,7 +272,7 @@ export function buildTracePayload(ctx: ReportContext): unknown[] {
   const modelParameters: Record<string, unknown> | undefined =
     ctx.turn?.reasoning ? { reasoning: ctx.turn.reasoning } : undefined;
 
-  return [
+  const batch: unknown[] = [
     {
       id: randomUUID(),
       type: 'trace-create',
@@ -290,11 +291,35 @@ export function buildTracePayload(ctx: ReportContext): unknown[] {
     },
     {
       id: randomUUID(),
+      type: 'span-create',
+      timestamp: nowIso,
+      body: {
+        id: agentSpanId,
+        traceId,
+        name: 'agent-run',
+        startTime: startTimeIso,
+        endTime: endTimeIso,
+        input: inputText,
+        output: outputText,
+        level: success ? 'DEFAULT' : 'ERROR',
+        statusMessage: ctx.run.error ?? undefined,
+        metadata: {
+          status: ctx.run.status,
+          messageId: ctx.message.messageId || undefined,
+          durationMs: ctx.eventsSummary.durationMs,
+          toolCalls: ctx.eventsSummary.toolCalls,
+          errors: ctx.eventsSummary.errors,
+        },
+      },
+    },
+    {
+      id: randomUUID(),
       type: 'generation-create',
       timestamp: nowIso,
       body: {
         id: generationId,
         traceId,
+        parentObservationId: agentSpanId,
         name: 'llm',
         // model / modelParameters are first-class on Langfuse generations
         // (used for token-cost lookup, UI grouping, eval filters), so set
@@ -314,6 +339,66 @@ export function buildTracePayload(ctx: ReportContext): unknown[] {
       },
     },
   ];
+
+  if (ctx.eventsSummary.toolCalls > 0) {
+    batch.push({
+      id: randomUUID(),
+      type: 'event-create',
+      timestamp: nowIso,
+      body: {
+        id: `${ctx.run.runId}-tools`,
+        traceId,
+        parentObservationId: agentSpanId,
+        name: 'tool-summary',
+        startTime: endTimeIso,
+        metadata: {
+          toolCalls: ctx.eventsSummary.toolCalls,
+        },
+      },
+    });
+  }
+
+  if (artifactsList && (artifactsList.length > 0 || artifactsTruncated)) {
+    batch.push({
+      id: randomUUID(),
+      type: 'event-create',
+      timestamp: nowIso,
+      body: {
+        id: `${ctx.run.runId}-artifacts`,
+        traceId,
+        parentObservationId: agentSpanId,
+        name: 'artifact-summary',
+        startTime: endTimeIso,
+        metadata: {
+          artifacts: artifactsList,
+          artifactsTruncated,
+        },
+      },
+    });
+  }
+
+  if (!success || ctx.eventsSummary.errors > 0) {
+    batch.push({
+      id: randomUUID(),
+      type: 'event-create',
+      timestamp: nowIso,
+      body: {
+        id: `${ctx.run.runId}-error`,
+        traceId,
+        parentObservationId: agentSpanId,
+        name: success ? 'error-summary' : 'run-error',
+        startTime: endTimeIso,
+        level: 'ERROR',
+        statusMessage: ctx.run.error ?? undefined,
+        metadata: {
+          status: ctx.run.status,
+          errors: ctx.eventsSummary.errors,
+        },
+      },
+    });
+  }
+
+  return batch;
 }
 
 async function postLangfuseBatch(
