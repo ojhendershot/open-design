@@ -22,6 +22,7 @@ import {
   type RuntimeInfo,
   type TurnInfo,
 } from './langfuse-trace.js';
+import { redactSecrets } from './redact.js';
 
 interface DaemonRunRecord {
   id: string;
@@ -241,8 +242,12 @@ export async function reportRunCompletedFromDaemon(
       },
       message: {
         messageId: run.assistantMessageId ?? '',
-        prompt: typeof run.userPrompt === 'string' ? run.userPrompt : '',
-        output: messageContent,
+        // Lexical scrub before send. Catches API keys / tokens / emails
+        // / IPs / Luhn-valid credit cards in the prompt and assistant
+        // text. See `redact.ts` for the full pattern set; the user-facing
+        // privacy copy enumerates the same categories.
+        prompt: redactSecrets(typeof run.userPrompt === 'string' ? run.userPrompt : ''),
+        output: redactSecrets(messageContent),
         ...(usage ? { usage } : {}),
       },
       artifacts: summarizeProducedFiles(producedFilesRaw),

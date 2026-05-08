@@ -256,15 +256,6 @@ export function App() {
         // undefined we let the banner own the foreground; the Share /
         // Not now handlers re-trigger the welcome modal once the
         // consent decision is persisted.
-        // [debug:privacy] tracing why the consent banner sometimes vanishes
-        // after bootstrap. Remove once root cause is fixed.
-        console.log('[privacy] bootstrap done', {
-          installationId: next.installationId,
-          telemetry: next.telemetry,
-          onboardingCompleted: next.onboardingCompleted,
-          willOpenSettings:
-            !next.onboardingCompleted && next.installationId !== undefined,
-        });
         if (!next.onboardingCompleted && next.installationId !== undefined) {
           setSettingsWelcome(true);
           setSettingsOpen(true);
@@ -730,15 +721,6 @@ export function App() {
           would otherwise see the welcome modal pop on top of the banner
           and have no way to read or interact with the consent decision
           until they closed Settings. */}
-      {(() => {
-        // [debug:privacy] log every render so we see the moment cfg flips.
-        console.log('[privacy] render', {
-          installationId: config.installationId,
-          settingsOpen,
-          showBanner: config.installationId === undefined,
-        });
-        return null;
-      })()}
       {config.installationId === undefined ? (
         <PrivacyConsentModal
           onShare={() => {

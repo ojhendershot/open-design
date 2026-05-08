@@ -516,6 +516,41 @@ still get a useful tag without changing their client. Stored as
 `run.clientType` and shipped in both `trace.tags` (`client:desktop|web`)
 and `trace.metadata.clientType`.
 
+### Pre-send redaction
+
+When `prefs.content === true`, the user prompt and assistant text still
+go through `apps/daemon/src/redact.ts` before reaching the Langfuse
+fetch. The scrubber is regex-only (no ML, no network) and runs synchronously
+on each turn. Categories it removes:
+
+| Category | Match shape |
+|---|---|
+| Anthropic / OpenAI keys | `sk-(proj-|live-|test-|ant-)?[A-Za-z0-9_-]{20,}` |
+| Langfuse keys | `(pk|sk)-lf-[A-Za-z0-9-]{16,}` |
+| GitHub tokens | `gh[opsur]_[A-Za-z0-9]{36,251}` |
+| AWS access key id | `AKIA[0-9A-Z]{16}` |
+| Google API keys | `AIza[0-9A-Za-z_-]{35}` |
+| Slack tokens | `xox[abprs]-[0-9A-Za-z-]{10,}` |
+| Stripe keys | `(sk|pk|rk)_(live|test)_[0-9a-zA-Z]{16,}` |
+| JWT (header.payload.signature) | `eyJ[…]\.eyJ[…]\.[…]` |
+| Bearer-header values | `Bearer <token>` (token only) |
+| Email | `local@domain.tld` |
+| IPv4 | `0-255.0-255.0-255.0-255` |
+| US-style phone | `(415) 555-1234` etc. |
+| Credit card | 13–19-digit run that passes Luhn |
+
+Each match becomes `[REDACTED:<category>]`. The `Settings → Privacy`
+copy enumerates the same list so the user-facing promise matches what
+the code actually does. **Not** redacted (intentional, would need an
+ML / LLM layer the daemon can't carry):
+
+- Names, postal addresses, business secrets, project content semantics.
+- 40-hex secrets without prefix (legacy GitHub PATs, raw sha1 hashes —
+  too high a false-positive cost in artifact slugs).
+
+Tests: `apps/daemon/tests/redact.test.ts` covers each pattern plus a
+few negative cases (16-digit runs that *fail* Luhn must pass through).
+
 ### Not collected (intentional)
 
 - Operating system **build** number (only family + release).

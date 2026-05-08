@@ -150,7 +150,7 @@ export const zhCN: Dict = {
   'settings.privacyMetrics': '匿名指标',
   'settings.privacyMetricsHint': '运行次数、token 用量、错误率、时长。不包含 prompt,不包含项目数据。',
   'settings.privacyContent': '对话内容',
-  'settings.privacyContentHint': '你发送的 prompt 与助手的回复(分别截断到 8 KB / 16 KB)。',
+  'settings.privacyContentHint': '你发送的 prompt 与助手的回复(分别截断到 8 KB / 16 KB)。API key、token、JWT、邮箱、IP 与信用卡号在发送前会自动剥离。',
   'settings.privacyArtifacts': '项目产物清单',
   'settings.privacyArtifactsHint': '生成文件的名称、类型、大小。文件内容绝不发送。',
   'settings.privacyInstallationId': '匿名 ID',

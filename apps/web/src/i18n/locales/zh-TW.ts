@@ -150,7 +150,7 @@ export const zhTW: Dict = {
   'settings.privacyMetrics': '匿名指標',
   'settings.privacyMetricsHint': '執行次數、token 用量、錯誤率、時長。不包含 prompt,不包含專案資料。',
   'settings.privacyContent': '對話內容',
-  'settings.privacyContentHint': '你送出的 prompt 與助理的回覆(分別截斷至 8 KB / 16 KB)。',
+  'settings.privacyContentHint': '你送出的 prompt 與助理的回覆(分別截斷至 8 KB / 16 KB)。API key、token、JWT、信箱、IP 與信用卡號會在傳送前自動剝離。',
   'settings.privacyArtifacts': '專案產出清單',
   'settings.privacyArtifactsHint': '產生檔案的名稱、類型、大小。檔案內容絕不傳送。',
   'settings.privacyInstallationId': '匿名 ID',

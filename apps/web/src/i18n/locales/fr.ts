@@ -154,7 +154,7 @@ export const fr: Dict = {
   'settings.privacyMetrics': 'Anonymous metrics',
   'settings.privacyMetricsHint': 'Run counts, token usage, error rate, duration. No prompts, no project data.',
   'settings.privacyContent': 'Conversation content',
-  'settings.privacyContentHint': "The prompts you send and the assistant's responses (truncated to 8 KB / 16 KB).",
+  'settings.privacyContentHint': "Your prompts and the assistant's responses (truncated 8 KB / 16 KB). API keys, tokens, JWTs, emails, IPs, and credit-card numbers are stripped automatically before send.",
   'settings.privacyArtifacts': 'Project artifacts manifest',
   'settings.privacyArtifactsHint': 'Filenames, types, sizes of generated files. File contents are never sent.',
   'settings.privacyInstallationId': 'Anonymous ID',
