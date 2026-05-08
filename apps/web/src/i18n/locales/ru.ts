@@ -242,6 +242,9 @@ export const ru: Dict = {
   'launchpad.exampleVideoName': 'Product reveal in 5s',
   'launchpad.exampleVideoPrompt':
     'Generate a 5-second product reveal video: smooth camera push-in, key feature highlighted with a subtle motion-graphic overlay.',
+  'launchpad.inputHint': 'Drop a sketch, paste a reference, or just describe it.',
+  'launchpad.attachListAria': 'Attached references',
+  'launchpad.attachRemove': 'Remove attachment',
   'launchpad.recentTitle': 'Recent activity',
   'launchpad.recentEmpty': 'No projects yet — pick a tile above or describe what you want to build.',
   'launchpad.resume': 'Resume',

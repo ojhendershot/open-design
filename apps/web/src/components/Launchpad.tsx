@@ -7,6 +7,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type {
   ChangeEvent as ReactChangeEvent,
+  ClipboardEvent as ReactClipboardEvent,
   DragEvent as ReactDragEvent,
   KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
@@ -146,6 +147,27 @@ function starterKeyFor(capability: CapabilityId, form: FormState): keyof Dict {
   }
 }
 
+// MIME accept list for the composer's file picker (and paste/drop
+// handlers). Builders may bring sketches (raster images), competitor
+// screenshots, scanned wireframes (PDF), reference clips for video, or
+// audio stems — keep the list permissive per capability today; backend
+// processing pipelines can tighten this once they exist.
+function acceptFor(capability: CapabilityId): string {
+  switch (capability) {
+    case 'video':
+      return 'image/*,video/*,application/pdf';
+    case 'audio':
+      return 'audio/*';
+    case 'image':
+    case 'prototype':
+    case 'artifact':
+    case 'deck':
+    case 'template':
+    default:
+      return 'image/*,application/pdf';
+  }
+}
+
 // --- Examples gallery ---------------------------------------------------
 // Curated "good designs" we want builders to see before they type. Each
 // example is fully click-to-remix: hitting a card pre-fills the composer
@@ -281,7 +303,15 @@ export function Launchpad({
   const [capability, setCapability] = useState<CapabilityId>('prototype');
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Multimodal start: prototype (and most other capabilities) accept a
+  // sketch / wireframe / reference screenshot in addition to text. We
+  // hold staged files locally and forward their names through the
+  // prompt today (see handleSubmit). Full binary plumbing into the
+  // CreateInput contract is a separate, larger PR — tracked as a
+  // follow-up; this gives the agent the SIGNAL that references exist.
+  const [attachments, setAttachments] = useState<File[]>([]);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const recent = useMemo(() => {
     return [...projects]
@@ -295,20 +325,28 @@ export function Launchpad({
   // Create runs the active capability + form pair: prompt wins if typed,
   // otherwise the capability's starter is used so a builder can still
   // hit Create with an empty composer and get a sensible first task.
+  // When references are attached, we annotate the prompt so the agent
+  // knows references exist even though the metadata schema can't carry
+  // binaries yet. Treat this as a temporary bridge.
   const handleSubmit = useCallback(() => {
     if (submitting) return;
     const starter = t(starterKeyFor(capability, form));
-    const promptToSend = trimmed || starter;
-    if (!promptToSend) return;
+    const basePrompt = trimmed || starter;
+    if (!basePrompt) return;
+    const refSuffix =
+      attachments.length > 0
+        ? `\n\n[Attached references: ${attachments.map((f) => f.name).join(', ')}]`
+        : '';
+    const promptToSend = `${basePrompt}${refSuffix}`;
     setSubmitting(true);
     onCreateProject({
-      name: deriveProjectName(promptToSend),
+      name: deriveProjectName(basePrompt),
       skillId: null,
       designSystemId: null,
       metadata: buildMetadata(capability, form),
       pendingPrompt: promptToSend,
     });
-  }, [capability, form, onCreateProject, submitting, t, trimmed]);
+  }, [attachments, capability, form, onCreateProject, submitting, t, trimmed]);
 
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
@@ -376,14 +414,64 @@ export function Launchpad({
     }
   }, [capability, form, t]);
 
+  // --- Attachment handlers --------------------------------------------
+  // Three pathways feed the same `attachments` queue: explicit file
+  // picker (Attach button), drag-drop onto the page, and clipboard
+  // paste in the textarea (Cmd+V on a screenshot). All three short-
+  // circuit if the dropped item isn't a file (text drag-drop falls
+  // through to the textarea naturally).
+  const acceptList = useMemo(() => acceptFor(capability), [capability]);
+
+  const handleAddFiles = useCallback((files: FileList | File[] | null) => {
+    if (!files) return;
+    const list = 'length' in files ? Array.from(files) : [];
+    if (list.length === 0) return;
+    setAttachments((prev) => [...prev, ...list]);
+  }, []);
+
+  const handleAttachClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileInputChange = useCallback(
+    (event: ReactChangeEvent<HTMLInputElement>) => {
+      handleAddFiles(event.target.files);
+      // Reset so picking the same file again still re-fires onChange.
+      event.target.value = '';
+    },
+    [handleAddFiles],
+  );
+
+  const handleRemoveAttachment = useCallback((idx: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
+
+  const handlePromptPaste = useCallback(
+    (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
+      const items = Array.from(event.clipboardData?.items ?? []);
+      const fileItems = items
+        .filter((it) => it.kind === 'file')
+        .map((it) => it.getAsFile())
+        .filter((f): f is File => f !== null);
+      if (fileItems.length > 0) {
+        // Don't let the textarea also try to insert a noisy filename.
+        event.preventDefault();
+        handleAddFiles(fileItems);
+      }
+    },
+    [handleAddFiles],
+  );
+
   const handleDrop = useCallback(
     (event: ReactDragEvent<HTMLDivElement>) => {
       event.preventDefault();
       setDragHover(false);
-      // Stub for PR #1 — Import ZIP / sketch wiring lands in PR #3 with
-      // the [+] menu. For demo, drag-drop hint surfaces on hover only.
+      const files = event.dataTransfer?.files;
+      if (files && files.length > 0) {
+        handleAddFiles(files);
+      }
     },
-    [],
+    [handleAddFiles],
   );
 
   const headerActions = (
@@ -448,13 +536,23 @@ export function Launchpad({
                 value={prompt}
                 onChange={setPrompt}
                 onKeyDown={handleKeyDown}
+                onPaste={handlePromptPaste}
                 onSubmit={handleSubmit}
                 canSend={canSend}
                 inputRef={promptRef}
                 placeholder={t('launchpad.placeholder')}
+                hintText={t('launchpad.inputHint')}
                 attachLabel={t('launchpad.attach')}
                 importLabel={t('launchpad.import')}
                 createLabel={t('launchpad.create')}
+                attachmentListLabel={t('launchpad.attachListAria')}
+                attachmentRemoveLabel={t('launchpad.attachRemove')}
+                attachments={attachments}
+                onAttachClick={handleAttachClick}
+                onRemoveAttachment={handleRemoveAttachment}
+                acceptList={acceptList}
+                fileInputRef={fileInputRef}
+                onFileInputChange={handleFileInputChange}
               />
               <SettingsPanel
                 capability={capability}
@@ -523,26 +621,46 @@ interface PromptBarProps {
   value: string;
   onChange: (next: string) => void;
   onKeyDown: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void;
+  onPaste: (event: ReactClipboardEvent<HTMLTextAreaElement>) => void;
   onSubmit: () => void;
   canSend: boolean;
   inputRef: React.MutableRefObject<HTMLTextAreaElement | null>;
   placeholder: string;
+  hintText: string;
   attachLabel: string;
   importLabel: string;
   createLabel: string;
+  attachmentListLabel: string;
+  attachmentRemoveLabel: string;
+  attachments: File[];
+  onAttachClick: () => void;
+  onRemoveAttachment: (idx: number) => void;
+  acceptList: string;
+  fileInputRef: React.MutableRefObject<HTMLInputElement | null>;
+  onFileInputChange: (event: ReactChangeEvent<HTMLInputElement>) => void;
 }
 
 function PromptBar({
   value,
   onChange,
   onKeyDown,
+  onPaste,
   onSubmit,
   canSend,
   inputRef,
   placeholder,
+  hintText,
   attachLabel,
   importLabel,
   createLabel,
+  attachmentListLabel,
+  attachmentRemoveLabel,
+  attachments,
+  onAttachClick,
+  onRemoveAttachment,
+  acceptList,
+  fileInputRef,
+  onFileInputChange,
 }: PromptBarProps) {
   return (
     <div className="launchpad-prompt-bar">
@@ -555,20 +673,61 @@ function PromptBar({
           onChange(event.target.value)
         }
         onKeyDown={onKeyDown}
+        onPaste={onPaste}
         placeholder={placeholder}
         autoFocus
       />
+      {attachments.length > 0 && (
+        <ul
+          className="launchpad-attach-list"
+          role="list"
+          aria-label={attachmentListLabel}
+        >
+          {attachments.map((file, idx) => (
+            <li key={`${file.name}-${idx}`} className="launchpad-attach-chip">
+              <Icon
+                name={file.type.startsWith('image/') ? 'image' : 'file'}
+                size={11}
+              />
+              <span className="launchpad-attach-chip-name" title={file.name}>
+                {file.name}
+              </span>
+              <button
+                type="button"
+                className="launchpad-attach-chip-remove"
+                onClick={() => onRemoveAttachment(idx)}
+                aria-label={`${attachmentRemoveLabel}: ${file.name}`}
+                title={attachmentRemoveLabel}
+              >
+                <Icon name="close" size={10} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="launchpad-prompt-actions">
         <div className="launchpad-prompt-tools">
           <button
             type="button"
             className="launchpad-tool-btn"
-            disabled
+            onClick={onAttachClick}
             title={attachLabel}
           >
             <Icon name="image" size={13} />
             <span>{attachLabel}</span>
           </button>
+          {/* Hidden, programmatically-triggered. accept= is capability-aware
+              so e.g. Audio tab restricts to audio MIME, Video adds video/*. */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={acceptList}
+            className="launchpad-file-input"
+            onChange={onFileInputChange}
+            tabIndex={-1}
+            aria-hidden
+          />
           <button
             type="button"
             className="launchpad-tool-btn"
@@ -590,6 +749,9 @@ function PromptBar({
           <span>{createLabel}</span>
         </button>
       </div>
+      <p className="launchpad-prompt-hint" aria-hidden>
+        {hintText}
+      </p>
     </div>
   );
 }

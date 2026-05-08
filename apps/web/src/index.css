@@ -11700,6 +11700,78 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   color: var(--text-faint);
 }
 
+/* Hidden file input — kept in the DOM so the Attach button can trigger
+   it programmatically, but visually offscreen so it doesn't disrupt
+   the composer layout. */
+.launchpad-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Attached-references chip row — appears between textarea and the
+   actions row when the user has staged at least one sketch / reference
+   / scan. Wraps so a builder can drop multiple references without
+   breaking the composer layout. */
+.launchpad-attach-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.launchpad-attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 4px 6px 4px 9px;
+  background: var(--bg-subtle, #f6f3ed);
+  border: 1px solid var(--border-soft, rgba(0, 0, 0, 0.08));
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--text, #1f1f1f);
+}
+
+.launchpad-attach-chip-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.launchpad-attach-chip-remove {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  background: transparent;
+  color: var(--text-muted, #6b6b6b);
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.launchpad-attach-chip-remove:hover,
+.launchpad-attach-chip-remove:focus-visible {
+  background: rgba(31, 31, 31, 0.08);
+  color: var(--text, #1f1f1f);
+  outline: none;
+}
+
 .launchpad-prompt-actions {
   display: flex;
   align-items: center;
@@ -11745,6 +11817,31 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   border-radius: var(--radius-pill);
   font-size: 13px;
   font-weight: 600;
+}
+
+/* Multimodal-input hint line — sits below the composer's actions row
+   and tells the user up-front that the prompt accepts sketches,
+   references, *or* a text brief. Mirrors the three input categories
+   (草图 / 参考图 / brief) the design review called out. */
+.launchpad-prompt-hint {
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 11.5px;
+  color: var(--text-muted, #6b6b6b);
+  text-align: center;
+  letter-spacing: 0.005em;
+}
+
+/* Page-level drag-hover affordance: when the user is dragging a file
+   anywhere over the Launchpad, lift the composer's accent so the drop
+   target reads clearly without obscuring content. The whole <main>
+   captures the drop, not just the prompt bar — that way builders don't
+   need pixel-perfect aim. */
+.launchpad-main.is-drag-hover .launchpad-prompt-bar {
+  border-color: var(--accent);
+  box-shadow:
+    var(--shadow-md),
+    0 0 0 4px var(--accent-tint, rgba(201, 100, 66, 0.18));
 }
 
 /* --- Capability tabs ---------------------------------------

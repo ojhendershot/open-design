@@ -290,6 +290,9 @@ export interface Dict {
   'launchpad.examplePosterPrompt': string;
   'launchpad.exampleVideoName': string;
   'launchpad.exampleVideoPrompt': string;
+  'launchpad.inputHint': string;
+  'launchpad.attachListAria': string;
+  'launchpad.attachRemove': string;
   'launchpad.recentTitle': string;
   'launchpad.recentEmpty': string;
   'launchpad.resume': string;

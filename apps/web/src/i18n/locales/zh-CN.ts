@@ -242,6 +242,9 @@ export const zhCN: Dict = {
   'launchpad.exampleVideoName': '5 秒产品揭幕短片',
   'launchpad.exampleVideoPrompt':
     '生成一段 5 秒产品揭幕视频：平滑的镜头推进，搭配微妙的图形动效突出关键特性。',
+  'launchpad.inputHint': '可拖入草图、粘贴参考图，或直接描述。',
+  'launchpad.attachListAria': '已附加的参考',
+  'launchpad.attachRemove': '移除附件',
   'launchpad.recentTitle': '最近活动',
   'launchpad.recentEmpty': '还没有项目 —— 选择上方一个起点，或直接描述你想做什么。',
   'launchpad.resume': '继续',
