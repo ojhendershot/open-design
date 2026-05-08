@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, type ChildProcess } from "node:child_process";
 import { mkdir, open, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -18,10 +18,11 @@ import { createSidecarLaunchEnv, requestJsonIpc, resolveAppIpcPath } from "@open
 import {
   collectProcessTreePids,
   createProcessStampArgs,
+  isProcessAlive,
   listProcessSnapshots,
   matchesStampedProcess,
   readLogTail,
-  spawnBackgroundProcess,
+  spawnLoggedProcess,
   stopProcesses,
 } from "@open-design/platform";
 import type { ToolPackConfig } from "../config.js";
@@ -226,6 +227,83 @@ async function waitForDesktopStatus(config: ToolPackConfig, timeoutMs = 45_000):
   return null;
 }
 
+async function waitForEarlyExit(
+  child: ChildProcess,
+  timeoutMs: number,
+): Promise<{ code: number | null; signal: NodeJS.Signals | null } | null> {
+  return await new Promise((resolveWait) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.off("exit", onExit);
+      resolveWait(null);
+    }, timeoutMs);
+
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolveWait({ code, signal });
+    };
+
+    child.once("exit", onExit);
+  });
+}
+
+async function collectLaunchAssessment(appPath: string): Promise<string[]> {
+  const commands: Array<{ args: string[]; label: string }> = [
+    { args: ["--verify", "--deep", "--strict", "--verbose=2", appPath], label: "codesign" },
+    { args: ["--assess", "--type", "execute", "--verbose=4", appPath], label: "spctl" },
+  ];
+  const lines: string[] = [];
+
+  for (const command of commands) {
+    try {
+      const result = await execFileAsync(command.label, command.args, { maxBuffer: 1024 * 1024 });
+      lines.push(`[${command.label}] ok`);
+      if (result.stdout.trim().length > 0) lines.push(result.stdout.trim());
+      if (result.stderr.trim().length > 0) lines.push(result.stderr.trim());
+    } catch (error) {
+      lines.push(`[${command.label}] failed`);
+      if (isRecord(error) && typeof error.stdout === "string" && error.stdout.trim().length > 0) {
+        lines.push(error.stdout.trim());
+      }
+      if (isRecord(error) && typeof error.stderr === "string" && error.stderr.trim().length > 0) {
+        lines.push(error.stderr.trim());
+      }
+      if (error instanceof Error && lines.at(-1) !== error.message) {
+        lines.push(error.message);
+      }
+    }
+  }
+
+  return lines;
+}
+
+async function createLaunchFailureMessage(
+  config: ToolPackConfig,
+  target: { appPath: string; executablePath: string; source: MacStartSource },
+  details: { pid: number; reason: string },
+): Promise<string> {
+  const logPath = desktopLogPath(config);
+  const logLines = await readLogTail(logPath, 80).catch(() => []);
+  const assessment = await collectLaunchAssessment(target.appPath);
+  return [
+    `mac desktop failed to become healthy (${details.reason})`,
+    `namespace: ${config.namespace}`,
+    `source: ${target.source}`,
+    `pid: ${details.pid}`,
+    `appPath: ${target.appPath}`,
+    `executablePath: ${target.executablePath}`,
+    `logPath: ${logPath}`,
+    "launch assessment:",
+    ...(assessment.length === 0 ? ["(no assessment output)"] : assessment),
+    "desktop log tail:",
+    ...(logLines.length === 0 ? ["(no log lines)"] : logLines),
+  ].join("\n");
+}
+
 async function resolvePackedMacStartTarget(config: ToolPackConfig): Promise<{
   appPath: string;
   executablePath: string;
@@ -309,12 +387,13 @@ export async function startPackedMacApp(config: ToolPackConfig): Promise<MacStar
   await writeFile(logPath, "", "utf8");
 
   const logHandle = await open(logPath, "a");
-  let spawned: { pid: number };
+  let child: ChildProcess;
   try {
-    spawned = await spawnBackgroundProcess({
+    child = await spawnLoggedProcess({
       args: createProcessStampArgs(stamp, OPEN_DESIGN_SIDECAR_CONTRACT),
       command: target.executablePath,
       cwd: target.appPath,
+      detached: true,
       env: createSidecarLaunchEnv({
         base: join(config.roots.runtime.namespaceRoot, "runtime"),
         contract: OPEN_DESIGN_SIDECAR_CONTRACT,
@@ -329,13 +408,29 @@ export async function startPackedMacApp(config: ToolPackConfig): Promise<MacStar
   } finally {
     await logHandle.close().catch(() => undefined);
   }
+  const pid = child.pid ?? 0;
+  const earlyExit = await waitForEarlyExit(child, 1500);
+  child.unref();
+  if (earlyExit != null) {
+    throw new Error(await createLaunchFailureMessage(config, target, {
+      pid,
+      reason: `process exited early code=${earlyExit.code ?? "null"} signal=${earlyExit.signal ?? "null"}`,
+    }));
+  }
+
   const status = await waitForDesktopStatus(config);
+  if (status == null && !isProcessAlive(pid)) {
+    throw new Error(await createLaunchFailureMessage(config, target, {
+      pid,
+      reason: "process exited before desktop IPC was available",
+    }));
+  }
   return {
     appPath: target.appPath,
     executablePath: target.executablePath,
     logPath,
     namespace: config.namespace,
-    pid: spawned.pid,
+    pid,
     source: target.source,
     status,
   };
