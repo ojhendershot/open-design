@@ -1,4 +1,4 @@
-# Open Design
+<h1 align="center">Open Design</h1>
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/nexu-io/open-design/chore/zh-cn-readme-trim-byok-fallback/docs/assets/hero.png" alt="Open Design — Open source · Local · Claude Design, but open" width="100%" />
@@ -32,6 +32,8 @@
   <a href="README.ar.md">العربية</a> · <a href="README.tr.md">Türkçe</a> ·
   <a href="README.uk.md">Українська</a>
 </p>
+
+<br/>
 
 > **[Claude Design][cd] 的开源替代。** 本地优先，支持 OpenClaw、Claude Code、Hermes Agent 等 **16 个 Coding Agent** 直接运行。
 >
