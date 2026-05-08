@@ -25,7 +25,9 @@ interface MockComposioFetchOptions {
   delayFirstAuthConfigs?: { started: Deferred; release: Deferred };
   delayFirstToolkits?: { started: Deferred; release: Deferred };
   logoFetch?: ComposioLogoFetch;
-  linkResponse?: JsonObject;
+  linkResponse?: JsonObject | Response | Array<JsonObject | Response> | ((requestBody: ComposioRequestBody) => JsonObject | Response);
+  toolsFailureToolkits?: string[];
+  toolkits?: JsonObject[];
 }
 
 interface JsonFetchResponse<TBody = JsonObject> {
@@ -59,6 +61,14 @@ function createDeferred(): Deferred {
     resolve = () => innerResolve(undefined);
   });
   return { promise, resolve };
+}
+
+async function closeServer(): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    if (!server) return resolve(undefined);
+    server.close((error?: Error) => (error ? reject(error) : resolve(undefined)));
+  });
+  server = undefined;
 }
 
 function mockComposioFetch(options: MockComposioFetchOptions = {}): void {
@@ -112,7 +122,7 @@ function mockComposioFetch(options: MockComposioFetchOptions = {}): void {
         { slug: 'apaleo', name: 'Apaleo', description: 'Apaleo toolkit', categories: [{ name: 'Hospitality' }], meta: { tools_count: 29 } },
       ] });
     }
-    if (parsed.pathname === '/api/v3.1/tools' && toolsFailureToolkits.includes(parsed.searchParams.get('toolkit_slug'))) {
+    if (parsed.pathname === '/api/v3.1/tools' && toolsFailureToolkits.includes(parsed.searchParams.get('toolkit_slug') ?? '')) {
       composioDiscoveryRequestCounts.tools += 1;
       return composioJson({ message: 'Composio tools unavailable' }, 503);
     }
@@ -152,12 +162,12 @@ function mockComposioFetch(options: MockComposioFetchOptions = {}): void {
     if (parsed.pathname === '/api/v3.1/connected_accounts/link') {
       lastComposioLinkRequest = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
       const nextLinkResponse = typeof linkResponse === 'function'
-        ? linkResponse(lastComposioLinkRequest)
+        ? linkResponse(lastComposioLinkRequest ?? {})
         : Array.isArray(linkResponse)
           ? linkResponse.shift()
           : linkResponse;
       if (nextLinkResponse instanceof Response) return nextLinkResponse;
-      return composioJson(nextLinkResponse);
+      return composioJson(nextLinkResponse ?? {});
     }
     if (parsed.pathname === '/api/v3/connected_accounts/ca_github') {
       return composioJson({ connected_account_id: 'ca_github', status: 'ACTIVE', account_label: 'octocat@example.com', toolkit: { slug: 'github' }, auth_config: { id: lastComposioLinkRequest?.auth_config_id ?? 'ac_github' } });
@@ -286,7 +296,7 @@ describe('connector routes', () => {
       toolCount: 48,
       auth: { provider: 'composio', configured: false },
     });
-    expect(response.body.connectors.find((connector) => connector.id === 'airtable')).toMatchObject({
+    expect(response.body.connectors.find((connector: ConnectorDetail) => connector.id === 'airtable')).toMatchObject({
       id: 'airtable',
       tools: [],
       toolCount: 25,
@@ -320,7 +330,7 @@ describe('connector routes', () => {
     const response = await jsonFetch(`${baseUrl}/api/connectors/discovery?refresh=true`);
 
     expect(response.status).toBe(200);
-    expect(response.body.connectors.find((connector) => connector.id === 'notion')).toMatchObject({
+    expect(response.body.connectors.find((connector: ConnectorDetail) => connector.id === 'notion')).toMatchObject({
       id: 'notion',
       toolCount: 48,
     });
@@ -331,8 +341,8 @@ describe('connector routes', () => {
     const response = await jsonFetch(`${baseUrl}/api/connectors/discovery?hydrateTools=true`);
 
     expect(response.status).toBe(200);
-    expect(response.body.connectors.find((connector) => connector.id === 'slack')?.tools).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'slack.slack_list_channels' })]));
-    expect(response.body.connectors.find((connector) => connector.id === 'github')).toMatchObject({ toolCount: 12 });
+    expect(response.body.connectors.find((connector: ConnectorDetail) => connector.id === 'slack')?.tools).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'slack.slack_list_channels' })]));
+    expect(response.body.connectors.find((connector: ConnectorDetail) => connector.id === 'github')).toMatchObject({ toolCount: 12 });
     expect(composioDiscoveryRequestCounts).toEqual({ authConfigs: 1, createdAuthConfigs: 0, toolkits: 1, tools: 4 });
   });
 
@@ -527,15 +537,13 @@ describe('connector routes', () => {
   });
 
   it('reuses persisted Composio auth config ids on later connect attempts', async () => {
-    await new Promise((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve(undefined)));
-    });
+    await closeServer();
     mockComposioFetch({
       authConfigs: [],
       linkResponse: { connected_account_id: 'ca_slack', status: 'ACTIVE', account_label: 'slack@example.com' },
     });
     composioConnectorProvider.clearDiscoveryCache();
-    const started = await startServer({ port: 0, returnServer: true });
+    const started = await startServer({ port: 0, returnServer: true }) as StartedServer;
     server = started.server;
     baseUrl = started.url;
     await jsonFetch(`${baseUrl}/api/connectors/composio/config`, {
@@ -557,15 +565,13 @@ describe('connector routes', () => {
   });
 
   it('prepares a Composio auth config before connect and then reuses it for the link', async () => {
-    await new Promise((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve(undefined)));
-    });
+    await closeServer();
     mockComposioFetch({
       authConfigs: [],
       linkResponse: { connected_account_id: 'ca_slack', status: 'ACTIVE', account_label: 'slack@example.com' },
     });
     composioConnectorProvider.clearDiscoveryCache();
-    const started = await startServer({ port: 0, returnServer: true });
+    const started = await startServer({ port: 0, returnServer: true }) as StartedServer;
     server = started.server;
     baseUrl = started.url;
     await jsonFetch(`${baseUrl}/api/connectors/composio/config`, {
@@ -592,17 +598,15 @@ describe('connector routes', () => {
   });
 
   it('refreshes a stale persisted auth config id once when creating a link fails', async () => {
-    await new Promise((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve(undefined)));
-    });
+    await closeServer();
     mockComposioFetch({
       authConfigs: [{ id: 'ac_slack_fresh', status: 'ENABLED', toolkit: { slug: 'slack' } }],
-      linkResponse: (requestBody) => requestBody.auth_config_id === 'ac_slack_stale'
+      linkResponse: (requestBody: ComposioRequestBody) => requestBody.auth_config_id === 'ac_slack_stale'
         ? composioJson({ message: 'stale auth config' }, 404)
         : { connected_account_id: 'ca_slack', status: 'ACTIVE', account_label: 'slack@example.com' },
     });
     composioConnectorProvider.clearDiscoveryCache();
-    const started = await startServer({ port: 0, returnServer: true });
+    const started = await startServer({ port: 0, returnServer: true }) as StartedServer;
     server = started.server;
     baseUrl = started.url;
     writeComposioConfig({ apiKey: 'cmp_test', authConfigIds: { slack: 'ac_slack_stale' } });
@@ -621,15 +625,13 @@ describe('connector routes', () => {
     const response = await jsonFetch(`${baseUrl}/api/connectors`);
 
     expect(response.status).toBe(200);
-    expect(response.body.connectors.find((connector) => connector.id === 'slack')).toMatchObject({
+    expect(response.body.connectors.find((connector: ConnectorDetail) => connector.id === 'slack')).toMatchObject({
       auth: { provider: 'composio', configured: true },
     });
   });
 
   it('surfaces nested Composio auth config creation errors', async () => {
-    await new Promise((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve(undefined)));
-    });
+    await closeServer();
     mockComposioFetch({
       authConfigs: [],
       createAuthConfigResponse: composioJson({
@@ -640,7 +642,7 @@ describe('connector routes', () => {
       }, 400),
     });
     composioConnectorProvider.clearDiscoveryCache();
-    const started = await startServer({ port: 0, returnServer: true });
+    const started = await startServer({ port: 0, returnServer: true }) as StartedServer;
     server = started.server;
     baseUrl = started.url;
     await jsonFetch(`${baseUrl}/api/connectors/composio/config`, {
@@ -781,7 +783,7 @@ describe('connector routes', () => {
     expect(readComposioConfig().authConfigIds.github).toBe('ac_github');
 
     const duplicateResponse = await fetch(
-      `${baseUrl}/api/connectors/oauth/callback/github?state=${encodeURIComponent(callbackUrl.searchParams.get('state'))}&status=success&connected_account_id=ca_github`,
+      `${baseUrl}/api/connectors/oauth/callback/github?state=${encodeURIComponent(callbackUrl.searchParams.get('state') ?? '')}&status=success&connected_account_id=ca_github`,
     );
     const duplicateHtml = await duplicateResponse.text();
 
@@ -790,10 +792,7 @@ describe('connector routes', () => {
   });
 
   it('cancels pending Composio OAuth state before a stale callback can connect', async () => {
-    await new Promise((resolve, reject) => {
-      if (!server) return resolve(undefined);
-      server.close((error) => (error ? reject(error) : resolve(undefined)));
-    });
+    await closeServer();
     mockComposioFetch({
       linkResponse: {
         connected_account_id: 'ca_github',
@@ -801,7 +800,7 @@ describe('connector routes', () => {
         redirect_url: 'https://example.com/oauth',
       },
     });
-    const started = await startServer({ port: 0, returnServer: true });
+    const started = await startServer({ port: 0, returnServer: true }) as StartedServer;
     server = started.server;
     baseUrl = started.url;
     await jsonFetch(`${baseUrl}/api/connectors/composio/config`, {
@@ -813,16 +812,16 @@ describe('connector routes', () => {
     const connect = await jsonFetch(`${baseUrl}/api/connectors/github/connect`, { method: 'POST' });
     expect(connect.status).toBe(200);
     expect(connect.body.auth).toMatchObject({ kind: 'redirect_required' });
-    const callbackUrl = new URL(lastComposioLinkRequest.callback_url);
+    const callbackUrl = new URL(lastComposioLinkRequest!.callback_url);
 
     const cancel = await jsonFetch(`${baseUrl}/api/connectors/github/authorization/cancel`, { method: 'POST' });
     expect(cancel.status).toBe(200);
     expect(cancel.body.connector).toMatchObject({ id: 'github', status: 'available' });
 
     const staleCallback = await fetch(
-      `${baseUrl}/api/connectors/oauth/callback/github?state=${encodeURIComponent(callbackUrl.searchParams.get('state'))}&status=success&connected_account_id=ca_github`,
+      `${baseUrl}/api/connectors/oauth/callback/github?state=${encodeURIComponent(callbackUrl.searchParams.get('state') ?? '')}&status=success&connected_account_id=ca_github`,
     );
-    const stalePayload = await staleCallback.json();
+    const stalePayload = await staleCallback.json() as JsonObject;
 
     expect(staleCallback.status).toBe(400);
     expect(stalePayload.error.message).toBe('Composio OAuth state is missing or expired');
@@ -1109,9 +1108,7 @@ describe('connector routes', () => {
   });
 
   it('hydrates connected Composio tools when the fast definition only has partial static previews', async () => {
-    await new Promise((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve(undefined)));
-    });
+    await closeServer();
     mockComposioFetch({
       authConfigs: [{ id: 'ac_notion', status: 'ENABLED', toolkit: { slug: 'notion' } }],
       linkResponse: { connected_account_id: 'ca_notion', status: 'ACTIVE', account_label: 'notion@example.com' },
@@ -1120,7 +1117,7 @@ describe('connector routes', () => {
       ],
     });
     composioConnectorProvider.clearDiscoveryCache();
-    const started = await startServer({ port: 0, returnServer: true });
+    const started = await startServer({ port: 0, returnServer: true }) as StartedServer;
     server = started.server;
     baseUrl = started.url;
     await jsonFetch(`${baseUrl}/api/connectors/composio/config`, {
@@ -1137,7 +1134,7 @@ describe('connector routes', () => {
     });
 
     expect(response.status).toBe(200);
-    expect(response.body.connectors.map((connector) => connector.id)).toEqual(['notion']);
+    expect(response.body.connectors.map((connector: ConnectorDetail) => connector.id)).toEqual(['notion']);
     expect(response.body.connectors[0].tools).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'notion.notion_search' }),
       expect.objectContaining({ name: 'notion.notion_fetch_database' }),

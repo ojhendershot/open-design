@@ -12,7 +12,7 @@ type RpcWritable = Pick<Writable, 'write' | 'end'>;
 type AcpChildProcess = ChildProcess;
 type TimerHandle = ReturnType<typeof setTimeout>;
 
-interface AcpMcpServerInput {
+export interface AcpMcpServerInput {
   type?: unknown;
   name?: unknown;
   command?: unknown;

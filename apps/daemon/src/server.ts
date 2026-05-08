@@ -38,7 +38,7 @@ import { buildWindowsFolderDialogCommand, parseFolderDialogStdout } from './nati
 import { listCodexPets, readCodexPetSpritesheet } from './codex-pets.js';
 import { syncCommunityPets } from './community-pets-sync.js';
 import { listDesignSystems, readDesignSystem } from './design-systems.js';
-import { attachAcpSession } from './acp.js';
+import { attachAcpSession, type AcpMcpServerInput } from './acp.js';
 import { attachPiRpcSession } from './pi-rpc.js';
 import { createClaudeStreamHandler } from './claude-stream.js';
 import { loadCritiqueConfigFromEnv } from './critique/config.js';
@@ -90,6 +90,7 @@ import {
   isManagedProjectCwd,
   readMcpConfig,
   writeMcpConfig,
+  type McpConfig,
 } from './mcp-config.js';
 import {
   beginAuth,
@@ -103,6 +104,7 @@ import {
   isTokenExpired,
   readAllTokens,
   setToken,
+  type StoredMcpToken,
 } from './mcp-tokens.js';
 import { agentCliEnvForAgent, readAppConfig, writeAppConfig } from './app-config.js';
 import { OrbitService, formatLocalProjectTimestamp, renderOrbitTemplateSystemPrompt } from './orbit.js';
@@ -887,7 +889,7 @@ const mcpPendingAuth = new PendingAuthCache();
  * ERR_CONNECTION_REFUSED. Misconfiguration is loud: the OAuth provider
  * will reject `redirect_uri` mismatches.
  */
-function getPublicBaseUrl(req) {
+function getPublicBaseUrl(req: Request) {
   const env = process.env.OD_PUBLIC_BASE_URL;
   if (env && /^https?:\/\//i.test(env)) {
     return env.replace(/\/+$/u, '');
@@ -898,7 +900,7 @@ function getPublicBaseUrl(req) {
   return `${proto}://${host}`;
 }
 
-function mcpOAuthCallbackUrl(req) {
+function mcpOAuthCallbackUrl(req: Request) {
   return `${getPublicBaseUrl(req)}/api/mcp/oauth/callback`;
 }
 
@@ -912,34 +914,38 @@ function mcpOAuthCallbackUrl(req) {
  * for. Tokens persisted before that context was recorded can't be safely
  * refreshed; the caller treats `null` as "needs reconnect".
  */
-async function refreshAndPersistToken(dataDir, serverId, current) {
+async function refreshAndPersistToken(
+  dataDir: string,
+  serverId: string,
+  current: StoredMcpToken,
+): Promise<StoredMcpToken | null> {
   if (!current.refreshToken) return null;
   if (!current.tokenEndpoint || !current.clientId) return null;
-  const tokenResp = await refreshAccessToken({
+  const refreshInput = {
     tokenEndpoint: current.tokenEndpoint,
     clientId: current.clientId,
-    clientSecret: current.clientSecret,
     refreshToken: current.refreshToken,
-    scope: current.scope,
-    resource: current.resourceUrl,
-  });
-  const next = {
+    ...(current.clientSecret !== undefined ? { clientSecret: current.clientSecret } : {}),
+    ...(current.scope !== undefined ? { scope: current.scope } : {}),
+    ...(current.resourceUrl !== undefined ? { resource: current.resourceUrl } : {}),
+  };
+  const tokenResp = await refreshAccessToken(refreshInput);
+  const next: StoredMcpToken = {
     accessToken: tokenResp.access_token,
-    refreshToken: tokenResp.refresh_token ?? current.refreshToken,
     tokenType: tokenResp.token_type ?? 'Bearer',
-    scope: tokenResp.scope ?? current.scope,
-    expiresAt:
-      typeof tokenResp.expires_in === 'number'
-        ? Date.now() + tokenResp.expires_in * 1000
-        : undefined,
     savedAt: Date.now(),
     tokenEndpoint: current.tokenEndpoint,
     clientId: current.clientId,
-    clientSecret: current.clientSecret,
-    authServerIssuer: current.authServerIssuer,
-    redirectUri: current.redirectUri,
-    resourceUrl: current.resourceUrl,
   };
+  const refreshToken = tokenResp.refresh_token ?? current.refreshToken;
+  if (refreshToken !== undefined) next.refreshToken = refreshToken;
+  const scope = tokenResp.scope ?? current.scope;
+  if (scope !== undefined) next.scope = scope;
+  if (typeof tokenResp.expires_in === 'number') next.expiresAt = Date.now() + tokenResp.expires_in * 1000;
+  if (current.clientSecret !== undefined) next.clientSecret = current.clientSecret;
+  if (current.authServerIssuer !== undefined) next.authServerIssuer = current.authServerIssuer;
+  if (current.redirectUri !== undefined) next.redirectUri = current.redirectUri;
+  if (current.resourceUrl !== undefined) next.resourceUrl = current.resourceUrl;
   await setToken(dataDir, serverId, next);
   return next;
 }
@@ -2092,7 +2098,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     } catch (err) {
       res
         .status(500)
-        .json({ error: String(err && err.message ? err.message : err) });
+        .json({ error: errorMessage(err) });
     }
   });
 
@@ -2106,7 +2112,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     } catch (err) {
       res
         .status(400)
-        .json({ error: String(err && err.message ? err.message : err) });
+        .json({ error: errorMessage(err) });
     }
   });
 
@@ -2165,7 +2171,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
         redirectUri,
       });
     } catch (err) {
-      const msg = err && err.message ? err.message : String(err);
+      const msg = errorMessage(err);
       console.error(`[mcp-oauth] start failed serverId=${serverId}:`, msg);
       res.status(502).json({ error: msg });
     }
@@ -2200,35 +2206,34 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
       }));
     }
     try {
-      const tokenResp = await exchangeCodeForToken({
+      const exchangeInput = {
         tokenEndpoint: pending.tokenEndpoint,
         clientId: pending.clientId,
-        clientSecret: pending.clientSecret,
         redirectUri: pending.redirectUri,
         code,
         codeVerifier: pending.codeVerifier,
-        resource: pending.resourceUrl,
-      });
-      const stored = {
+        ...(pending.clientSecret !== undefined ? { clientSecret: pending.clientSecret } : {}),
+        ...(pending.resourceUrl !== undefined ? { resource: pending.resourceUrl } : {}),
+      };
+      const tokenResp = await exchangeCodeForToken(exchangeInput);
+      const stored: StoredMcpToken = {
         accessToken: tokenResp.access_token,
-        refreshToken: tokenResp.refresh_token,
         tokenType: tokenResp.token_type ?? 'Bearer',
-        scope: tokenResp.scope ?? pending.scope,
-        expiresAt:
-          typeof tokenResp.expires_in === 'number'
-            ? Date.now() + tokenResp.expires_in * 1000
-            : undefined,
         savedAt: Date.now(),
         // Persist the OAuth client context so refresh-token rotation can
         // hit the same client_id / token endpoint the upstream issued the
         // refresh_token to. Refresh tokens are client-bound (RFC 6749 §6).
         tokenEndpoint: pending.tokenEndpoint,
         clientId: pending.clientId,
-        clientSecret: pending.clientSecret,
         authServerIssuer: pending.authServerIssuer,
         redirectUri: pending.redirectUri,
-        resourceUrl: pending.resourceUrl,
       };
+      if (tokenResp.refresh_token !== undefined) stored.refreshToken = tokenResp.refresh_token;
+      const scope = tokenResp.scope ?? pending.scope;
+      if (scope !== undefined) stored.scope = scope;
+      if (typeof tokenResp.expires_in === 'number') stored.expiresAt = Date.now() + tokenResp.expires_in * 1000;
+      if (pending.clientSecret !== undefined) stored.clientSecret = pending.clientSecret;
+      if (pending.resourceUrl !== undefined) stored.resourceUrl = pending.resourceUrl;
       await setToken(RUNTIME_DATA_DIR, pending.serverId, stored);
       res.type('html').send(renderOAuthResultPage({
         ok: true,
@@ -2237,11 +2242,11 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     } catch (err) {
       console.error(
         '[mcp-oauth] callback failed:',
-        err && err.message ? err.message : err,
+        errorMessage(err),
       );
       res.status(502).type('html').send(renderOAuthResultPage({
         ok: false,
-        message: String(err && err.message ? err.message : err),
+        message: errorMessage(err),
       }));
     }
   });
@@ -2263,7 +2268,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
         savedAt: tok.savedAt,
       });
     } catch (err) {
-      res.status(500).json({ error: String(err && err.message ? err.message : err) });
+      res.status(500).json({ error: errorMessage(err) });
     }
   });
 
@@ -2278,7 +2283,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
       await clearToken(RUNTIME_DATA_DIR, serverId);
       res.json({ ok: true });
     } catch (err) {
-      res.status(500).json({ error: String(err && err.message ? err.message : err) });
+      res.status(500).json({ error: errorMessage(err) });
     }
   });
 
@@ -3951,7 +3956,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
       // generic 500 with the shared INTERNAL_ERROR code. Run the message
       // through redactSecrets defensively.
       console.error('[finalize/anthropic]', err);
-      const safeMsg = redactSecrets(String(err?.message || err), [apiKey]);
+      const safeMsg = redactSecrets(errorMessage(err), [apiKey]);
       return sendApiError(res, 500, 'INTERNAL_ERROR', safeMsg);
     }
   });
@@ -4704,7 +4709,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     skillId?: string;
     designSystemId?: string;
     streamFormat?: string;
-    connectedExternalMcp?: unknown[];
+    connectedExternalMcp?: ReadonlyArray<{ id: string; label?: string | undefined }>;
   }) => {
     const project =
       typeof projectId === 'string' && projectId
@@ -4824,9 +4829,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
       critique: critiqueShouldRun ? critiqueCfg : undefined,
       critiqueBrand: critiqueShouldRun ? critiqueBrand : undefined,
       critiqueSkill: critiqueShouldRun ? critiqueSkill : undefined,
-      connectedExternalMcp: Array.isArray(connectedExternalMcp)
-        ? connectedExternalMcp
-        : undefined,
+      connectedExternalMcp,
     });
     // The chat handler also needs to know where the active skill lives
     // on disk so it can stage a per-project copy of its side files
@@ -4995,17 +4998,17 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     // server the daemon already holds a valid Bearer for. We re-use both
     // values further down at .mcp.json write time — see the spawn block
     // below — instead of re-reading.
-    let externalMcpConfig = { servers: [] };
+    let externalMcpConfig: McpConfig = { servers: [] };
     try {
       externalMcpConfig = await readMcpConfig(RUNTIME_DATA_DIR);
     } catch (err) {
       console.warn(
         '[mcp-config] read failed:',
-        err && err.message ? err.message : err,
+        errorMessage(err),
       );
     }
     const enabledExternalMcp = externalMcpConfig.servers.filter((s) => s.enabled);
-    const oauthTokensForSpawn = {};
+    const oauthTokensForSpawn: Record<string, string> = {};
     try {
       const stored = await readAllTokens(RUNTIME_DATA_DIR);
       for (const [serverId, tok] of Object.entries(stored)) {
@@ -5028,7 +5031,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
             console.warn(
               '[mcp-oauth] refresh failed for',
               serverId,
-              err && err.message ? err.message : err,
+              errorMessage(err),
             );
           }
         }
@@ -5045,10 +5048,10 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     } catch (err) {
       console.warn(
         '[mcp-tokens] read failed:',
-        err && err.message ? err.message : err,
+        errorMessage(err),
       );
     }
-    const connectedExternalMcp = enabledExternalMcp
+    const connectedExternalMcp: Array<{ id: string; label?: string | undefined }> = enabledExternalMcp
       .filter((s) => typeof oauthTokensForSpawn[s.id] === 'string')
       .map((s) => ({ id: s.id, label: s.label }));
 
@@ -5179,7 +5182,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
         ? (def.reasoningOptions.find((r) => r.id === reasoning)?.id ?? null)
         : null;
     const agentOptions = { model: safeModel, reasoning: safeReasoning };
-    const mcpServers = buildLiveArtifactsMcpServersForAgent(def, {
+    const mcpServers: AcpMcpServerInput[] = buildLiveArtifactsMcpServersForAgent(def, {
       enabled: Boolean(toolTokenGrant?.token),
       command: process.execPath,
       argsPrefix: [OD_BIN] as string[],
@@ -5218,7 +5221,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     // on the next run.
     if (def.id === 'claude' && isManagedProjectCwd(cwd, PROJECTS_DIR)) {
       {
-        const target = path.join(cwd, '.mcp.json');
+        const target = path.join(cwd as string, '.mcp.json');
         if (enabledExternalMcp.length > 0) {
           try {
             const claudeMcp = buildClaudeMcpJson(
@@ -5236,17 +5239,17 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
           } catch (err) {
             console.warn(
               '[mcp-config] failed to write project .mcp.json:',
-              err && err.message ? err.message : err,
+              errorMessage(err),
             );
           }
         } else {
           try {
             await fs.promises.unlink(target);
           } catch (err) {
-            if ((err && err.code) !== 'ENOENT') {
+            if (errorCode(err) !== 'ENOENT') {
               console.warn(
                 '[mcp-config] failed to remove stale .mcp.json:',
-                err && err.message ? err.message : err,
+                errorMessage(err),
               );
             }
           }
