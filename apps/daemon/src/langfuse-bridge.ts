@@ -20,6 +20,7 @@ import {
   type MessageSummary,
   type ReportContext,
   type RuntimeInfo,
+  type ToolCallSummary,
   type TurnInfo,
 } from './langfuse-trace.js';
 import { redactSecrets } from './redact.js';
@@ -33,7 +34,12 @@ interface DaemonRunRecord {
   status: string;
   createdAt: number;
   updatedAt: number;
-  events: Array<{ id: number; event: string; data: unknown }>;
+  events: Array<{
+    id: number;
+    event: string;
+    data: unknown;
+    timestamp?: number;
+  }>;
   // The fields below are stashed by `startChatRun` (and the POST /api/runs
   // handler) at entry time so the report path doesn't need to reach back
   // into chatBody / req across the createChatRunService boundary.
@@ -134,6 +140,88 @@ function findUsage(
     }
   }
   return undefined;
+}
+
+function eventTimestamp(
+  rec: DaemonRunRecord['events'][number],
+  fallback: number,
+): number {
+  return typeof rec.timestamp === 'number' && Number.isFinite(rec.timestamp)
+    ? rec.timestamp
+    : fallback;
+}
+
+function serializeToolPayload(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'string') return redactSecrets(value);
+  try {
+    return redactSecrets(JSON.stringify(value));
+  } catch {
+    return redactSecrets(String(value));
+  }
+}
+
+function collectToolCalls(
+  events: DaemonRunRecord['events'],
+  runStartedAt: number,
+  runEndedAt: number,
+): ToolCallSummary[] {
+  const tools = new Map<string, ToolCallSummary>();
+  for (const rec of events) {
+    if (rec.event !== 'agent') continue;
+    const data = rec.data as
+      | {
+          type?: string;
+          id?: unknown;
+          name?: unknown;
+          input?: unknown;
+          toolUseId?: unknown;
+          content?: unknown;
+          isError?: unknown;
+        }
+      | null
+      | undefined;
+    if (data?.type === 'tool_use' && typeof data.id === 'string') {
+      const timestamp = eventTimestamp(rec, runStartedAt + rec.id);
+      const summary: ToolCallSummary = {
+        id: data.id,
+        name: typeof data.name === 'string' && data.name ? data.name : 'unknown',
+        startedAt: timestamp,
+        endedAt: timestamp,
+      };
+      const input = serializeToolPayload(data.input);
+      if (input !== undefined) summary.input = input;
+      tools.set(data.id, summary);
+    } else if (
+      data?.type === 'tool_result' &&
+      typeof data.toolUseId === 'string'
+    ) {
+      const timestamp = eventTimestamp(rec, runStartedAt + rec.id);
+      const existing = tools.get(data.toolUseId);
+      const summary =
+        existing ??
+        ({
+          id: data.toolUseId,
+          name: 'unknown',
+          startedAt: timestamp,
+          endedAt: timestamp,
+        } satisfies ToolCallSummary);
+      summary.endedAt = Math.max(summary.startedAt, timestamp);
+      const output = serializeToolPayload(data.content);
+      if (output !== undefined) summary.output = output;
+      summary.isError = data.isError === true;
+      tools.set(data.toolUseId, summary);
+    }
+  }
+
+  return [...tools.values()].map((tool) => {
+    const startedAt = Math.min(Math.max(tool.startedAt, runStartedAt), runEndedAt);
+    return {
+      ...tool,
+      startedAt,
+      endedAt: Math.min(Math.max(tool.endedAt, startedAt), runEndedAt),
+    };
+  });
 }
 
 function summarizeProducedFiles(items: unknown): ArtifactSummary[] {
@@ -251,6 +339,7 @@ export async function reportRunCompletedFromDaemon(
         ...(usage ? { usage } : {}),
       },
       artifacts: summarizeProducedFiles(producedFilesRaw),
+      tools: collectToolCalls(run.events, startedAt, endedAt),
       eventsSummary: summarizeEvents(run.events, durationMs),
       prefs,
       ...(turn ? { turn } : {}),

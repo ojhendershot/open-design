@@ -31,7 +31,25 @@ function makeCtx(overrides: Partial<ReportContext> = {}): ReportContext {
       },
     },
     artifacts: [],
-    eventsSummary: { toolCalls: 4, errors: 0, durationMs: 4500 },
+    tools: [
+      {
+        id: 'tool-1',
+        name: 'Bash',
+        startedAt: 1_700_000_001_000,
+        endedAt: 1_700_000_001_800,
+        input: '{"command":"ls -la"}',
+        output: 'total 0',
+      },
+      {
+        id: 'tool-2',
+        name: 'Write',
+        startedAt: 1_700_000_002_000,
+        endedAt: 1_700_000_002_900,
+        input: '{"path":"index.html"}',
+        output: 'wrote index.html',
+      },
+    ],
+    eventsSummary: { toolCalls: 2, errors: 0, durationMs: 4500 },
     prefs: { metrics: true, content: false, artifactManifest: false },
   };
   return { ...base, ...overrides };
@@ -131,17 +149,22 @@ describe('buildTracePayload', () => {
       'trace-create',
       'span-create',
       'generation-create',
-      'event-create',
+      'span-create',
+      'span-create',
     ]);
     const span = bodyOf(batch, 'span-create', 'agent-run');
     const gen = bodyOf(batch, 'generation-create', 'llm');
-    const tools = bodyOf(batch, 'event-create', 'tool-summary');
+    const bash = bodyOf(batch, 'span-create', 'tool:Bash');
+    const write = bodyOf(batch, 'span-create', 'tool:Write');
     expect(span.id).toBe('run-1-agent');
     expect(span.traceId).toBe('run-1');
     expect(gen.traceId).toBe('run-1');
     expect(gen.parentObservationId).toBe('run-1-agent');
-    expect(tools.parentObservationId).toBe('run-1-agent');
-    expect(tools.metadata.toolCalls).toBe(4);
+    expect(bash.parentObservationId).toBe('run-1-agent');
+    expect(bash.input).toBeUndefined();
+    expect(bash.output).toBeUndefined();
+    expect(bash.metadata.toolName).toBe('Bash');
+    expect(write.parentObservationId).toBe('run-1-agent');
   });
 
   it('omits prompt + output when content gate is off', () => {
@@ -149,12 +172,15 @@ describe('buildTracePayload', () => {
     const trace = (batch[0] as any).body;
     const span = bodyOf(batch, 'span-create', 'agent-run');
     const gen = bodyOf(batch, 'generation-create', 'llm');
+    const tool = bodyOf(batch, 'span-create', 'tool:Bash');
     expect(trace.input).toBeUndefined();
     expect(trace.output).toBeUndefined();
     expect(span.input).toBeUndefined();
     expect(span.output).toBeUndefined();
     expect(gen.input).toBeUndefined();
     expect(gen.output).toBeUndefined();
+    expect(tool.input).toBeUndefined();
+    expect(tool.output).toBeUndefined();
   });
 
   it('includes prompt + output when content gate is on', () => {
@@ -164,8 +190,11 @@ describe('buildTracePayload', () => {
       }),
     );
     const trace = (batch[0] as any).body;
+    const tool = bodyOf(batch, 'span-create', 'tool:Bash');
     expect(trace.input).toMatch(/coffee shop/);
     expect(trace.output).toMatch(/landing page draft/);
+    expect(tool.input).toMatch(/ls -la/);
+    expect(tool.output).toBe('total 0');
   });
 
   it('truncates ASCII prompt at 8 KB and output at 16 KB (bytes == chars)', () => {
@@ -245,7 +274,7 @@ describe('buildTracePayload', () => {
     const batch = buildTracePayload(makeCtx());
     const trace = (batch[0] as any).body;
     expect(trace.metadata.eventsSummary).toEqual({
-      toolCalls: 4,
+      toolCalls: 2,
       errors: 0,
       durationMs: 4500,
     });
@@ -456,7 +485,8 @@ describe('reportRunCompleted', () => {
       'trace-create',
       'span-create',
       'generation-create',
-      'event-create',
+      'span-create',
+      'span-create',
     ]);
   });
 

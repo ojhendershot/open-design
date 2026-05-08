@@ -26,6 +26,8 @@ const DEFAULT_BASE_URL = 'https://us.cloud.langfuse.com';
 
 const INPUT_MAX_BYTES = 8 * 1024;
 const OUTPUT_MAX_BYTES = 16 * 1024;
+const TOOL_INPUT_MAX_BYTES = 4 * 1024;
+const TOOL_OUTPUT_MAX_BYTES = 4 * 1024;
 const ARTIFACTS_MAX_ITEMS = 50;
 const SESSION_ID_MAX = 200; // Langfuse drops sessionIds longer than this.
 const HARD_BATCH_MAX_BYTES = 1024 * 1024;
@@ -64,6 +66,16 @@ export interface ArtifactSummary {
   sizeBytes: number;
   sha256?: string;
   createdAt?: string;
+}
+
+export interface ToolCallSummary {
+  id: string;
+  name: string;
+  startedAt: number;
+  endedAt: number;
+  input?: string;
+  output?: string;
+  isError?: boolean;
 }
 
 export interface EventsSummary {
@@ -110,6 +122,7 @@ export interface ReportContext {
   run: RunSummary;
   message: MessageSummary;
   artifacts: ArtifactSummary[];
+  tools?: ToolCallSummary[];
   eventsSummary: EventsSummary;
   prefs: TelemetryPrefs;
   /** Per-turn config (model + skill + DS). May vary turn-to-turn within a session. */
@@ -340,22 +353,41 @@ export function buildTracePayload(ctx: ReportContext): unknown[] {
     },
   ];
 
-  if (ctx.eventsSummary.toolCalls > 0) {
-    batch.push({
-      id: randomUUID(),
-      type: 'event-create',
-      timestamp: nowIso,
-      body: {
-        id: `${ctx.run.runId}-tools`,
-        traceId,
-        parentObservationId: agentSpanId,
-        name: 'tool-summary',
-        startTime: endTimeIso,
-        metadata: {
-          toolCalls: ctx.eventsSummary.toolCalls,
+  if (ctx.tools?.length) {
+    for (const tool of ctx.tools) {
+      const toolSpanId = `${ctx.run.runId}-tool-${tool.id}`;
+      const toolStartedAt = new Date(tool.startedAt).toISOString();
+      const toolEndedAt = new Date(tool.endedAt).toISOString();
+      const toolInput = wantsContent
+        ? truncate(tool.input, TOOL_INPUT_MAX_BYTES)
+        : undefined;
+      const toolOutput = wantsContent
+        ? truncate(tool.output, TOOL_OUTPUT_MAX_BYTES)
+        : undefined;
+      batch.push({
+        id: randomUUID(),
+        type: 'span-create',
+        timestamp: nowIso,
+        body: {
+          id: toolSpanId,
+          traceId,
+          parentObservationId: agentSpanId,
+          name: `tool:${tool.name}`,
+          startTime: toolStartedAt,
+          endTime: toolEndedAt,
+          input: toolInput,
+          output: toolOutput,
+          level: tool.isError ? 'ERROR' : 'DEFAULT',
+          metadata: {
+            toolCallId: tool.id,
+            toolName: tool.name,
+            hasInput: tool.input !== undefined,
+            hasOutput: tool.output !== undefined,
+            isError: tool.isError === true,
+          },
         },
-      },
-    });
+      });
+    }
   }
 
   if (artifactsList && (artifactsList.length > 0 || artifactsTruncated)) {

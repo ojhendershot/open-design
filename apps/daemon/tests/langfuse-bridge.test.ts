@@ -33,17 +33,60 @@ function makeRun(over: Partial<Parameters<typeof reportRunCompletedFromDaemon>[0
     createdAt: now - 4500,
     updatedAt: now,
     events: [
-      { id: 1, event: 'agent', data: { type: 'tool_use' } },
-      { id: 2, event: 'agent', data: { type: 'tool_use' } },
+      {
+        id: 1,
+        event: 'agent',
+        timestamp: now - 4000,
+        data: {
+          type: 'tool_use',
+          id: 'tool-1',
+          name: 'Bash',
+          input: { command: 'ls -la' },
+        },
+      },
+      {
+        id: 2,
+        event: 'agent',
+        timestamp: now - 3500,
+        data: {
+          type: 'tool_result',
+          toolUseId: 'tool-1',
+          content: 'total 0',
+          isError: false,
+        },
+      },
       {
         id: 3,
         event: 'agent',
+        timestamp: now - 3000,
+        data: {
+          type: 'tool_use',
+          id: 'tool-2',
+          name: 'Write',
+          input: { path: 'index.html' },
+        },
+      },
+      {
+        id: 4,
+        event: 'agent',
+        timestamp: now - 2500,
+        data: {
+          type: 'tool_result',
+          toolUseId: 'tool-2',
+          content: 'wrote index.html',
+          isError: false,
+        },
+      },
+      {
+        id: 5,
+        event: 'agent',
+        timestamp: now - 2000,
         data: {
           type: 'usage',
           usage: { input_tokens: 100, output_tokens: 200 },
         },
       },
-    ] as Array<{ id: number; event: string; data: unknown }>,
+    ] as Array<{ id: number; event: string; data: unknown; timestamp?: number }>,
     userPrompt: 'design a coffee landing page',
     ...over,
   };
@@ -142,13 +185,15 @@ describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
       'trace-create',
       'span-create',
       'generation-create',
-      'event-create',
+      'span-create',
+      'span-create',
       'event-create',
     ]);
     const trace = batch[0].body;
     const span = bodyOf(batch, 'span-create', 'agent-run');
     const generation = bodyOf(batch, 'generation-create', 'llm');
-    const tools = bodyOf(batch, 'event-create', 'tool-summary');
+    const bash = bodyOf(batch, 'span-create', 'tool:Bash');
+    const write = bodyOf(batch, 'span-create', 'tool:Write');
     const artifacts = bodyOf(batch, 'event-create', 'artifact-summary');
     expect(trace.userId).toBe('install-uuid-1');
     expect(trace.sessionId).toBe('conv-1');
@@ -159,8 +204,11 @@ describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
     expect(span.input).toBe('design a coffee landing page');
     expect(span.output).toBe('Here is a draft …');
     expect(generation.parentObservationId).toBe('run-id-1-agent');
-    expect(tools.parentObservationId).toBe('run-id-1-agent');
-    expect(tools.metadata.toolCalls).toBe(2);
+    expect(bash.parentObservationId).toBe('run-id-1-agent');
+    expect(bash.input).toMatch(/ls -la/);
+    expect(bash.output).toBe('total 0');
+    expect(write.parentObservationId).toBe('run-id-1-agent');
+    expect(write.metadata.toolName).toBe('Write');
     expect(artifacts.parentObservationId).toBe('run-id-1-agent');
     expect(artifacts.metadata.artifacts).toEqual([
       { slug: 'index.html', type: 'html', sizeBytes: 4096 },
