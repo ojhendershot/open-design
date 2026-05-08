@@ -728,18 +728,22 @@ export function resolveDataDir(raw, projectRoot) {
       `OD_DATA_DIR "${resolved}" is not writable: ${e.message}`,
     );
   }
-  // Canonicalize via realpath so that any callers comparing user-supplied
-  // realpath() output against RUNTIME_DATA_DIR get a stable result. On
-  // macOS, /var is itself a symlink to /private/var, so a user's import
-  // realpath would land in /private/var/... and would never start-with
-  // a non-canonicalized RUNTIME_DATA_DIR.
-  try {
-    return fs.realpathSync(resolved);
-  } catch {
-    return resolved;
-  }
+  return resolved;
 }
 const RUNTIME_DATA_DIR = resolveDataDir(process.env.OD_DATA_DIR, PROJECT_ROOT);
+// Canonical (realpath-resolved) form of RUNTIME_DATA_DIR for the few callers
+// that compare it against a user-supplied realpath() result. On macOS, /var
+// is a symlink to /private/var, so an import realpath lands in /private/var
+// and would never start-with the raw RUNTIME_DATA_DIR. Keep RUNTIME_DATA_DIR
+// itself as the stable, user-shaped path so OD_DATA_DIR resolution stays
+// predictable; only this canonical alias is used for symlink-aware checks.
+const RUNTIME_DATA_DIR_CANONICAL = (() => {
+  try {
+    return fs.realpathSync(RUNTIME_DATA_DIR);
+  } catch {
+    return RUNTIME_DATA_DIR;
+  }
+})();
 // One-shot legacy data migration. When OD_LEGACY_DATA_DIR is set and the
 // new data root is fresh (no app.sqlite), copy the 0.3.x .od/ payload
 // across before SQLite opens. Synchronous on purpose: openDatabase below
@@ -2063,10 +2067,13 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
         return sendApiError(res, 400, 'BAD_REQUEST', 'path must be a directory');
       }
       // Prevent importing the data directory into itself (post-realpath so
-      // a symlink pointing into RUNTIME_DATA_DIR is also caught).
+      // a symlink pointing into RUNTIME_DATA_DIR is also caught). Compare
+      // against the canonical alias because `normalizedPath` is the import
+      // folder's realpath; on macOS the data dir at /var/... resolves to
+      // /private/var/... and would never start-with the user-shaped path.
       if (
-        normalizedPath === RUNTIME_DATA_DIR ||
-        normalizedPath.startsWith(RUNTIME_DATA_DIR + path.sep)
+        normalizedPath === RUNTIME_DATA_DIR_CANONICAL ||
+        normalizedPath.startsWith(RUNTIME_DATA_DIR_CANONICAL + path.sep)
       ) {
         return sendApiError(res, 400, 'BAD_REQUEST', 'cannot import the data directory');
       }
