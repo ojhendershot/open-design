@@ -116,12 +116,12 @@ export async function runElectronBuilder(
     mac: {
       category: "public.app-category.developer-tools",
       electronLanguages: MAC_ELECTRON_LANGUAGES,
-      entitlements: config.signed ? macResources.entitlements : undefined,
-      entitlementsInherit: config.signed ? macResources.entitlementsInherit : undefined,
+      entitlements: macResources.entitlements,
+      entitlementsInherit: macResources.entitlementsInherit,
       gatekeeperAssess: false,
-      hardenedRuntime: config.signed,
+      hardenedRuntime: true,
       icon: macResources.icon,
-      identity: config.signed ? undefined : null,
+      identity: config.signed ? undefined : "-",
       notarize: false,
       target: targets,
     },
@@ -153,7 +153,6 @@ export async function runElectronBuilder(
     cwd: config.workspaceRoot,
     env: {
       ...process.env,
-      ...(config.signed ? {} : { CSC_IDENTITY_AUTO_DISCOVERY: "false" }),
       ...(webStandaloneHookConfigPath == null ? {} : { [WEB_STANDALONE_HOOK_CONFIG_ENV]: webStandaloneHookConfigPath }),
     },
   });
