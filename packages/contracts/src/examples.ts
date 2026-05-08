@@ -126,6 +126,7 @@ export const exampleConnectorDetail: ConnectorDetail = {
   category: 'developer',
   description: 'Search repositories, issues, pull requests, commits, and releases from a connected GitHub account via Composio.',
   status: 'available',
+  toolCount: 1,
   tools: [
     {
       name: 'github.search_issues_and_pull_requests',

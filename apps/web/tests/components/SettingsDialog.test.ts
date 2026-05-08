@@ -234,10 +234,14 @@ describe('SettingsDialog API Base URL validation', () => {
     expect(isValidApiBaseUrl('ftp://api.example.com')).toBe(false);
     expect(isValidApiBaseUrl('http:api.example.com')).toBe(false);
     expect(isValidApiBaseUrl('https://')).toBe(false);
+    expect(isValidApiBaseUrl('http://0.0.0.0:11434/v1')).toBe(false);
     expect(isValidApiBaseUrl('http://10.0.0.5:11434/v1')).toBe(false);
+    expect(isValidApiBaseUrl('http://100.64.0.1:11434/v1')).toBe(false);
     expect(isValidApiBaseUrl('http://169.254.1.5:11434/v1')).toBe(false);
     expect(isValidApiBaseUrl('http://172.16.0.5:11434/v1')).toBe(false);
     expect(isValidApiBaseUrl('http://192.168.1.5:11434/v1')).toBe(false);
+    expect(isValidApiBaseUrl('http://224.0.0.1:11434/v1')).toBe(false);
+    expect(isValidApiBaseUrl('http://[::]:11434/v1')).toBe(false);
     expect(isValidApiBaseUrl('http://[fd00::1]:11434/v1')).toBe(false);
     expect(isValidApiBaseUrl('http://[fe80::1]:11434/v1')).toBe(false);
     expect(isValidApiBaseUrl('http://[::ffff:192.168.1.5]:11434/v1')).toBe(false);
@@ -662,7 +666,8 @@ describe('shouldEnableSettingsSave', () => {
     expect(shouldEnableSettingsSave(incompleteApiCfg, 'integrations', [availableAgent], true)).toBe(true);
     expect(shouldEnableSettingsSave(incompleteApiCfg, 'notifications', [availableAgent], true)).toBe(true);
     expect(shouldEnableSettingsSave(incompleteApiCfg, 'pet', [availableAgent], true)).toBe(true);
-    expect(shouldEnableSettingsSave(incompleteApiCfg, 'library', [availableAgent], true)).toBe(true);
+    expect(shouldEnableSettingsSave(incompleteApiCfg, 'skills', [availableAgent], true)).toBe(true);
+    expect(shouldEnableSettingsSave(incompleteApiCfg, 'designSystems', [availableAgent], true)).toBe(true);
     expect(shouldEnableSettingsSave(incompleteApiCfg, 'about', [availableAgent], true)).toBe(true);
   });
 
@@ -808,7 +813,8 @@ describe('sanitizeSettingsSavePayload', () => {
       'appearance',
       'notifications',
       'pet',
-      'library',
+      'skills',
+      'designSystems',
       'about',
     ];
     for (const section of sections) {

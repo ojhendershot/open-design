@@ -43,6 +43,9 @@ export interface ConnectorDetail {
   status: ConnectorStatus;
   accountLabel?: string;
   tools: ConnectorToolDetail[];
+  toolCount?: number;
+  toolsNextCursor?: string;
+  toolsHasMore?: boolean;
   featuredToolNames?: string[];
   minimumApproval?: ConnectorToolApproval;
   lastError?: string;
@@ -63,6 +66,11 @@ export interface ConnectorCatalogDefinition {
   tools: ConnectorCatalogToolDefinition[];
   /** The complete allowlist of callable tool names for this connector. */
   allowedToolNames: string[];
+  /** Display-only count of provider tools. This may be known before tool schemas are hydrated. */
+  toolCount?: number;
+  /** Preview pagination state for hydrated tool definitions. Execution code must not rely on partial pages. */
+  toolsNextCursor?: string;
+  toolsHasMore?: boolean;
   /** How the connector is made available. `none` and `local` connectors require no user OAuth state. */
   authentication?: 'local' | 'none' | 'oauth' | 'composio';
   /** Provider toolkit slug used by external connector providers such as Composio. */
@@ -173,6 +181,9 @@ export function connectorDefinitionToDetail(definition: ConnectorCatalogDefiniti
     ...(definition.description === undefined ? {} : { description: definition.description }),
     status: definition.disabled ? 'disabled' : 'available',
     tools: definition.tools.map((tool) => toolDefinitionToDetail(tool)),
+    ...(definition.toolCount === undefined ? {} : { toolCount: definition.toolCount }),
+    ...(definition.toolsNextCursor === undefined ? {} : { toolsNextCursor: definition.toolsNextCursor }),
+    ...(definition.toolsHasMore === undefined ? {} : { toolsHasMore: definition.toolsHasMore }),
     ...(definition.featuredToolNames === undefined
       ? {}
       : { featuredToolNames: [...definition.featuredToolNames] }),

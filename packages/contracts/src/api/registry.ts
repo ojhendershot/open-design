@@ -59,7 +59,7 @@ export interface SkillSummary {
   // resolves the parent for system-prompt composition and "Use this
   // prompt" fast-create on a derived card still composes the parent's
   // SKILL.md body.
-  aggregatesExamples?: boolean;
+  aggregatesExamples: boolean;
 }
 
 // Body shape for POST /api/skills/import. The daemon turns this into a
@@ -76,6 +76,34 @@ export interface SkillImportResponse {
   skill: SkillSummary;
 }
 
+// Body for PUT /api/skills/:id — update an existing skill's SKILL.md.
+// The route param resolves to the canonical skill id; the daemon refuses
+// updates whose body `name` differs from that id (rename = delete +
+// re-import).
+export interface SkillUpdateRequest {
+  name?: string;
+  description?: string;
+  body: string;
+  triggers?: string[];
+}
+
+export interface SkillUpdateResponse {
+  skill: SkillSummary;
+}
+
+// Returned by GET /api/skills/:id/files — the on-disk file tree under
+// the skill's directory, capped to a small number of entries to keep
+// the payload bounded. Used by the Settings → Skills detail panel.
+export interface SkillFileEntry {
+  path: string;
+  kind: 'file' | 'directory';
+  size: number | null;
+}
+
+export interface SkillFilesResponse {
+  files: SkillFileEntry[];
+}
+
 export interface SkillDetail extends SkillSummary {
   body: string;
 }
@@ -86,6 +114,21 @@ export interface SkillsResponse {
 
 export interface SkillResponse {
   skill: SkillDetail;
+}
+
+// Design templates share the SkillSummary/Detail shape (same SKILL.md
+// frontmatter, same preview behavior) but live under a separate registry
+// root so the EntryView Templates surface and the Settings → Skills surface
+// stay decoupled. See specs/current/skills-and-design-templates.md.
+export type DesignTemplateSummary = SkillSummary;
+export type DesignTemplateDetail = SkillDetail;
+
+export interface DesignTemplatesResponse {
+  designTemplates: DesignTemplateSummary[];
+}
+
+export interface DesignTemplateResponse {
+  designTemplate: DesignTemplateDetail;
 }
 
 export interface DesignSystemSummary {

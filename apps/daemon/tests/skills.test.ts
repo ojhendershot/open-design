@@ -11,15 +11,23 @@ import { SKILLS_CWD_ALIAS } from '../src/cwd-aliases.js';
 import {
   deleteUserSkill,
   importUserSkill,
+  listSkillFiles,
   listSkills,
   slugifySkillName,
+  updateUserSkill,
 } from '../src/skills.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '../../..');
 const skillsRoot = path.join(repoRoot, 'skills');
-const liveArtifactRoot = path.join(skillsRoot, 'live-artifact');
+// `live-artifact`, `dcf-valuation`, `x-research`, and `last30days` were
+// reclassified as design templates under the Phase 0 split (see
+// specs/current/skills-and-design-templates.md). The body/preamble
+// expectations below still apply, but they now read from the design
+// templates root rather than skills/.
+const designTemplatesRoot = path.join(repoRoot, 'design-templates');
+const liveArtifactRoot = path.join(designTemplatesRoot, 'live-artifact');
 
 type SkillCatalogEntry = {
   id: string;
@@ -67,10 +75,10 @@ function writeSkill(
 
 describe('listSkills', () => {
   it('includes the built-in live-artifact skill catalog entry', async () => {
-    const skills = await listSkills(skillsRoot);
+    const skills = await listSkills(designTemplatesRoot);
     const skill = skills.find((entry: { id: string }) => entry.id === 'live-artifact');
 
-    expect(skill).toBeTruthy();
+    if (!skill) throw new Error('live-artifact skill not found');
     expect(skill).toMatchObject({
       id: 'live-artifact',
       name: 'live-artifact',
@@ -94,7 +102,7 @@ describe('listSkills', () => {
   });
 
   it('includes the DCF valuation, X research, and Last30Days research skills', async () => {
-    const skills = await listSkills(skillsRoot);
+    const skills = await listSkills(designTemplatesRoot);
     const byId = new Map(
       (skills as SkillCatalogEntry[]).map((skill) => [skill.id, skill]),
     );
@@ -161,7 +169,8 @@ describe('listSkills preamble', () => {
 
     const skills = await listSkills(root);
     expect(skills).toHaveLength(1);
-    const [skill] = skills;
+    const skill = skills[0];
+    if (!skill) throw new Error('demo-skill not found');
 
     // The cwd-relative alias path is the primary one — that's what makes
     // the agent stay inside its working directory when reading skill
@@ -192,7 +201,8 @@ describe('listSkills preamble', () => {
 
     const skills = await listSkills(root);
     expect(skills).toHaveLength(1);
-    const [skill] = skills;
+    const skill = skills[0];
+    if (!skill) throw new Error('orbit-style skill not found');
 
     expect(skill.body).toContain(`${SKILLS_CWD_ALIAS}/orbit-style/`);
     expect(skill.body).toContain(`${SKILLS_CWD_ALIAS}/orbit-style/example.html`);
@@ -208,7 +218,8 @@ describe('listSkills preamble', () => {
 
     const skills = await listSkills(root);
     expect(skills).toHaveLength(1);
-    const [skill] = skills;
+    const skill = skills[0];
+    if (!skill) throw new Error('magazine-web-ppt skill not found');
 
     // `id`/`name` reflect the frontmatter value (used elsewhere as a stable
     // public id), but the on-disk alias path must use the actual folder
@@ -227,7 +238,8 @@ describe('listSkills preamble', () => {
 
     const skills = await listSkills(root);
     expect(skills).toHaveLength(1);
-    const [skill] = skills;
+    const skill = skills[0];
+    if (!skill) throw new Error('lone-skill not found');
 
     expect(skill.body).not.toContain(SKILLS_CWD_ALIAS);
     expect(skill.body).not.toContain('Skill root');
@@ -272,8 +284,9 @@ describe('listSkills multi-root + source tagging', () => {
 
     const skills = await listSkills([userRoot, builtInRoot]);
     expect(skills).toHaveLength(1);
-    expect(skills[0].source).toBe('user');
-    expect(skills[0].body).toContain('Override body');
+    const shadowed = skills[0]!;
+    expect(shadowed.source).toBe('user');
+    expect(shadowed.body).toContain('Override body');
 
     rmSync(userRoot, { recursive: true, force: true });
     rmSync(builtInRoot, { recursive: true, force: true });
@@ -306,10 +319,11 @@ describe('importUserSkill / deleteUserSkill', () => {
 
       const skills = await listSkills(root);
       expect(skills).toHaveLength(1);
-      expect(skills[0].id).toBe('Code Review');
-      expect(skills[0].triggers).toEqual(['code review', 'review my diff']);
+      const imported = skills[0]!;
+      expect(imported.id).toBe('Code Review');
+      expect(imported.triggers).toEqual(['code review', 'review my diff']);
       // First (and only) root is treated as the user root.
-      expect(skills[0].source).toBe('user');
+      expect(imported.source).toBe('user');
 
       // Importing the same name again surfaces a CONFLICT error.
       await expect(
@@ -341,6 +355,102 @@ describe('importUserSkill / deleteUserSkill', () => {
       await expect(
         importUserSkill(root, { name: '..', body: '# body' }),
       ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('updateUserSkill', () => {
+  it('writes a SKILL.md and shadows a built-in entry on next listSkills', async () => {
+    const userRoot = fresh();
+    const builtInRoot = fresh();
+    try {
+      writeSkill(builtInRoot, 'shared-id', {
+        description: 'Original built-in.',
+        body: '# Original',
+      });
+
+      const result = await updateUserSkill(userRoot, {
+        name: 'shared-id',
+        description: 'User override.',
+        body: '# Override',
+        triggers: ['shared trigger'],
+      });
+      expect(result.slug).toBe('shared-id');
+      expect(result.dir).toBe(path.join(userRoot, 'shared-id'));
+
+      const skills = await listSkills([userRoot, builtInRoot]);
+      expect(skills).toHaveLength(1);
+      const shadowed = skills[0]!;
+      expect(shadowed.source).toBe('user');
+      expect(shadowed.body).toContain('Override');
+      expect(shadowed.triggers).toEqual(['shared trigger']);
+    } finally {
+      rmSync(userRoot, { recursive: true, force: true });
+      rmSync(builtInRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects empty bodies and impossibly-named skills', async () => {
+    const root = fresh();
+    try {
+      await expect(
+        updateUserSkill(root, { name: 'demo', body: '   ' }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+      await expect(
+        updateUserSkill(root, { name: '..', body: '# body' }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('listSkillFiles', () => {
+  it('returns a flat sorted file/directory list with byte sizes', async () => {
+    const root = fresh();
+    try {
+      writeSkill(root, 'demo-files', { withAttachments: true });
+      mkdirSync(path.join(root, 'demo-files', 'references'), { recursive: true });
+      writeFileSync(
+        path.join(root, 'demo-files', 'references', 'notes.md'),
+        '# notes',
+      );
+
+      const entries = await listSkillFiles(path.join(root, 'demo-files'));
+      const byPath = new Map(entries.map((entry) => [entry.path, entry]));
+      const skillMd = byPath.get('SKILL.md');
+      const assetsDir = byPath.get('assets');
+      const templateHtml = byPath.get('assets/template.html');
+      const referencesDir = byPath.get('references');
+      const notesMd = byPath.get('references/notes.md');
+      if (!skillMd || !assetsDir || !templateHtml || !referencesDir || !notesMd) {
+        throw new Error('expected file tree to include SKILL.md + assets + references');
+      }
+      expect(skillMd.kind).toBe('file');
+      expect(skillMd.size).toBeGreaterThan(0);
+      expect(assetsDir.kind).toBe('directory');
+      expect(assetsDir.size).toBeNull();
+      expect(templateHtml.kind).toBe('file');
+      expect(templateHtml.size).toBeGreaterThan(0);
+      expect(referencesDir.kind).toBe('directory');
+      expect(notesMd.kind).toBe('file');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('skips dotfiles and returns an empty list for a missing directory', async () => {
+    const root = fresh();
+    try {
+      writeSkill(root, 'with-dotfile');
+      writeFileSync(path.join(root, 'with-dotfile', '.DS_Store'), 'x');
+      const entries = await listSkillFiles(path.join(root, 'with-dotfile'));
+      expect(entries.find((entry) => entry.path === '.DS_Store')).toBeUndefined();
+
+      const missing = await listSkillFiles(path.join(root, 'no-such-skill'));
+      expect(missing).toEqual([]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

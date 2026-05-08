@@ -667,7 +667,7 @@ async function runExampleUsePromptFlow(
   page: Page,
   entry: UiScenario,
 ) {
-  await page.getByTestId('entry-tab-examples').click();
+  await page.getByTestId('entry-tab-templates').click();
   await expect(page.getByTestId('example-card-warm-utility-example')).toBeVisible();
   await page.getByTestId('example-use-prompt-warm-utility-example').click();
 

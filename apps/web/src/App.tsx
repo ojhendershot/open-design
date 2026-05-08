@@ -13,6 +13,7 @@ import {
   fetchAppVersionInfo,
   fetchAgents,
   fetchDesignSystems,
+  fetchDesignTemplates,
   fetchPromptTemplates,
   fetchSkills,
 } from './providers/registry';
@@ -117,7 +118,13 @@ export function App() {
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection>('execution');
   const [daemonLive, setDaemonLive] = useState(false);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
+  // Functional skills (capabilities the agent invokes mid-task) — stays
+  // small and lives under the Settings → Skills surface.
   const [skills, setSkills] = useState<SkillSummary[]>([]);
+  // Design templates (rendering catalogue: decks, prototypes, image/video/
+  // audio templates) — sourced from /api/design-templates and shown in the
+  // EntryView Templates tab. See specs/current/skills-and-design-templates.md.
+  const [designTemplates, setDesignTemplates] = useState<SkillSummary[]>([]);
   const [designSystems, setDesignSystems] = useState<DesignSystemSummary[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
@@ -218,10 +225,27 @@ export function App() {
         setAgentsLoading(false);
       });
 
+      // Functional skills + design templates land independently. Both
+      // gate `skillsLoading` together so the EntryView stops rendering
+      // its loader once both registries respond — neither tab would have
+      // a complete picture if we cleared the flag on the first reply.
+      let functionalReady = false;
+      let templatesReady = false;
+      const maybeClearLoading = () => {
+        if (functionalReady && templatesReady) setSkillsLoading(false);
+      };
       void fetchSkills().then((list) => {
         if (cancelled) return;
         setSkills(list);
-        setSkillsLoading(false);
+        functionalReady = true;
+        maybeClearLoading();
+      });
+
+      void fetchDesignTemplates().then((list) => {
+        if (cancelled) return;
+        setDesignTemplates(list);
+        templatesReady = true;
+        maybeClearLoading();
       });
 
       void fetchDesignSystems().then((list) => {
@@ -685,9 +709,30 @@ export function App() {
     void refreshTemplates();
   }, [route.kind, refreshTemplates]);
 
+  // Existing card grids (DesignsTab, ProjectView), pickers (NewProjectPanel,
+  // ChatComposer mention) all look skills up by id without caring whether
+  // the id resolves to a functional skill or a design template. Pass them
+  // the union so the post-split refactor stays invisible to those callers.
+  const allSkillSummaries = useMemo(
+    () => [...skills, ...designTemplates],
+    [skills, designTemplates],
+  );
   const enabledSkills = useMemo(
-    () => skills.filter((s) => !(config.disabledSkills ?? []).includes(s.id)),
-    [skills, config.disabledSkills],
+    () =>
+      allSkillSummaries.filter(
+        (s) => !(config.disabledSkills ?? []).includes(s.id),
+      ),
+    [allSkillSummaries, config.disabledSkills],
+  );
+  // Templates-only enabled subset — what the EntryView Templates gallery
+  // actually renders. Filtering in App keeps the EntryView prop surface
+  // narrow ("here are the templates the user has not disabled").
+  const enabledDesignTemplates = useMemo(
+    () =>
+      designTemplates.filter(
+        (s) => !(config.disabledSkills ?? []).includes(s.id),
+      ),
+    [designTemplates, config.disabledSkills],
   );
   const enabledDS = useMemo(
     () =>
@@ -727,6 +772,7 @@ export function App() {
       ) : (
         <EntryView
           skills={enabledSkills}
+          designTemplates={enabledDesignTemplates}
           designSystems={enabledDS}
           projects={projects}
           templates={templates}

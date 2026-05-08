@@ -1,4 +1,5 @@
 import type {
+  ConnectorAuthConfigPrepareResponse,
   ConnectorDetail,
   ConnectorConnectResponse,
   ConnectorDiscoveryResponse,
@@ -93,6 +94,32 @@ export async function fetchSkills(): Promise<SkillSummary[]> {
     return json.skills ?? [];
   } catch {
     return [];
+  }
+}
+
+// Design templates — the rendering catalogue (decks, prototypes, image/
+// video/audio templates). Same SkillSummary shape as functional skills,
+// fetched from a separate registry root so the EntryView Templates tab
+// and Settings → Skills surface stay decoupled. See
+// specs/current/skills-and-design-templates.md.
+export async function fetchDesignTemplates(): Promise<SkillSummary[]> {
+  try {
+    const resp = await fetch('/api/design-templates');
+    if (!resp.ok) return [];
+    const json = (await resp.json()) as { designTemplates: SkillSummary[] };
+    return json.designTemplates ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchDesignTemplate(id: string): Promise<SkillDetail | null> {
+  try {
+    const resp = await fetch(`/api/design-templates/${encodeURIComponent(id)}`);
+    if (!resp.ok) return null;
+    return (await resp.json()) as SkillDetail;
+  } catch {
+    return null;
   }
 }
 
@@ -200,6 +227,70 @@ export async function importSkill(
         message: err instanceof Error ? err.message : 'Import request failed.',
       },
     };
+  }
+}
+
+// Update an existing skill's body. For built-in skills the daemon writes
+// a "shadow" copy under the user-skills root; the next listSkills() pass
+// surfaces it in place of the bundled copy. The id passed here must
+// match the SKILL.md frontmatter `name` — the daemon refuses cross-id
+// renames so callers can drop "edit" into the same surface they use for
+// "edit my own draft".
+export interface SkillUpdateInput {
+  name?: string;
+  description?: string;
+  body: string;
+  triggers?: string[];
+}
+
+export async function updateSkill(
+  id: string,
+  input: SkillUpdateInput,
+): Promise<{ skill: SkillSummary } | { error: SkillImportError }> {
+  try {
+    const resp = await fetch(`/api/skills/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    if (!resp.ok) {
+      const payload = (await resp.json().catch(() => null)) as
+        | { error?: SkillImportError }
+        | null;
+      return {
+        error: {
+          code: payload?.error?.code,
+          message:
+            payload?.error?.message ?? `Update failed (${resp.status}).`,
+        },
+      };
+    }
+    return (await resp.json()) as { skill: SkillSummary };
+  } catch (err) {
+    return {
+      error: {
+        message: err instanceof Error ? err.message : 'Update request failed.',
+      },
+    };
+  }
+}
+
+export interface SkillFileEntry {
+  path: string;
+  kind: 'file' | 'directory';
+  size: number | null;
+}
+
+export async function fetchSkillFiles(id: string): Promise<SkillFileEntry[]> {
+  try {
+    const resp = await fetch(
+      `/api/skills/${encodeURIComponent(id)}/files`,
+    );
+    if (!resp.ok) return [];
+    const json = (await resp.json()) as { files: SkillFileEntry[] };
+    return json.files ?? [];
+  } catch {
+    return [];
   }
 }
 
@@ -350,8 +441,28 @@ export async function fetchConnectorDiscovery(options: { refresh?: boolean } = {
   return promise;
 }
 
+export async function fetchConnectorDetail(
+  connectorId: string,
+  options: { hydrateTools?: boolean; toolsLimit?: number; toolsCursor?: string } = {},
+): Promise<ConnectorDetail | null> {
+  try {
+    const params = new URLSearchParams();
+    if (options.hydrateTools) params.set('hydrateTools', 'true');
+    if (options.toolsLimit !== undefined) params.set('toolsLimit', String(options.toolsLimit));
+    if (options.toolsCursor) params.set('toolsCursor', options.toolsCursor);
+    const query = params.toString();
+    const resp = await fetch(`/api/connectors/${encodeURIComponent(connectorId)}${query ? `?${query}` : ''}`);
+    if (!resp.ok) return null;
+    const json = (await resp.json()) as ConnectorDetailResponse;
+    return json.connector ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export interface ConnectorActionResult {
   connector: ConnectorDetail | null;
+  auth?: ConnectorConnectResponse['auth'];
   error?: string;
 }
 
@@ -375,36 +486,51 @@ export async function connectConnector(connectorId: string): Promise<ConnectorAc
   try {
     if (!useExternalBrowser) {
       authWindow = window.open('about:blank', '_blank');
-      renderConnectorAuthLoading(authWindow);
+      renderConnectorAuthLoading(authWindow, {
+        title: 'Initializing auth config…',
+        body: 'Creating or reusing the Composio auth configuration for this app. This can take a moment the first time.',
+      });
     }
+    const prepare = await prepareConnectorAuthConfig(connectorId);
+    if (prepare.status !== 'ready') {
+      renderConnectorAuthError(authWindow, prepare.message);
+      return { connector: null, error: prepare.message };
+    }
+    renderConnectorAuthLoading(authWindow, {
+      title: 'Opening authorization…',
+      body: 'The auth config is ready. Preparing the provider authorization page.',
+    });
     const resp = await fetch(`/api/connectors/${encodeURIComponent(connectorId)}/connect`, {
       method: 'POST',
     });
     if (!resp.ok) {
-      authWindow?.close();
-      return { connector: null, error: await decodeConnectorError(resp) };
+      const error = await decodeConnectorError(resp);
+      renderConnectorAuthError(authWindow, error);
+      return { connector: null, error };
     }
     const json = (await resp.json()) as ConnectorConnectResponse;
     if (json.auth?.kind === 'redirect_required' && json.auth.redirectUrl) {
       if (useExternalBrowser) {
         const opened = await openExternal(json.auth.redirectUrl);
         if (!opened) {
+          void cancelConnectorAuthorization(connectorId);
           return { connector: json.connector ?? null, error: popupBlockedMessage() };
         }
       } else if (authWindow) {
-        authWindow.location.href = json.auth.redirectUrl;
+        openConnectorAuthRedirect(authWindow, json.auth.redirectUrl);
       } else {
         const redirected = window.open(json.auth.redirectUrl, '_blank');
         if (!redirected) {
+          void cancelConnectorAuthorization(connectorId);
           return { connector: json.connector ?? null, error: popupBlockedMessage() };
         }
       }
     } else {
       authWindow?.close();
     }
-    return { connector: json.connector ?? null };
+    return { connector: json.connector ?? null, ...(json.auth === undefined ? {} : { auth: json.auth }) };
   } catch (err) {
-    authWindow?.close();
+    renderConnectorAuthError(authWindow, err instanceof Error && err.message ? err.message : 'Could not start connector authentication.');
     return {
       connector: null,
       error: err instanceof Error && err.message ? err.message : 'Could not start connector authentication.',
@@ -412,7 +538,38 @@ export async function connectConnector(connectorId: string): Promise<ConnectorAc
   }
 }
 
-function renderConnectorAuthLoading(authWindow: Window | null): void {
+async function prepareConnectorAuthConfig(connectorId: string): Promise<{ status: 'ready' } | { status: 'error'; message: string }> {
+  const resp = await fetch('/api/connectors/auth-configs/prepare', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ connectorIds: [connectorId] }),
+  });
+  if (!resp.ok) {
+    return { status: 'error', message: await decodeConnectorError(resp) };
+  }
+  const json = (await resp.json()) as ConnectorAuthConfigPrepareResponse;
+  const result = json.results?.[connectorId];
+  if (!result) return { status: 'error', message: 'Auth config initialization did not return a result.' };
+  if (result.status === 'ready') return { status: 'ready' };
+  return { status: 'error', message: result.message };
+}
+
+function openConnectorAuthRedirect(authWindow: Window | null, redirectUrl: string): void {
+  if (authWindow) {
+    renderConnectorAuthRedirect(authWindow, redirectUrl);
+    try {
+      authWindow.location.replace(redirectUrl);
+      return;
+    } catch {
+      // Some embedded browsers block async popup navigation. Leave the
+      // clickable fallback in the popup so the user can continue.
+    }
+  }
+  const opened = window.open(redirectUrl, '_blank');
+  if (!opened) window.location.assign(redirectUrl);
+}
+
+function renderConnectorAuthLoading(authWindow: Window | null, copy: { title: string; body: string }): void {
   if (!authWindow) return;
   try {
     authWindow.document.title = 'Connecting…';
@@ -420,8 +577,8 @@ function renderConnectorAuthLoading(authWindow: Window | null): void {
       <main style="min-height:100vh;display:grid;place-items:center;margin:0;background:#0f1115;color:#f6f7fb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
         <div style="display:grid;gap:14px;justify-items:center;text-align:center;padding:32px;">
           <div aria-hidden="true" style="width:28px;height:28px;border-radius:999px;border:3px solid rgba(255,255,255,.22);border-top-color:#fff;animation:od-spin .8s linear infinite;"></div>
-          <div style="font-size:15px;font-weight:600;">Connecting…</div>
-          <div style="max-width:280px;color:rgba(246,247,251,.72);font-size:13px;line-height:1.5;">Preparing the authorization flow. This window will redirect when the provider is ready.</div>
+          <div style="font-size:15px;font-weight:600;">${escapeHtmlText(copy.title)}</div>
+          <div style="max-width:300px;color:rgba(246,247,251,.72);font-size:13px;line-height:1.5;">${escapeHtmlText(copy.body)}</div>
         </div>
         <style>@keyframes od-spin{to{transform:rotate(360deg)}}</style>
       </main>
@@ -431,10 +588,100 @@ function renderConnectorAuthLoading(authWindow: Window | null): void {
   }
 }
 
+function renderConnectorAuthRedirect(authWindow: Window, redirectUrl: string): void {
+  try {
+    authWindow.document.title = 'Continue authorization';
+    authWindow.document.body.innerHTML = `
+      <main style="min-height:100vh;display:grid;place-items:center;margin:0;background:#0f1115;color:#f6f7fb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+        <div style="display:grid;gap:14px;justify-items:center;text-align:center;padding:32px;">
+          <div style="font-size:15px;font-weight:600;">Continue authorization</div>
+          <div style="max-width:300px;color:rgba(246,247,251,.72);font-size:13px;line-height:1.5;">If this window does not redirect automatically, use the button below.</div>
+          <a href="${escapeHtmlAttribute(redirectUrl)}" style="display:inline-flex;align-items:center;justify-content:center;min-width:164px;border-radius:8px;padding:9px 14px;background:#df7b56;color:#fff;text-decoration:none;font-size:13px;font-weight:600;">Open Composio</a>
+        </div>
+      </main>
+    `;
+  } catch {
+    /* Popup may already be cross-origin; navigation fallback still runs. */
+  }
+}
+
+async function readConnectorApiErrorMessage(resp: Response): Promise<string> {
+  try {
+    const payload = await resp.json() as { error?: { message?: string }; message?: string };
+    return payload.error?.message ?? payload.message ?? `Connection failed (${resp.status})`;
+  } catch {
+    return `Connection failed (${resp.status})`;
+  }
+}
+
+function renderConnectorAuthError(authWindow: Window | null, message: string): void {
+  if (!authWindow) return;
+  try {
+    authWindow.document.title = 'Connection failed';
+    authWindow.document.body.innerHTML = `
+      <main style="min-height:100vh;display:grid;place-items:center;margin:0;background:#0f1115;color:#f6f7fb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+        <div style="display:grid;gap:14px;justify-items:center;text-align:center;padding:32px;">
+          <div style="font-size:15px;font-weight:600;">Connection failed</div>
+          <div style="max-width:360px;color:rgba(246,247,251,.72);font-size:13px;line-height:1.5;">${escapeHtmlText(message)}</div>
+        </div>
+      </main>
+    `;
+  } catch {
+    /* Popup may be unavailable or already navigated; ignore. */
+  }
+}
+
+function escapeHtmlText(value: string): string {
+  return value.replace(/[&<>]/g, (char) => {
+    switch (char) {
+      case '&':
+        return '&amp;';
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      default:
+        return char;
+    }
+  });
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case '&':
+        return '&amp;';
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '"':
+        return '&quot;';
+      case "'":
+        return '&#39;';
+      default:
+        return char;
+    }
+  });
+}
+
 export async function disconnectConnector(connectorId: string): Promise<ConnectorDetail | null> {
   try {
     const resp = await fetch(`/api/connectors/${encodeURIComponent(connectorId)}/connection`, {
       method: 'DELETE',
+    });
+    if (!resp.ok) return null;
+    const json = (await resp.json()) as ConnectorDetailResponse;
+    return json.connector ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function cancelConnectorAuthorization(connectorId: string): Promise<ConnectorDetail | null> {
+  try {
+    const resp = await fetch(`/api/connectors/${encodeURIComponent(connectorId)}/authorization/cancel`, {
+      method: 'POST',
     });
     if (!resp.ok) return null;
     const json = (await resp.json()) as ConnectorDetailResponse;

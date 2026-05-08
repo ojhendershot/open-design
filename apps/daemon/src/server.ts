@@ -35,8 +35,10 @@ import {
   deleteUserSkill,
   findSkillById,
   importUserSkill,
+  listSkillFiles,
   listSkills,
   splitDerivedSkillId,
+  updateUserSkill,
 } from './skills.js';
 import { validateLinkedDirs } from './linked-dirs.js';
 import { buildWindowsFolderDialogCommand, parseFolderDialogStdout } from './native-folder-dialog.js';
@@ -59,11 +61,17 @@ import { renderDesignSystemPreview } from './design-system-preview.js';
 import { renderDesignSystemShowcase } from './design-system-showcase.js';
 import { createChatRunService } from './runs.js';
 import {
+  redactSecrets,
   testAgentConnection,
   testProviderConnection,
   validateBaseUrl,
 } from './connectionTest.js';
 import { importClaudeDesignZip } from './claude-design-import.js';
+import {
+  finalizeDesignPackage,
+  FinalizePackageLockedError,
+  FinalizeUpstreamError,
+} from './finalize-design.js';
 import { listPromptTemplates, readPromptTemplate } from './prompt-templates.js';
 import { buildDocumentPreview } from './document-preview.js';
 import { lintArtifact, renderFindingsForAgent } from './lint-artifact.js';
@@ -113,6 +121,7 @@ import {
   deleteProjectFile,
   detectEntryFile,
   ensureProject,
+  isSafeId,
   listFiles,
   mimeFor,
   projectDir,
@@ -457,6 +466,7 @@ export function validateCodexGeneratedImagesDir(
 export function resolveChatExtraAllowedDirs({
   agentId,
   skillsDir,
+  designTemplatesDir,
   designSystemsDir,
   linkedDirs = [],
   codexGeneratedImagesDir,
@@ -464,6 +474,7 @@ export function resolveChatExtraAllowedDirs({
 }: {
   agentId?: string | null;
   skillsDir?: string | null;
+  designTemplatesDir?: string | null;
   designSystemsDir?: string | null;
   linkedDirs?: Array<string | null | undefined>;
   codexGeneratedImagesDir?: string | null;
@@ -475,6 +486,12 @@ export function resolveChatExtraAllowedDirs({
     ? [codexGeneratedImagesDir]
     : [
         skillsDir,
+        // Design templates live under their own root after the
+        // skills/design-templates split, so they need to be allow-listed
+        // alongside the functional skills root for the same reason: the
+        // active skill's folder is mounted at <cwd>/.od-skills/<folder>/
+        // and the agent may also reach for the absolute fallback path.
+        designTemplatesDir,
         designSystemsDir,
         ...(Array.isArray(linkedDirs) ? linkedDirs : []),
       ];
@@ -717,6 +734,16 @@ const SKILLS_DIR = resolveDaemonResourceDir(
   'skills',
   path.join(PROJECT_ROOT, 'skills'),
 );
+// Design templates are SKILL.md folders that primarily ship a render
+// template (deck/prototype/image/video/audio "shapes"). They live in their
+// own root so the Settings → Skills surface can stay focused on functional
+// skills (utility tools, briefs, packagers) while the EntryView Templates
+// tab gets the large rendering catalogue. See specs/current/skills-and-design-templates.md.
+const DESIGN_TEMPLATES_DIR = resolveDaemonResourceDir(
+  DAEMON_RESOURCE_ROOT,
+  'design-templates',
+  path.join(PROJECT_ROOT, 'design-templates'),
+);
 const DESIGN_SYSTEMS_DIR = resolveDaemonResourceDir(
   DAEMON_RESOURCE_ROOT,
   'design-systems',
@@ -800,7 +827,25 @@ fs.mkdirSync(PROJECTS_DIR, { recursive: true });
 // name without erasing the bundled copy.
 const USER_SKILLS_DIR = path.join(RUNTIME_DATA_DIR, 'user-skills');
 fs.mkdirSync(USER_SKILLS_DIR, { recursive: true });
+// User-imported design templates land here, mirroring USER_SKILLS_DIR for
+// the design-templates root. The two directories stay separate so the
+// Settings → Skills surface and the EntryView Templates surface each
+// CRUD their own slice of the user library without collision.
+const USER_DESIGN_TEMPLATES_DIR = path.join(RUNTIME_DATA_DIR, 'user-design-templates');
+fs.mkdirSync(USER_DESIGN_TEMPLATES_DIR, { recursive: true });
 const SKILL_ROOTS = [USER_SKILLS_DIR, SKILLS_DIR];
+const DESIGN_TEMPLATE_ROOTS = [USER_DESIGN_TEMPLATES_DIR, DESIGN_TEMPLATES_DIR];
+// Lookup roots used wherever we need to resolve a skill id without caring
+// whether it points at a functional skill or a design template — chat run
+// system-prompt composition and the orbit template resolver both take
+// stored project ids that may have come from either surface. Keep this
+// in sync with SKILL_ROOTS + DESIGN_TEMPLATE_ROOTS.
+const ALL_SKILL_LIKE_ROOTS = [
+  USER_SKILLS_DIR,
+  USER_DESIGN_TEMPLATES_DIR,
+  SKILLS_DIR,
+  DESIGN_TEMPLATES_DIR,
+];
 
 const orbitService = new OrbitService(RUNTIME_DATA_DIR);
 
@@ -1601,6 +1646,7 @@ function sendMulterError(res, err) {
       LIMIT_FIELD_KEY: 400,
       LIMIT_FIELD_VALUE: 400,
       LIMIT_FIELD_COUNT: 400,
+      MISSING_FIELD_NAME: 400,
     };
     const errorByCode = {
       LIMIT_FILE_SIZE: 'file too large',
@@ -1610,6 +1656,7 @@ function sendMulterError(res, err) {
       LIMIT_FIELD_KEY: 'field name too long',
       LIMIT_FIELD_VALUE: 'field value too long',
       LIMIT_FIELD_COUNT: 'too many form fields',
+      MISSING_FIELD_NAME: 'missing field name',
     };
     const status = statusByCode[code] ?? 400;
     const message = errorByCode[code] ?? 'upload failed';
@@ -1712,7 +1759,7 @@ export function createSseResponse(
 
   return {
     /** @param {ChatSseEvent['event'] | ProxySseEvent['event'] | string} event */
-    send(event, data, id = null) {
+    send(event, data, id: string | number | null | undefined = null) {
       if (!canWrite()) return false;
       if (id !== null && id !== undefined) res.write(`id: ${id}\n`);
       res.write(`event: ${event}\n`);
@@ -1736,8 +1783,15 @@ function resolveChatRunInactivityTimeoutMs() {
   return Math.max(0, Math.floor(raw));
 }
 
+function resolveChatRunShutdownGraceMs() {
+  const raw = Number(process.env.OD_CHAT_RUN_SHUTDOWN_GRACE_MS);
+  if (!Number.isFinite(raw)) return 3_000;
+  return Math.max(0, Math.floor(raw));
+}
+
 export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST || '127.0.0.1', returnServer = false } = {}) {
   let resolvedPort = port;
+  let daemonShuttingDown = false;
   const extraAllowedOrigins = configuredAllowedOrigins();
   const app = express();
   app.use(express.json({ limit: '4mb' }));
@@ -2909,6 +2963,36 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     }
   });
 
+  // Design templates — the rendering catalogue. Same shape as /api/skills
+  // (so the web client can reuse SkillSummary types) but rooted at
+  // DESIGN_TEMPLATE_ROOTS so the listing stays focused on template-style
+  // entries without bleeding functional skills into the EntryView gallery.
+  app.get('/api/design-templates', async (_req, res) => {
+    try {
+      const templates = await listSkills(DESIGN_TEMPLATE_ROOTS);
+      res.json({
+        designTemplates: templates.map(({ body, dir: _dir, ...rest }) => ({
+          ...rest,
+          hasBody: typeof body === 'string' && body.length > 0,
+        })),
+      });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.get('/api/design-templates/:id', async (req, res) => {
+    try {
+      const templates = await listSkills(DESIGN_TEMPLATE_ROOTS);
+      const tpl = findSkillById(templates, req.params.id);
+      if (!tpl) return res.status(404).json({ error: 'design template not found' });
+      const { dir: _dir, ...serializable } = tpl;
+      res.json(serializable);
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
   // Import a user-authored skill. Body: { name, description?, body, triggers? }.
   // Writes a SKILL.md under USER_SKILLS_DIR; the next /api/skills request
   // will surface it. Mirrors the validation layer in skills.ts, returning
@@ -2940,6 +3024,97 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
         return res.status(status).json({ error: { code: err.code, message: err.message } });
       }
       res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: String(err) } });
+    }
+  });
+
+  // Update an existing skill's SKILL.md body. For user skills this is an
+  // overwrite; for built-in skills we write a "shadow" copy under
+  // USER_SKILLS_DIR/<slug>/ which the next listSkills() pass surfaces in
+  // place of the bundled copy. The old built-in body resurfaces if the
+  // user later deletes the shadow via DELETE /api/skills/:id. The body
+  // shape mirrors POST /api/skills/import; `name` in the body must
+  // resolve to the same id as the route param so the user cannot rename
+  // mid-edit (rename = delete + import).
+  app.put('/api/skills/:id', async (req, res) => {
+    try {
+      const skills = await listSkills(SKILL_ROOTS);
+      const skill = findSkillById(skills, req.params.id);
+      if (!skill) {
+        return res
+          .status(404)
+          .json({ error: { code: 'NOT_FOUND', message: 'skill not found' } });
+      }
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const incomingName =
+        typeof body.name === 'string' ? body.name.trim() : skill.id;
+      if (incomingName !== skill.id) {
+        return res.status(400).json({
+          error: {
+            code: 'BAD_REQUEST',
+            message:
+              'renaming a skill requires deleting the old id and importing under the new name',
+          },
+        });
+      }
+      const result = await updateUserSkill(USER_SKILLS_DIR, {
+        ...body,
+        name: skill.id,
+      });
+      const next = await listSkills(SKILL_ROOTS);
+      const updated = findSkillById(next, result.id);
+      if (!updated) {
+        return res.status(500).json({
+          error: {
+            code: 'INTERNAL_ERROR',
+            message: 'updated skill could not be re-read',
+          },
+        });
+      }
+      const { dir: _dir, body: _body, ...summary } = updated;
+      res.json({
+        skill: {
+          ...summary,
+          hasBody: typeof updated.body === 'string' && updated.body.length > 0,
+        },
+      });
+    } catch (err) {
+      if (err instanceof SkillImportError) {
+        const status =
+          err.code === 'BAD_REQUEST'
+            ? 400
+            : err.code === 'NOT_FOUND'
+              ? 404
+              : 500;
+        return res
+          .status(status)
+          .json({ error: { code: err.code, message: err.message } });
+      }
+      res
+        .status(500)
+        .json({ error: { code: 'INTERNAL_ERROR', message: String(err) } });
+    }
+  });
+
+  // Lightweight on-disk listing for the Settings → Skills detail panel.
+  // Spans both functional skills and design templates so a user can
+  // inspect a template's bundled assets too. Returns a flat list of
+  // entries (path + kind + size) rather than a nested tree so the UI
+  // can render whatever shape it likes without re-walking on the client.
+  app.get('/api/skills/:id/files', async (req, res) => {
+    try {
+      const skills = await listSkills(ALL_SKILL_LIKE_ROOTS);
+      const skill = findSkillById(skills, req.params.id);
+      if (!skill) {
+        return res
+          .status(404)
+          .json({ error: { code: 'NOT_FOUND', message: 'skill not found' } });
+      }
+      const files = await listSkillFiles(skill.dir);
+      res.json({ files });
+    } catch (err) {
+      res
+        .status(500)
+        .json({ error: { code: 'INTERNAL_ERROR', message: String(err) } });
     }
   });
 
@@ -3151,7 +3326,11 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
   //      a real preview on its parent card instead of returning 404.
   app.get('/api/skills/:id/example', async (req, res) => {
     try {
-      const skills = await listSkills(SKILL_ROOTS);
+      // Look across both functional skills and design templates: rendered
+      // example HTML rewrites assets to /api/skills/<id>/... and we want
+      // those URLs to keep resolving regardless of which root owns the
+      // backing folder after the skills/design-templates split.
+      const skills = await listSkills(ALL_SKILL_LIKE_ROOTS);
 
       // 1. Derived `<parent>:<child>` id — resolve straight to the matching
       // file under <parentDir>/examples/. Done before findSkillById so the
@@ -3273,7 +3452,9 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
   // contributors can preview `example.html` straight from disk.
   app.get('/api/skills/:id/assets/*', async (req, res) => {
     try {
-      const skills = await listSkills(SKILL_ROOTS);
+      // Same rationale as /example above — assets need to resolve whether
+      // the owning skill folder lives under skills/ or design-templates/.
+      const skills = await listSkills(ALL_SKILL_LIKE_ROOTS);
       const skill = findSkillById(skills, req.params.id);
       if (!skill) {
         return res.status(404).type('text/plain').send('skill not found');
@@ -3840,6 +4021,101 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
         status === 404 ? 'FILE_NOT_FOUND' : 'BAD_REQUEST',
         String(err?.message || err),
       );
+    }
+  });
+
+  app.post('/api/projects/:id/finalize/anthropic', async (req, res) => {
+    const { apiKey, baseUrl, model, maxTokens } = req.body || {};
+    try {
+      // Centralized path-traversal guard. `isSafeId` (apps/daemon/src/projects.ts)
+      // rejects pure-dot ids (`.`, `..`, etc.) which would otherwise pass
+      // the char-class regex and resolve to the parent directory under
+      // path.join. Express decodes percent-encoded `%2e%2e` to `..` before
+      // we see it, so this check covers both URL-supplied and stored-row
+      // attack vectors.
+      if (!isSafeId(req.params.id)) {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'invalid project id');
+      }
+
+      if (typeof apiKey !== 'string' || !apiKey.trim()) {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'apiKey is required');
+      }
+      if (typeof model !== 'string' || !model.trim()) {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'model is required');
+      }
+      if (baseUrl !== undefined) {
+        if (typeof baseUrl !== 'string' || !baseUrl.trim()) {
+          return sendApiError(res, 400, 'BAD_REQUEST', 'baseUrl must be a non-empty string when provided');
+        }
+        const validated = validateExternalApiBaseUrl(baseUrl);
+        if (validated.error) {
+          return sendApiError(
+            res,
+            validated.forbidden ? 403 : 400,
+            validated.forbidden ? 'FORBIDDEN' : 'BAD_REQUEST',
+            validated.error,
+          );
+        }
+      }
+      if (maxTokens !== undefined && (typeof maxTokens !== 'number' || maxTokens <= 0)) {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'maxTokens must be a positive number when provided');
+      }
+
+      const project = getProject(db, req.params.id);
+      if (!project) {
+        return sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
+      }
+
+      const result = await finalizeDesignPackage(
+        db,
+        PROJECTS_DIR,
+        DESIGN_SYSTEMS_DIR,
+        req.params.id,
+        { apiKey, baseUrl, model, maxTokens },
+      );
+      res.json(result);
+    } catch (err) {
+      // Concurrent finalize - the lockfile was already held by another
+      // call. Caller can retry after a short wait; not a client error.
+      // Maps to the shared CONFLICT code per @lefarcen P2 on PR #832.
+      if (err instanceof FinalizePackageLockedError) {
+        return sendApiError(res, 409, 'CONFLICT', err.message);
+      }
+
+      // Upstream Anthropic error - status-aware mapping using shared
+      // ApiErrorCode values. Run the raw upstream body through
+      // redactSecrets so the API key cannot leak even if Anthropic
+      // echoes the inbound headers. Codes per @lefarcen P2 on PR #832:
+      // 401 -> UNAUTHORIZED, 429 -> RATE_LIMITED, others -> UPSTREAM_UNAVAILABLE.
+      if (err instanceof FinalizeUpstreamError) {
+        const safeDetails = redactSecrets(err.rawText || '', [apiKey]);
+        const init = safeDetails ? { details: safeDetails } : {};
+        if (err.status === 401) {
+          return sendApiError(res, 401, 'UNAUTHORIZED', err.message, init);
+        }
+        if (err.status === 429) {
+          return sendApiError(res, 429, 'RATE_LIMITED', err.message, init);
+        }
+        return sendApiError(res, 502, 'UPSTREAM_UNAVAILABLE', err.message, init);
+      }
+
+      // The blocking call hit our 120s AbortController timeout - or the
+      // caller passed an already-aborted signal. Either way, surface as
+      // 503 with the shared UPSTREAM_UNAVAILABLE code (no dedicated
+      // TIMEOUT code in the contracts ApiErrorCode union).
+      const errName =
+        err && typeof err === 'object' && 'name' in err ? (err as { name?: unknown }).name : '';
+      if (errName === 'AbortError') {
+        return sendApiError(res, 503, 'UPSTREAM_UNAVAILABLE', 'finalize timed out');
+      }
+
+      // Unexpected runtime failure (file IO, db access, prompt build).
+      // Log via console.error per the daemon convention; client sees a
+      // generic 500 with the shared INTERNAL_ERROR code. Run the message
+      // through redactSecrets defensively.
+      console.error('[finalize/anthropic]', err);
+      const safeMsg = redactSecrets(String(err?.message || err), [apiKey]);
+      return sendApiError(res, 500, 'INTERNAL_ERROR', safeMsg);
     }
   });
 
@@ -4599,7 +4875,11 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
           .filter(Boolean)
           .filter((id) => id !== effectiveSkillId)
       : [];
-    const allSkills = await listSkills(SKILL_ROOTS);
+    // Compose lookup spans both functional skills and design templates so
+    // a project saved against either surface keeps its system prompt.
+    // After the skills/design-templates split (see specs/current/skills-and-design-templates.md)
+    // a project's `skillId` can resolve to either root.
+    const allSkills = await listSkills(ALL_SKILL_LIKE_ROOTS);
     let skillBody;
     let skillName;
     let skillMode;
@@ -5026,13 +5306,19 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
       codexGeneratedImagesDir = validateCodexGeneratedImagesDir(
         codexGeneratedImagesDir,
         {
-          protectedDirs: [SKILLS_DIR, DESIGN_SYSTEMS_DIR, ...linkedDirs],
+          protectedDirs: [
+            SKILLS_DIR,
+            DESIGN_TEMPLATES_DIR,
+            DESIGN_SYSTEMS_DIR,
+            ...linkedDirs,
+          ],
         },
       );
     }
     const extraAllowedDirs = resolveChatExtraAllowedDirs({
       agentId,
       skillsDir: SKILLS_DIR,
+      designTemplatesDir: DESIGN_TEMPLATES_DIR,
       designSystemsDir: DESIGN_SYSTEMS_DIR,
       linkedDirs,
       codexGeneratedImagesDir,
@@ -5862,7 +6148,10 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
   });
 
   orbitService.setTemplateResolver(async (skillId) => {
-    const skills = await listSkills(SKILL_ROOTS);
+    // Orbit templates (live-artifact, etc.) live under design-templates after
+    // the split, but earlier projects may still point at functional skill
+    // ids for the same purpose — search both roots.
+    const skills = await listSkills(ALL_SKILL_LIKE_ROOTS);
     const skill = findSkillById(skills, skillId);
     if (!skill || skill.scenario !== 'orbit') return null;
     return {
@@ -5876,6 +6165,9 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
   });
 
   app.post('/api/runs', (req, res) => {
+    if (daemonShuttingDown) {
+      return sendApiError(res, 503, 'UPSTREAM_UNAVAILABLE', 'daemon is shutting down');
+    }
     const run = design.runs.create(req.body || {});
     /** @type {import('@open-design/contracts').ChatRunCreateResponse} */
     const body = { runId: run.id };
@@ -5913,6 +6205,9 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
   });
 
   app.post('/api/chat', (req, res) => {
+    if (daemonShuttingDown) {
+      return sendApiError(res, 503, 'UPSTREAM_UNAVAILABLE', 'daemon is shutting down');
+    }
     const run = design.runs.create();
     design.runs.stream(run, req, res);
     design.runs.start(run, () => startChatRun(req.body || {}, run));
@@ -6257,6 +6552,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify(payload),
+        redirect: 'error',
       });
 
       if (!response.ok) {
@@ -6352,6 +6648,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(payload),
+        redirect: 'error',
       });
 
       if (!response.ok) {
@@ -6451,6 +6748,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
           'api-key': apiKey,
         },
         body: JSON.stringify(payload),
+        redirect: 'error',
       });
 
       if (!response.ok) {
@@ -6548,6 +6846,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
           'x-goog-api-key': apiKey,
         },
         body: JSON.stringify(payload),
+        redirect: 'error',
       });
 
       if (!response.ok) {
@@ -6595,13 +6894,20 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
   // critical when port=0 (ephemeral port) and when the embedding sidecar
   // needs to advertise the port to a parent process before any request
   // can flow. Three callers depend on this contract:
-  //   - `apps/daemon/src/cli.ts`            → expects a `url` string
+  //   - `apps/daemon/src/cli.ts`            → expects `{ url, server, shutdown }`
   //   - `apps/daemon/sidecar/server.ts`     → expects `{ url, server }`
   //   - `apps/daemon/tests/version-route.test.ts` → expects `{ url, server }`
   return await new Promise((resolve, reject) => {
+    let daemonShutdownStarted = false;
     const cleanupDaemonBackgroundWork = () => {
       composioConnectorProvider.stopCatalogRefreshLoop();
       orbitService.stop();
+    };
+    const shutdownDaemonRuns = async () => {
+      if (daemonShutdownStarted) return;
+      daemonShutdownStarted = true;
+      daemonShuttingDown = true;
+      await design.runs.shutdownActive({ graceMs: resolveChatRunShutdownGraceMs() });
     };
     let server;
     try {
@@ -6631,14 +6937,16 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
           console.log(`[od] daemon listening on ${url}`);
         }
         daemonUrl = url;
-        resolve(returnServer ? { url, server } : url);
+        resolve(returnServer ? { url, server, shutdown: shutdownDaemonRuns } : url);
       });
     } catch (error) {
       cleanupDaemonBackgroundWork();
       reject(error);
       return;
     }
-    server.once('close', cleanupDaemonBackgroundWork);
+    server.once('close', () => {
+      void shutdownDaemonRuns().finally(cleanupDaemonBackgroundWork);
+    });
     // `app.listen` throws synchronously when the port is already in use on
     // some Node versions, but emits an `error` event on others (and for
     // EACCES / EADDRNOTAVAIL even on the same Node). Wire the event so the
