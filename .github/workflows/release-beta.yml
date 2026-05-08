@@ -154,6 +154,8 @@ jobs:
           tools_pack_dir="$RUNNER_TEMP/tools-pack"
           cache_dir="$RUNNER_TEMP/tools-pack-cache"
           build_json_path="$RUNNER_TEMP/mac-tools-pack-build.json"
+          build_log_path="$RUNNER_TEMP/mac-tools-pack-build.log"
+          : > "$build_log_path"
           build_args=(
             exec tools-pack mac build
             --dir "$tools_pack_dir"
@@ -167,7 +169,7 @@ jobs:
           if [ "${{ inputs.signed }}" = "true" ]; then
             build_args+=(--signed)
           fi
-          if build_output="$(pnpm "${build_args[@]}")"; then
+          if build_output="$(pnpm "${build_args[@]}" 2> >(tee -a "$build_log_path" >&2))"; then
             printf '%s\n' "$build_output" | tee "$build_json_path"
           else
             cached_status=$?
@@ -186,9 +188,24 @@ jobs:
             if [ "${{ inputs.signed }}" = "true" ]; then
               fallback_args+=(--signed)
             fi
-            fallback_output="$(pnpm "${fallback_args[@]}")"
-            printf '%s\n' "$fallback_output" | tee "$build_json_path"
+            if fallback_output="$(pnpm "${fallback_args[@]}" 2> >(tee -a "$build_log_path" >&2))"; then
+              printf '%s\n' "$fallback_output" | tee "$build_json_path"
+            else
+              fallback_status=$?
+              printf '%s\n' "$fallback_output"
+              exit "$fallback_status"
+            fi
           fi
+
+      - name: Upload mac build diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: open-design-beta-mac-build-diagnostics
+          path: |
+            ${{ runner.temp }}/mac-tools-pack-build.log
+            ${{ runner.temp }}/mac-tools-pack-build.json
+          if-no-files-found: warn
 
       - name: Smoke beta mac packaged runtime
         working-directory: e2e

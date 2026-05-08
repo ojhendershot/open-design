@@ -177,18 +177,38 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-          signed_flag=""
+          build_json_path="$RUNNER_TEMP/mac-tools-pack-build.json"
+          build_log_path="$RUNNER_TEMP/mac-tools-pack-build.log"
+          : > "$build_log_path"
+          build_args=(
+            exec tools-pack mac build
+            --dir "$RUNNER_TEMP/tools-pack"
+            --namespace release-stable
+            --portable
+            --mac-compression maximum
+            --to all
+            --json
+          )
           if [ "${{ inputs.mac_signed }}" = "true" ]; then
-            signed_flag="--signed"
+            build_args+=(--signed)
           fi
-          pnpm exec tools-pack mac build \
-            --dir "$RUNNER_TEMP/tools-pack" \
-            --namespace release-stable \
-            --portable \
-            --mac-compression maximum \
-            --to all \
-            --json \
-            $signed_flag
+          if build_output="$(pnpm "${build_args[@]}" 2> >(tee -a "$build_log_path" >&2))"; then
+            printf '%s\n' "$build_output" | tee "$build_json_path"
+          else
+            build_status=$?
+            printf '%s\n' "$build_output"
+            exit "$build_status"
+          fi
+
+      - name: Upload mac build diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: open-design-stable-mac-build-diagnostics
+          path: |
+            ${{ runner.temp }}/mac-tools-pack-build.log
+            ${{ runner.temp }}/mac-tools-pack-build.json
+          if-no-files-found: warn
 
       - name: Smoke release mac packaged runtime
         working-directory: e2e
