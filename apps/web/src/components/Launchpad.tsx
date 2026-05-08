@@ -168,6 +168,27 @@ function acceptFor(capability: CapabilityId): string {
   }
 }
 
+// Human-readable format list shown beside the multimodal hint and as
+// the Attach button's tooltip. Mirrors `acceptFor` but speaks file
+// extensions instead of MIME types. Kept outside i18n on purpose —
+// PNG / JPG / PDF read the same in every locale and adding them as
+// translation keys creates churn whenever a format is added.
+function formatLabelFor(capability: CapabilityId): string {
+  switch (capability) {
+    case 'video':
+      return 'PNG · JPG · WebP · MP4 · MOV · PDF';
+    case 'audio':
+      return 'MP3 · WAV · M4A · AAC';
+    case 'image':
+    case 'prototype':
+    case 'artifact':
+    case 'deck':
+    case 'template':
+    default:
+      return 'PNG · JPG · WebP · PDF';
+  }
+}
+
 // --- Examples gallery ---------------------------------------------------
 // Curated "good designs" we want builders to see before they type. Each
 // example is fully click-to-remix: hitting a card pre-fills the composer
@@ -421,6 +442,7 @@ export function Launchpad({
   // circuit if the dropped item isn't a file (text drag-drop falls
   // through to the textarea naturally).
   const acceptList = useMemo(() => acceptFor(capability), [capability]);
+  const formatLabel = useMemo(() => formatLabelFor(capability), [capability]);
 
   const handleAddFiles = useCallback((files: FileList | File[] | null) => {
     if (!files) return;
@@ -551,6 +573,7 @@ export function Launchpad({
                 onAttachClick={handleAttachClick}
                 onRemoveAttachment={handleRemoveAttachment}
                 acceptList={acceptList}
+                formatLabel={formatLabel}
                 fileInputRef={fileInputRef}
                 onFileInputChange={handleFileInputChange}
               />
@@ -636,6 +659,7 @@ interface PromptBarProps {
   onAttachClick: () => void;
   onRemoveAttachment: (idx: number) => void;
   acceptList: string;
+  formatLabel: string;
   fileInputRef: React.MutableRefObject<HTMLInputElement | null>;
   onFileInputChange: (event: ReactChangeEvent<HTMLInputElement>) => void;
 }
@@ -659,6 +683,7 @@ function PromptBar({
   onAttachClick,
   onRemoveAttachment,
   acceptList,
+  formatLabel,
   fileInputRef,
   onFileInputChange,
 }: PromptBarProps) {
@@ -711,7 +736,7 @@ function PromptBar({
             type="button"
             className="launchpad-tool-btn"
             onClick={onAttachClick}
-            title={attachLabel}
+            title={`${attachLabel} — ${formatLabel}`}
           >
             <Icon name="image" size={13} />
             <span>{attachLabel}</span>
@@ -750,7 +775,8 @@ function PromptBar({
         </button>
       </div>
       <p className="launchpad-prompt-hint" aria-hidden>
-        {hintText}
+        <span className="launchpad-prompt-hint-prose">{hintText}</span>
+        <span className="launchpad-prompt-hint-formats">{formatLabel}</span>
       </p>
     </div>
   );
