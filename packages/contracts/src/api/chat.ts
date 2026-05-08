@@ -4,6 +4,7 @@ import type {
   PreviewCommentPosition,
   PreviewCommentSelectionKind,
 } from './comments';
+import type { ResearchOptions } from './research';
 
 export type ChatRole = 'user' | 'assistant';
 
@@ -27,6 +28,7 @@ export interface ChatRequest {
   commentAttachments?: ChatCommentAttachment[];
   model?: string | null;
   reasoning?: string | null;
+  research?: ResearchOptions;
 }
 
 export interface ChatRunCreateRequest extends ChatRequest {
