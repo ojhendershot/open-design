@@ -16,6 +16,7 @@ import {
 } from './prompts/system.js';
 import { expandHomePrefix, resolveProjectRelativePath } from './home-expansion.js';
 import { createCommandInvocation } from '@open-design/platform';
+import { SIDECAR_DEFAULTS, SIDECAR_ENV } from '@open-design/sidecar-proto';
 import {
   buildLiveArtifactsMcpServersForAgent,
   checkPromptArgvBudget,
@@ -60,6 +61,8 @@ import { lintArtifact, renderFindingsForAgent } from './lint-artifact.js';
 import { loadCraftSections } from './craft.js';
 import { stageActiveSkill } from './cwd-aliases.js';
 import { generateMedia } from './media.js';
+import { searchResearch, ResearchError } from './research/index.js';
+import { renderResearchCommandContract } from './prompts/research-contract.js';
 import {
   AUDIO_DURATIONS_SEC,
   AUDIO_MODELS_BY_KIND,
@@ -214,6 +217,19 @@ export function composeLiveInstructionPrompt({
     parts.push(override);
   }
   return parts.join('\n\n---\n\n');
+}
+
+export function resolveResearchCommandContract(research, message) {
+  if (!research || !research.enabled) return '';
+  const researchQuery =
+    typeof research.query === 'string' && research.query.trim()
+      ? research.query
+      : message;
+  return renderResearchCommandContract({
+    query: researchQuery,
+    maxSources:
+      typeof research.maxSources === 'number' ? research.maxSources : undefined,
+  });
 }
 
 export function resolveCodexGeneratedImagesDir(
@@ -1664,13 +1680,43 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
         `Node-compatible runtime at ${process.execPath} no longer exists. Reinstall Open Design or Node and restart the daemon.`,
       );
     }
-    const commandEnv = process.env.ELECTRON_RUN_AS_NODE === '1'
+    // The daemon was bootstrapped as a sidecar (tools-dev, packaged) iff
+    // bootstrapSidecarRuntime stamped OD_SIDECAR_IPC_PATH into the env.
+    // In sidecar mode the snippet omits --daemon-url and the spawned
+    // `od mcp` discovers the live URL via the IPC status socket on
+    // every spawn, so the client config survives ephemeral-port
+    // restarts. We also propagate OD_SIDECAR_NAMESPACE (and IPC_BASE
+    // when overridden) so a non-default namespace daemon stays
+    // reachable - the MCP client does not inherit the daemon's env,
+    // so without this the spawned `od mcp` would probe the default
+    // namespace socket and miss.
+    //
+    // For direct `od` / `od --port X` launches there is no IPC
+    // socket; bake --daemon-url so custom ports keep working.
+    const sidecarIpcPath = process.env[SIDECAR_ENV.IPC_PATH];
+    const isSidecarMode = sidecarIpcPath != null && sidecarIpcPath.length > 0;
+    const sidecarEnv = {};
+    if (isSidecarMode) {
+      const ns = process.env[SIDECAR_ENV.NAMESPACE];
+      if (ns != null && ns !== SIDECAR_DEFAULTS.namespace) {
+        sidecarEnv[SIDECAR_ENV.NAMESPACE] = ns;
+      }
+      const ipcBase = process.env[SIDECAR_ENV.IPC_BASE];
+      if (ipcBase != null && ipcBase.length > 0) {
+        sidecarEnv[SIDECAR_ENV.IPC_BASE] = ipcBase;
+      }
+    }
+    const electronEnv = process.env.ELECTRON_RUN_AS_NODE === '1'
       ? { ELECTRON_RUN_AS_NODE: '1' }
       : null;
+    const env = { ...sidecarEnv, ...(electronEnv ?? {}) };
+    const args = isSidecarMode
+      ? [cliPath, 'mcp']
+      : [cliPath, 'mcp', '--daemon-url', `http://127.0.0.1:${resolvedPort}`];
     const payload = {
       command: process.execPath,
-      args: [cliPath, 'mcp', '--daemon-url', `http://127.0.0.1:${resolvedPort}`],
-      ...(commandEnv == null ? {} : { env: commandEnv }),
+      args,
+      ...(Object.keys(env).length > 0 ? { env } : {}),
       daemonUrl: `http://127.0.0.1:${resolvedPort}`,
       // Surface platform so the install panel can localize path hints
       // (~/.cursor vs %USERPROFILE%\.cursor) and keyboard shortcuts
@@ -3777,6 +3823,42 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     }
   });
 
+  app.post('/api/research/search', async (req, res) => {
+    if (!isLocalSameOrigin(req, resolvedPort)) {
+      return res.status(403).json({
+        error:
+          'cross-origin request rejected: research search is restricted to the local UI / CLI',
+      });
+    }
+
+    try {
+      const result = await searchResearch({
+        projectRoot: PROJECT_ROOT,
+        query: req.body?.query,
+        maxSources:
+          typeof req.body?.maxSources === 'number'
+            ? req.body.maxSources
+            : undefined,
+        providers: Array.isArray(req.body?.providers)
+          ? req.body.providers
+          : undefined,
+      });
+      res.json(result);
+    } catch (err) {
+      if (err instanceof ResearchError) {
+        return res.status(err.status).json({
+          error: { code: err.code, message: err.message },
+        });
+      }
+      res.status(500).json({
+        error: {
+          code: 'RESEARCH_FAILED',
+          message: String(err && err.message ? err.message : err),
+        },
+      });
+    }
+  });
+
   app.post('/api/media/tasks/:id/wait', async (req, res) => {
     if (!isLocalSameOrigin(req, resolvedPort)) {
       return res.status(403).json({ error: 'cross-origin request rejected' });
@@ -4048,6 +4130,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
       commentAttachments = [],
       model,
       reasoning,
+      research,
     } = chatBody;
     if (typeof projectId === 'string' && projectId) run.projectId = projectId;
     if (typeof conversationId === 'string' && conversationId)
@@ -4262,10 +4345,18 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
       codexGeneratedImagesDir,
       extraAllowedDirs,
     });
+    const researchCommandContract = resolveResearchCommandContract(
+      research,
+      message,
+    );
+    const clientInstructionPrompt = [researchCommandContract, systemPrompt]
+      .map((part) => (typeof part === 'string' ? part.trim() : ''))
+      .filter(Boolean)
+      .join('\n\n---\n\n');
     const instructionPrompt = composeLiveInstructionPrompt({
       daemonSystemPrompt,
       runtimeToolPrompt,
-      clientSystemPrompt: systemPrompt,
+      clientSystemPrompt: clientInstructionPrompt,
       finalPromptOverride: codexImagegenOverride,
     });
     const composed = [
