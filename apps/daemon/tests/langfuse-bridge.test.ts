@@ -421,6 +421,44 @@ describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
     // truncate() drops empty strings, so output is omitted entirely.
     expect(trace.output).toBeUndefined();
   });
+
+  it('uses the persisted terminal status when the in-memory run has not settled yet', async () => {
+    await writeAppCfg({
+      installationId: 'install-uuid-1',
+      telemetry: { metrics: true, content: false, artifactManifest: false },
+    });
+    const run = makeRun({
+      status: 'cancelRequested',
+      updatedAt: 1_700_000_009_000,
+    });
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(new Response('{}', { status: 207 }));
+    process.env.LANGFUSE_PUBLIC_KEY = 'pk';
+    process.env.LANGFUSE_SECRET_KEY = 'sk';
+    try {
+      await reportRunCompletedFromDaemon({
+        db: makeDbWithListMessages({ 'conv-1': [] }),
+        dataDir,
+        run: run as any,
+        persistedRunStatus: 'canceled',
+        persistedEndedAt: run.createdAt + 2500,
+        fetchImpl: fetchSpy as any,
+      });
+    } finally {
+      delete process.env.LANGFUSE_PUBLIC_KEY;
+      delete process.env.LANGFUSE_SECRET_KEY;
+    }
+
+    const init = fetchSpy.mock.calls[0]![1] as RequestInit;
+    const batch = JSON.parse(init.body as string).batch as any[];
+    const trace = batch[0].body;
+    const span = bodyOf(batch, 'span-create', 'agent-run');
+    expect(trace.metadata.status).toBe('canceled');
+    expect(trace.metadata.eventsSummary.durationMs).toBe(2500);
+    expect(span.metadata.status).toBe('canceled');
+    expect(span.endTime).toBe(new Date(run.createdAt + 2500).toISOString());
+  });
 });
 
 // listMessages reads from a `prepare(...).all(cid)` call against

@@ -55,6 +55,8 @@ export interface ReportRunCompletedFromDaemonOpts {
   db: unknown;
   dataDir: string;
   run: DaemonRunRecord;
+  persistedRunStatus?: string;
+  persistedEndedAt?: number;
   /** App version info — collected once at daemon startup and reused. */
   appVersion?: AppVersionInfo | null;
   fetchImpl?: typeof fetch;
@@ -305,9 +307,10 @@ export async function reportRunCompletedFromDaemon(
     }
 
     const startedAt = run.createdAt;
-    const endedAt = run.updatedAt;
+    const endedAt =
+      typeof opts.persistedEndedAt === 'number' ? opts.persistedEndedAt : run.updatedAt;
     const durationMs = Math.max(0, endedAt - startedAt);
-    const status = normalizeStatus(run.status);
+    const status = normalizeStatus(opts.persistedRunStatus ?? run.status);
 
     const usage = findUsage(run.events);
     const error = pickRunError(run, status);

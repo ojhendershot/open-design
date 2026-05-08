@@ -2727,6 +2727,9 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
           db,
           dataDir: RUNTIME_DATA_DIR,
           run,
+          persistedRunStatus: saved.runStatus,
+          persistedEndedAt:
+            typeof saved.endedAt === 'number' ? saved.endedAt : undefined,
           appVersion: cachedAppVersion,
         });
       }
