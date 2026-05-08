@@ -58,26 +58,26 @@ export function PrivacySection({ cfg, setCfg }: Props): JSX.Element {
         <ConsentCard onShare={shareUsage} onDecline={declineUsage} />
       ) : (
         <>
-          <ToggleSubsection
-            title={t('settings.privacyMetrics')}
-            hint={t('settings.privacyMetricsHint')}
-            enabled={telemetry.metrics === true}
-            onToggle={() => patchTelemetry({ metrics: !(telemetry.metrics === true) })}
-          />
-          <ToggleSubsection
-            title={t('settings.privacyContent')}
-            hint={t('settings.privacyContentHint')}
-            enabled={telemetry.content === true}
-            onToggle={() => patchTelemetry({ content: !(telemetry.content === true) })}
-          />
-          <ToggleSubsection
-            title={t('settings.privacyArtifacts')}
-            hint={t('settings.privacyArtifactsHint')}
-            enabled={telemetry.artifactManifest === true}
-            onToggle={() =>
-              patchTelemetry({ artifactManifest: !(telemetry.artifactManifest === true) })
-            }
-          />
+          <div className="settings-privacy-toggles">
+            <ToggleRow
+              label={t('settings.privacyMetrics')}
+              hint={t('settings.privacyMetricsHint')}
+              checked={telemetry.metrics === true}
+              onChange={(v) => patchTelemetry({ metrics: v })}
+            />
+            <ToggleRow
+              label={t('settings.privacyContent')}
+              hint={t('settings.privacyContentHint')}
+              checked={telemetry.content === true}
+              onChange={(v) => patchTelemetry({ content: v })}
+            />
+            <ToggleRow
+              label={t('settings.privacyArtifacts')}
+              hint={t('settings.privacyArtifactsHint')}
+              checked={telemetry.artifactManifest === true}
+              onChange={(v) => patchTelemetry({ artifactManifest: v })}
+            />
+          </div>
 
           <div className="settings-subsection">
             <div className="section-head">
@@ -110,41 +110,30 @@ export function PrivacySection({ cfg, setCfg }: Props): JSX.Element {
   );
 }
 
-interface ToggleProps {
-  title: string;
+interface ToggleRowProps {
+  label: string;
   hint: string;
-  enabled: boolean;
-  onToggle: () => void;
+  checked: boolean;
+  onChange: (next: boolean) => void;
 }
 
-function ToggleSubsection({ title, hint, enabled, onToggle }: ToggleProps): JSX.Element {
-  const t = useT();
+// Reuses .toggle-row (label + hint + iOS-style switch) — same control
+// NewProjectPanel uses for "speaker notes" / "animations" toggles, so the
+// Privacy panel reads as native to the rest of the app.
+function ToggleRow({ label, hint, checked, onChange }: ToggleRowProps): JSX.Element {
   return (
-    <div className="settings-subsection">
-      <div className="section-head">
-        <div>
-          <h4>{title}</h4>
-          <p className="hint">{hint}</p>
-        </div>
+    <button
+      type="button"
+      className={`toggle-row${checked ? ' on' : ''}`}
+      onClick={() => onChange(!checked)}
+      aria-pressed={checked}
+    >
+      <div className="toggle-row-text">
+        <span className="toggle-row-label">{label}</span>
+        <span className="toggle-row-hint">{hint}</span>
       </div>
-      <div
-        className="seg-control"
-        role="group"
-        aria-label={title}
-        style={{ ['--seg-cols' as string]: 1 } as CSSProperties}
-      >
-        <button
-          type="button"
-          className={'seg-btn' + (enabled ? ' active' : '')}
-          aria-pressed={enabled}
-          onClick={onToggle}
-        >
-          <span className="seg-title">
-            {enabled ? t('common.active') : t('common.offline')}
-          </span>
-        </button>
-      </div>
-    </div>
+      <span className="toggle-row-switch" aria-hidden />
+    </button>
   );
 }
 

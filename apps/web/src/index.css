@@ -13784,10 +13784,16 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   white-space: pre-wrap;
 }
 
-/* Privacy disclosure list inside the consent card. Inherits the section's
-   typography; the only Privacy-specific styling we need is the list reset
-   and a subtle row separator, since the surrounding shell (settings-section,
-   settings-subsection, seg-control, ghost) already handles the rest. */
+/* Privacy panel layout. The toggle row stack reuses .toggle-row (the
+   iOS-style switch from NewProjectPanel); we only need to space the rows
+   apart. The disclosure list inside the consent card is purely a typography
+   block — no chrome of its own. */
+.settings-privacy-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .settings-privacy-disclosure {
   display: flex;
   flex-direction: column;
