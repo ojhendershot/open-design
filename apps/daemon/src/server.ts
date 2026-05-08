@@ -4544,6 +4544,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
 
     const send = (event, data) => design.runs.emit(run, event, data);
     const inactivityTimeoutMs = resolveChatRunInactivityTimeoutMs();
+    const inactivityKillGraceMs = 3_000;
     let inactivityTimer = null;
     const clearInactivityWatchdog = () => {
       if (inactivityTimer) {
@@ -4551,19 +4552,28 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
         inactivityTimer = null;
       }
     };
+    const scheduleForcedChildShutdown = () => {
+      if (!child) return;
+      setTimeout(() => {
+        if (child && !child.killed) child.kill('SIGTERM');
+      }, inactivityKillGraceMs).unref?.();
+      setTimeout(() => {
+        if (child && !child.killed) child.kill('SIGKILL');
+      }, inactivityKillGraceMs * 2).unref?.();
+    };
     const failForInactivity = () => {
       if (run.cancelRequested || design.runs.isTerminal(run.status)) return;
       const message =
         `Agent stalled without emitting any new output for ${Math.round(inactivityTimeoutMs / 1000)}s. ` +
         'The model or CLI likely hung while generating. Retry the turn or pick a different model.';
+      clearInactivityWatchdog();
       send('error', createSseErrorPayload('AGENT_EXECUTION_FAILED', message, { retryable: true }));
+      design.runs.finish(run, 'failed', 1, null);
       if (acpSession?.abort) {
         acpSession.abort();
-      } else if (child && !child.killed) {
-        child.kill('SIGTERM');
-      } else {
-        design.runs.finish(run, 'failed', 1, null);
       }
+      if (child && !child.killed) child.kill('SIGTERM');
+      scheduleForcedChildShutdown();
     };
     const noteAgentActivity = () => {
       if (inactivityTimeoutMs <= 0) return;
@@ -4849,7 +4859,10 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     };
 
     if (def.streamFormat === 'claude-stream-json') {
-      const claude = createClaudeStreamHandler((ev) => send('agent', ev));
+      const claude = createClaudeStreamHandler((ev) => {
+        noteAgentActivity();
+        send('agent', ev);
+      });
       child.stdout.on('data', (chunk) => claude.feed(chunk));
       child.on('close', () => claude.flush());
     } else if (def.streamFormat === 'qoder-stream-json') {
@@ -4858,7 +4871,10 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
       child.stdout.on('data', (chunk) => qoder.feed(chunk));
       child.on('close', () => qoder.flush());
     } else if (def.streamFormat === 'copilot-stream-json') {
-      const copilot = createCopilotStreamHandler((ev) => send('agent', ev));
+      const copilot = createCopilotStreamHandler((ev) => {
+        noteAgentActivity();
+        send('agent', ev);
+      });
       child.stdout.on('data', (chunk) => copilot.feed(chunk));
       child.on('close', () => copilot.flush());
     } else if (def.streamFormat === 'pi-rpc') {
