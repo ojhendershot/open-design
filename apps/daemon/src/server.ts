@@ -5094,6 +5094,14 @@ export async function startServer({
           skillCraftRequires = skill.craftRequires;
       }
     }
+    // Directories of ad-hoc composed skills. Returned alongside
+    // activeSkillDir so the chat handler can stage their side files
+    // under `<cwd>/.od-skills/<folder>/` for the agent. Without this,
+    // composing a skill whose body advertises relative-path assets
+    // (references/, examples/, scripts/) would emit those paths in the
+    // system prompt while leaving the actual files unreachable from the
+    // agent's cwd. Mirrors PR #955 codex-bot review feedback.
+    const extraSkillDirs = [];
     if (adHocSkillIds.length > 0) {
       const seen = new Set(effectiveSkillId ? [effectiveSkillId] : []);
       const blocks = [];
@@ -5107,6 +5115,9 @@ export async function startServer({
           for (const c of extra.craftRequires) {
             if (!skillCraftRequires.includes(c)) skillCraftRequires.push(c);
           }
+        }
+        if (typeof extra.dir === 'string' && extra.dir) {
+          extraSkillDirs.push(extra.dir);
         }
         blocks.push(
           `\n\n---\n\n## Composed skill — ${extra.name || id}\n\n${(extra.body || '').trim()}`
@@ -5215,10 +5226,15 @@ export async function startServer({
     // The chat handler also needs to know where the active skill lives
     // on disk so it can stage a per-project copy of its side files
     // before spawning the agent. Returning that here avoids a second
-    // `listSkills()` scan in `startChatRun`. critiqueShouldRun threads
-    // the same panel-eligibility decision down to the spawn-path
-    // orchestrator gate so prompt and orchestrator stay in lockstep.
-    return { prompt, activeSkillDir, critiqueShouldRun };
+    // `listSkills()` scan in `startChatRun`. `extraSkillDirs` carries
+    // the dirs of the per-turn `@`-composed skills so they're staged
+    // under `<cwd>/.od-skills/<folder>/` alongside the active skill —
+    // without this, a composed skill's relative-path assets are
+    // referenced in the system prompt but unreachable from the agent's
+    // cwd. critiqueShouldRun threads the same panel-eligibility
+    // decision down to the spawn-path orchestrator gate so prompt and
+    // orchestrator stay in lockstep.
+    return { prompt, activeSkillDir, extraSkillDirs, critiqueShouldRun };
   };
 
   const startChatRun = async (chatBody, run) => {
@@ -5449,16 +5465,20 @@ export async function startServer({
       .filter((s) => typeof oauthTokensForSpawn[s.id] === 'string')
       .map((s) => ({ id: s.id, label: s.label }));
 
-    const { prompt: daemonSystemPrompt, activeSkillDir, critiqueShouldRun } =
-      await composeDaemonSystemPrompt({
-        agentId,
-        projectId,
-        skillId,
-        skillIds,
-        designSystemId,
-        streamFormat: def?.streamFormat ?? 'plain',
-        connectedExternalMcp,
-      });
+    const {
+      prompt: daemonSystemPrompt,
+      activeSkillDir,
+      extraSkillDirs,
+      critiqueShouldRun,
+    } = await composeDaemonSystemPrompt({
+      agentId,
+      projectId,
+      skillId,
+      skillIds,
+      designSystemId,
+      streamFormat: def?.streamFormat ?? 'plain',
+      connectedExternalMcp,
+    });
 
     // Make skill side files reachable through three layers, in order of
     // preference. The skill preamble emitted by `withSkillRootPreamble()`
@@ -5498,6 +5518,31 @@ export async function startServer({
         console.warn(
           `[od] skill-stage skipped: ${result.reason ?? 'unknown reason'}; falling back to absolute paths`,
         );
+      }
+    }
+    // Stage ad-hoc `@`-composed skills the same way the active skill is
+    // staged. Each composed skill's relative-path assets (references/,
+    // examples/, scripts/) need to land under `<cwd>/.od-skills/<folder>/`
+    // so the agent can resolve them via the cwd-relative preamble paths.
+    // We deduplicate against the active skill folder name so a project
+    // whose primary skill is also `@`-composed isn't staged twice.
+    if (cwd && Array.isArray(extraSkillDirs) && extraSkillDirs.length > 0) {
+      const stagedFolders = new Set(
+        activeSkillDir ? [path.basename(activeSkillDir)] : [],
+      );
+      for (const dir of extraSkillDirs) {
+        if (typeof dir !== 'string' || !dir) continue;
+        const folder = path.basename(dir);
+        if (stagedFolders.has(folder)) continue;
+        stagedFolders.add(folder);
+        const result = await stageActiveSkill(cwd, folder, dir, (msg) =>
+          console.warn(msg),
+        );
+        if (!result.staged) {
+          console.warn(
+            `[od] skill-stage skipped (composed ${folder}): ${result.reason ?? 'unknown reason'}; falling back to absolute paths`,
+          );
+        }
       }
     }
     // Resolve the agent's effective working directory once and use it
