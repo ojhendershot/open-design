@@ -3211,9 +3211,19 @@ export async function startServer({
           },
         });
       }
+      // Pass `skill.dir` so updateUserSkill can clone the bundled side
+      // files (assets/, references/, scripts/, examples/) into the user
+      // shadow folder on its very first creation. Without this the
+      // shadow would only contain the new SKILL.md, and listSkills
+      // would surface a "skill" that has lost every bundled side file
+      // (mrcfps PR #955 review). On a subsequent edit, skill.source
+      // is already 'user' and skill.dir already points at the shadow,
+      // so updateUserSkill detects the same dir + existing folder and
+      // skips the clone — the user's tweaks survive.
       const result = await updateUserSkill(USER_SKILLS_DIR, {
         ...body,
         name: skill.id,
+        sourceDir: skill.dir,
       });
       const next = await listSkills(SKILL_ROOTS);
       const updated = findSkillById(next, result.id);

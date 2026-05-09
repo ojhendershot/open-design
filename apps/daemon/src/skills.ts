@@ -7,7 +7,7 @@
 // of the same name without erasing the built-in copy.
 
 import type { Dirent } from "node:fs";
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseFrontmatter } from "./frontmatter.js";
 import { SKILLS_CWD_ALIAS } from "./cwd-aliases.js";
@@ -763,16 +763,31 @@ export interface SkillUpdateInput {
   description?: unknown;
   body?: unknown;
   triggers?: unknown;
+  // Original on-disk dir for the skill being edited. When the caller is
+  // shadowing a built-in for the first time (i.e. `sourceDir` differs
+  // from the user shadow target and the shadow folder does not exist
+  // yet), `updateUserSkill` clones every entry except `SKILL.md` from
+  // `sourceDir` into the shadow so the bundled side tree (assets/,
+  // references/, scripts/, examples/, ...) keeps resolving through the
+  // /api/skills/:id/files, /example, and /assets/* routes after the
+  // edit. Without this, listSkills() promotes the shadow folder to the
+  // active dir but the resolvers see only the user-authored SKILL.md
+  // and the rest of the skill silently disappears (mrcfps PR #955
+  // review). When omitted (or pointing at the same folder) the call
+  // only writes SKILL.md and leaves any previously-cloned side files
+  // alone so subsequent edits do not clobber the user's tweaks.
+  sourceDir?: string;
 }
 
-// Overwrite (or create-on-demand) a user-owned SKILL.md. The caller is
-// expected to have already verified the user's intent — for built-in
+// Overwrite (or create-on-demand) a user-owned SKILL.md. For built-in
 // skills this writes a "shadow" copy under USER_SKILLS_DIR/<slug>/ that
 // the next listSkills() pass will surface in place of the bundled copy.
-// We deliberately do not copy any side files (`assets/`, `references/`)
-// — the built-in's body is the one piece the user is editing, and the
-// daemon already exposes the original folder via /api/skills/:id/assets/*
-// for whatever the frontmatter references.
+// On the very first shadow-creation we also clone the built-in's side
+// files (assets/, references/, scripts/, examples/, ...) so the shadow
+// folder is self-contained and downstream resolvers — `/api/skills/:id/
+// files`, `/example`, `/assets/*`, the system-prompt preamble, and the
+// per-turn cwd staging — keep finding the bundled tree even though the
+// user's `SKILL.md` is what we serve.
 export async function updateUserSkill(
   userSkillsRoot: string,
   input: SkillUpdateInput,
@@ -800,10 +815,63 @@ export async function updateUserSkill(
     .filter(Boolean);
   await mkdir(userSkillsRoot, { recursive: true });
   const dir = path.join(userSkillsRoot, slug);
-  await mkdir(dir, { recursive: true });
+  const dirExisted = await stat(dir)
+    .then(() => true)
+    .catch(() => false);
+  // Only clone on the very first shadow over a built-in. If `dirExisted`
+  // is true, we are editing an already-shadowed skill (or a pure user
+  // skill); re-cloning would clobber the user's tweaks under the side
+  // tree. If `sourceDir` is missing or already points at the shadow,
+  // there is nothing to clone — same dir.
+  const shouldCloneSideFiles =
+    !dirExisted &&
+    typeof input.sourceDir === "string" &&
+    input.sourceDir.length > 0 &&
+    path.resolve(input.sourceDir) !== path.resolve(dir);
+  if (shouldCloneSideFiles) {
+    try {
+      await cloneSkillSideFiles(input.sourceDir!, dir);
+    } catch {
+      // Non-fatal: SKILL.md still lands below. Side-file resolvers will
+      // 404 individual entries instead of erasing the whole edit, which
+      // matches the pre-fix behaviour for unreachable assets.
+      await mkdir(dir, { recursive: true });
+    }
+  } else {
+    await mkdir(dir, { recursive: true });
+  }
   const md = buildSkillMarkdown({ name, description, body, triggers });
   await writeFile(path.join(dir, "SKILL.md"), md, "utf8");
   return { id: name, slug, dir };
+}
+
+// Copy every entry in `sourceDir` into `destDir` except `SKILL.md` and
+// dotfiles. Used by `updateUserSkill` to build a self-contained shadow
+// folder over a built-in skill on first edit. We dereference symlinks
+// for the same reason `stageActiveSkill` does — the shadow lives under
+// runtime data and must not link back into a read-only resource tree.
+async function cloneSkillSideFiles(
+  sourceDir: string,
+  destDir: string,
+): Promise<void> {
+  await mkdir(destDir, { recursive: true });
+  let entries: Dirent[] = [];
+  try {
+    entries = await readdir(sourceDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (entry.name === "SKILL.md") continue;
+    if (entry.name.startsWith(".")) continue;
+    const src = path.join(sourceDir, entry.name);
+    const dst = path.join(destDir, entry.name);
+    await cp(src, dst, {
+      recursive: true,
+      dereference: true,
+      preserveTimestamps: true,
+    });
+  }
 }
 
 export interface SkillFileEntry {

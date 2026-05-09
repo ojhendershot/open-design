@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { rmSync } from 'node:fs';
 
 import { SKILLS_CWD_ALIAS } from '../src/cwd-aliases.js';
+import { readFileSync } from 'node:fs';
 import {
   deleteUserSkill,
   importUserSkill,
@@ -427,6 +428,118 @@ describe('updateUserSkill', () => {
       ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // Regression for mrcfps' PR #955 blocker: editing a built-in skill
+  // wrote a shadow folder that contained only a new SKILL.md. The next
+  // listSkills() pass surfaced the shadow as the active dir, but
+  // /api/skills/:id/files, /example, /assets/* and the system-prompt
+  // preamble all resolve through skill.dir, so the bundled assets/,
+  // references/, scripts/, and examples/ silently disappeared after
+  // save. The fix clones the built-in side tree into the shadow on
+  // first edit; subsequent edits leave the user's tweaks alone.
+  it('clones built-in side files into the shadow on the first edit', async () => {
+    const userRoot = fresh();
+    const builtInRoot = fresh();
+    try {
+      writeSkill(builtInRoot, 'shadow-me', {
+        body: '# Original built-in',
+        withAttachments: true,
+      });
+      mkdirSync(path.join(builtInRoot, 'shadow-me', 'references'), {
+        recursive: true,
+      });
+      writeFileSync(
+        path.join(builtInRoot, 'shadow-me', 'references', 'notes.md'),
+        '# bundled notes',
+      );
+      mkdirSync(path.join(builtInRoot, 'shadow-me', 'scripts'), {
+        recursive: true,
+      });
+      writeFileSync(
+        path.join(builtInRoot, 'shadow-me', 'scripts', 'helper.sh'),
+        '#!/bin/sh\necho built-in\n',
+      );
+
+      const before = await listSkills([userRoot, builtInRoot]);
+      expect(before).toHaveLength(1);
+      expect(before[0]!.source).toBe('built-in');
+
+      const result = await updateUserSkill(userRoot, {
+        name: 'shadow-me',
+        body: '# User override',
+        sourceDir: before[0]!.dir,
+      });
+      expect(result.dir).toBe(path.join(userRoot, 'shadow-me'));
+
+      const after = await listSkills([userRoot, builtInRoot]);
+      expect(after).toHaveLength(1);
+      const shadowed = after[0]!;
+      expect(shadowed.source).toBe('user');
+      expect(shadowed.body).toContain('User override');
+
+      const files = await listSkillFiles(shadowed.dir);
+      const paths = files.map((entry) => entry.path).sort();
+      expect(paths).toContain('SKILL.md');
+      expect(paths).toContain('assets');
+      expect(paths).toContain('assets/template.html');
+      expect(paths).toContain('references');
+      expect(paths).toContain('references/notes.md');
+      expect(paths).toContain('scripts');
+      expect(paths).toContain('scripts/helper.sh');
+
+      const noteContent = readFileSync(
+        path.join(shadowed.dir, 'references', 'notes.md'),
+        'utf8',
+      );
+      expect(noteContent).toContain('bundled notes');
+    } finally {
+      rmSync(userRoot, { recursive: true, force: true });
+      rmSync(builtInRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves user-edited side files on subsequent edits', async () => {
+    const userRoot = fresh();
+    const builtInRoot = fresh();
+    try {
+      writeSkill(builtInRoot, 'edit-twice', {
+        body: '# Original',
+        withAttachments: true,
+      });
+
+      const initial = await listSkills([userRoot, builtInRoot]);
+      await updateUserSkill(userRoot, {
+        name: 'edit-twice',
+        body: '# First override',
+        sourceDir: initial[0]!.dir,
+      });
+
+      const tweakedAsset = path.join(
+        userRoot,
+        'edit-twice',
+        'assets',
+        'template.html',
+      );
+      writeFileSync(tweakedAsset, '<html><body>user-tweaked</body></html>');
+
+      const next = await listSkills([userRoot, builtInRoot]);
+      expect(next[0]!.source).toBe('user');
+
+      await updateUserSkill(userRoot, {
+        name: 'edit-twice',
+        body: '# Second override',
+        sourceDir: next[0]!.dir,
+      });
+
+      const tweaked = readFileSync(tweakedAsset, 'utf8');
+      expect(tweaked).toContain('user-tweaked');
+      const final = await listSkills([userRoot, builtInRoot]);
+      expect(final[0]!.body).toContain('Second override');
+    } finally {
+      rmSync(userRoot, { recursive: true, force: true });
+      rmSync(builtInRoot, { recursive: true, force: true });
     }
   });
 });
