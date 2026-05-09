@@ -1,0 +1,16 @@
+{
+  "$schema": "https://open-design.ai/schemas/plugin.v1.json",
+  "name": "critique-theater",
+  "title": "Critique theater",
+  "version": "0.1.0",
+  "description": "5-dimension critique panel; emits the critique.score signal that drives devloop convergence.",
+  "license": "MIT",
+  "tags": ["atom", "first-party", "critique"],
+  "compat": { "agentSkills": [{ "path": "./SKILL.md" }] },
+  "od": {
+    "kind": "atom",
+    "scenario": "general",
+    "mode": "critique",
+    "capabilities": ["prompt:inject"]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://open-design.ai/schemas/plugin.v1.json",
+  "name": "direction-picker",
+  "title": "Direction picker",
+  "version": "0.1.0",
+  "description": "3-5 direction picker that lets the user choose before final generation.",
+  "license": "MIT",
+  "tags": ["atom", "first-party", "planning"],
+  "compat": { "agentSkills": [{ "path": "./SKILL.md" }] },
+  "od": {
+    "kind": "atom",
+    "scenario": "general",
+    "mode": "planning",
+    "capabilities": ["prompt:inject"]
+  }
+}

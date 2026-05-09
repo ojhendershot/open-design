@@ -44,6 +44,7 @@ import {
   FIRST_PARTY_ATOMS,
   getInstalledPlugin,
   getSnapshot,
+  defaultBundledRoot,
   installFromLocalFolder,
   installPlugin,
   listInstalledPlugins,
@@ -51,6 +52,7 @@ import {
   MissingInputError,
   pluginPromptBlock,
   pruneExpiredSnapshots,
+  registerBundledPlugins,
   resolvePluginSnapshot,
   runPipelineForRun,
   startSnapshotGc,
@@ -1952,6 +1954,26 @@ export async function startServer({
 
   if (process.env.OD_CODEX_DISABLE_PLUGINS === '1') {
     console.log('[od] Codex plugins disabled via OD_CODEX_DISABLE_PLUGINS=1');
+  }
+
+  // Plan §3.I3 / spec §23.3.5 — register every plugin under
+  // <projectRoot>/plugins/_official/** as a bundled plugin. The walker
+  // is idempotent (upserts on every boot) so a daemon upgrade rotates
+  // the bundled set in lockstep with the code. ENOENT is silent —
+  // running the daemon outside the dev tree just skips this step.
+  try {
+    const result = await registerBundledPlugins({
+      db,
+      bundledRoot: defaultBundledRoot(PROJECT_ROOT),
+    });
+    if (result.registered.length > 0) {
+      console.log(`[plugins] registered ${result.registered.length} bundled plugin(s)`);
+    }
+    if (result.warnings.length > 0) {
+      for (const w of result.warnings) console.warn(`[plugins] bundled warn: ${w}`);
+    }
+  } catch (err) {
+    console.warn(`[plugins] bundled registration failed: ${(err)?.message ?? err}`);
   }
 
   // Plan §3.A5 / spec §16 Phase 5 / PB2: periodic snapshot GC. Disabled

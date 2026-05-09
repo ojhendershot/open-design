@@ -3,6 +3,7 @@
 // and accidentally bypasses the snapshot writer (spec §8.2.1).
 export * from './atoms.js';
 export * from './apply.js';
+export * from './bundled.js';
 export * from './connector-gate.js';
 export * from './export.js';
 export * from './doctor.js';

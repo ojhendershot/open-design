@@ -1,0 +1,16 @@
+{
+  "$schema": "https://open-design.ai/schemas/plugin.v1.json",
+  "name": "todo-write",
+  "title": "Todo write",
+  "version": "0.1.0",
+  "description": "TodoWrite-driven plan that the agent commits to before generation.",
+  "license": "MIT",
+  "tags": ["atom", "first-party", "planning"],
+  "compat": { "agentSkills": [{ "path": "./SKILL.md" }] },
+  "od": {
+    "kind": "atom",
+    "scenario": "general",
+    "mode": "planning",
+    "capabilities": ["prompt:inject"]
+  }
+}

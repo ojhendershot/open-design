@@ -1,0 +1,16 @@
+{
+  "$schema": "https://open-design.ai/schemas/plugin.v1.json",
+  "name": "discovery-question-form",
+  "title": "Discovery question form",
+  "version": "0.1.0",
+  "description": "Turn-1 discovery question form for ambiguous briefs.",
+  "license": "MIT",
+  "tags": ["atom", "first-party", "discovery"],
+  "compat": { "agentSkills": [{ "path": "./SKILL.md" }] },
+  "od": {
+    "kind": "atom",
+    "scenario": "general",
+    "mode": "discovery",
+    "capabilities": ["prompt:inject"]
+  }
+}
