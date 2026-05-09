@@ -22,7 +22,6 @@ created: '2026-05-09'
 
 ### Scope
 
-- 参考 `frontend-token-first-tailwind-research.md` 的调研结论推进。
 - 接入 Tailwind，并将现有设计 token 映射为可用的 Tailwind token classes。
 - 保留 `index.css` 中的基础 token、全局基础样式和必须全局管理的内容样式。
 - 建立约束，让贡献者优先使用项目 token 和基础 UI primitives。
@@ -35,7 +34,6 @@ created: '2026-05-09'
 - 不进行一次性全量重写。
 - 不通过新增组件完成 Tailwind 接入验证。
 - `index.css` 继续承载全局 token 和基础样式，不把视觉源头迁移到 Tailwind 默认 palette。
-- `frontend-token-first-tailwind-research.md` 作为参考思路和初始假设使用；Research / Design 阶段需要用当前代码事实逐条验证其中结论。
 
 ### Success Criteria
 
@@ -73,7 +71,6 @@ created: '2026-05-09'
 - 迁移必须遵守 app 测试目录边界：`apps/web` 测试放在 `apps/web/tests/`，Playwright UI automation 放在 `e2e/ui/`。Source: `apps/AGENTS.md:19-24`
 - Root command boundary 保留 `pnpm guard`、`pnpm typecheck` 等仓库级检查；web 验证使用 package-scoped 命令。Source: `AGENTS.md#Root command boundary`; `apps/AGENTS.md:39-51`
 - 添加 Tailwind/PostCSS 依赖或配置会改变 package manifest / build entry，需要运行 `pnpm install` 让 workspace links 和 lockfile 保持一致。Source: `AGENTS.md#Validation strategy`; `apps/web/package.json:23-29`
-- `frontend-token-first-tailwind-research.md` 是参考思路和初始假设，Research / Design 阶段需要用当前代码事实验证。Source: `specs/change/20260509-token-first-tailwind/spec.md:31-36`
 - 当前存在合理硬编码色值场景：Agent 品牌图标使用品牌渐变和 SVG 颜色；Sketch canvas 使用用户绘图颜色和画布绘制颜色；FileViewer `rgbToHex()` 面向用户内容颜色转换。Source: `apps/web/src/components/AgentIcon.tsx:46-99`; `apps/web/src/components/SketchEditor.tsx:72,144-149`; `apps/web/src/components/FileViewer.tsx:1448-1474`
 - 当前也存在可治理的 token 偏离：`NewProjectPanel` SVG preview 使用与现有 token 值相同或相近的硬编码色；`SettingsDialog` 局部 inline styles 使用旧 token fallback。Source: `apps/web/src/components/NewProjectPanel.tsx:797-825`; `apps/web/src/components/SettingsDialog.tsx:3807-3953`
 - `index.css` 中仍有组件状态色使用具体 hex/rgba，例如 live artifact refreshing/failed badge 使用蓝/红硬编码色；这类样式迁移前需要先区分状态 token、品牌色、用户内容色和一次性插画色。Source: `apps/web/src/index.css:6270-6288`
