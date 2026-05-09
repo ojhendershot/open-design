@@ -825,6 +825,7 @@ async function runPlugin(args) {
     case 'search':    return runPluginSearch(rest);
     case 'info':      return runPluginInfo(rest);
     case 'install':   return runPluginInstall(rest);
+    case 'upgrade':   return runPluginUpgrade(rest);
     case 'uninstall': return runPluginUninstall(rest);
     case 'apply':     return runPluginApply(rest);
     case 'doctor':    return runPluginDoctor(rest);
@@ -1598,6 +1599,59 @@ async function runPluginInstall(rest) {
   process.exit(exitCode);
 }
 
+// Plan §3.Z2 — `od plugin upgrade <id>`. Re-installs the plugin
+// from its recorded source. Streams the same SSE event shape as
+// install, so 'progress' / 'success' / 'error' arrive verbatim.
+async function runPluginUpgrade(rest) {
+  const flags = parseFlags(rest, { string: PLUGIN_STRING_FLAGS, boolean: PLUGIN_BOOLEAN_FLAGS });
+  const id = rest.find((a) => !a.startsWith('-') && a !== flags['daemon-url'] && a !== flags.source);
+  if (!id) {
+    console.error('Usage: od plugin upgrade <id>');
+    process.exit(2);
+  }
+  const url = `${pluginDaemonUrl(flags).replace(/\/$/, '')}/api/plugins/${encodeURIComponent(id)}/upgrade`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+  });
+  if (!resp.ok || !resp.body) {
+    let msg = '';
+    try { msg = await resp.text(); } catch { msg = ''; }
+    console.error(`POST /api/plugins/${id}/upgrade failed: ${resp.status} ${msg}`);
+    process.exit(1);
+  }
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let exitCode = 0;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const blocks = buffer.split('\n\n');
+    buffer = blocks.pop() ?? '';
+    for (const block of blocks) {
+      const lines = block.split('\n');
+      const eventLine = lines.find((l) => l.startsWith('event: '));
+      const dataLine  = lines.find((l) => l.startsWith('data: '));
+      const event = eventLine ? eventLine.slice('event: '.length) : 'message';
+      const data = dataLine ? safeParseJson(dataLine.slice('data: '.length)) : null;
+      if (event === 'progress') {
+        console.log(`[upgrade] ${data?.phase ?? '...'}: ${data?.message ?? ''}`);
+      } else if (event === 'success') {
+        console.log(`[upgrade] ok — ${data?.plugin?.id}@${data?.plugin?.version} (trust=${data?.plugin?.trust})`);
+        if (Array.isArray(data?.warnings) && data.warnings.length > 0) {
+          for (const w of data.warnings) console.log(`[upgrade] warn: ${w}`);
+        }
+      } else if (event === 'error') {
+        console.error(`[upgrade] error: ${data?.message ?? 'unknown'}`);
+        exitCode = 1;
+      }
+    }
+  }
+  process.exit(exitCode);
+}
+
 async function runPluginUninstall(rest) {
   const flags = parseFlags(rest, { string: PLUGIN_STRING_FLAGS, boolean: PLUGIN_BOOLEAN_FLAGS });
   const id = rest.find((a) => !a.startsWith('-') && a !== flags['daemon-url'] && a !== flags.source);
@@ -2160,6 +2214,7 @@ function printPluginHelp() {
   od plugin search <query> [--tag <t>]    Search installed plugins by id/title/desc/tag.
   od plugin info <id>                     Print a plugin's manifest + trust state as JSON.
   od plugin install --source <path>       Install a plugin from a local folder (Phase 1).
+  od plugin upgrade <id>                  Re-install a plugin from its recorded source.
   od plugin uninstall <id>                Remove a plugin from the registry + on-disk staging.
   od plugin apply <id> [--inputs <json>]  Compute an ApplyResult (preview) for a plugin.
   od plugin doctor <id>                   Lint a plugin's manifest, atoms and resolved refs.

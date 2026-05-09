@@ -3393,6 +3393,67 @@ export async function startServer({
     }
   });
 
+  // Plan §3.Z2 — `od plugin upgrade <id>` re-installs a plugin from
+  // its recorded source. Streams the same SSE shape as
+  // POST /api/plugins/install so CLIs and the web composer reuse
+  // the existing event handler.
+  //
+  // Rejected for source_kind='bundled': bundled plugins are
+  // shipped with the daemon image and the bundled boot walker
+  // re-registers them on every boot. Letting an operator
+  // 'upgrade' a bundled plugin would silently overwrite the
+  // daemon's authoritative copy and confuse the next boot.
+  app.post('/api/plugins/:id/upgrade', async (req, res) => {
+    const id = req.params.id;
+    const plugin = getInstalledPlugin(db, id);
+    if (!plugin) {
+      return res.status(404).json({
+        error: { code: 'plugin-not-found', message: `No installed plugin with id "${id}".`, data: { id } },
+      });
+    }
+    if (plugin.sourceKind === 'bundled') {
+      return res.status(409).json({
+        error: {
+          code: 'bundled-plugin',
+          message: `Plugin "${id}" was shipped bundled with the daemon and upgrades only via daemon-image upgrade. The bundled boot walker re-registers bundled plugins on every boot.`,
+          data: { id, sourceKind: plugin.sourceKind },
+        },
+      });
+    }
+    const source = plugin.source;
+    if (!source) {
+      return res.status(409).json({
+        error: {
+          code: 'missing-source',
+          message: `Plugin "${id}" has no recorded install source — cannot upgrade. Reinstall via 'od plugin install --source <...>' to set one.`,
+          data: { id },
+        },
+      });
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
+    const writeEvent = (event: string, data: unknown) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    writeEvent('progress', { kind: 'progress', phase: 'resolving', message: `Upgrading ${id} from ${source}` });
+
+    try {
+      for await (const ev of installPlugin(db, { source })) {
+        writeEvent(ev.kind, ev);
+        if (ev.kind === 'success' || ev.kind === 'error') break;
+      }
+    } catch (err) {
+      writeEvent('error', { kind: 'error', message: String(err), warnings: [] });
+    } finally {
+      res.end();
+    }
+  });
+
   // Plan §3.A1: shared helper used by every endpoint that has to resolve
   // plugin context against the live registry. Skills + design systems are
   // walked from disk; craft is empty in v1; atoms come from the
