@@ -393,9 +393,13 @@ export function LiveArtifactViewer({
   const [refreshHistory, setRefreshHistory] = useState<LiveArtifactRefreshLogEntry[]>([]);
   const [presentMenuOpen, setPresentMenuOpen] = useState(false);
   const [inTabPresent, setInTabPresent] = useState(false);
+  const [shareMenuOpen, setShareMenuOpen] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
   const previewBodyRef = useRef<HTMLDivElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const presentWrapRef = useRef<HTMLDivElement | null>(null);
+  const shareRef = useRef<HTMLDivElement | null>(null);
   const [chromeActionsHost, setChromeActionsHost] = useState<HTMLElement | null>(null);
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -419,6 +423,23 @@ export function LiveArtifactViewer({
       document.removeEventListener('keydown', onKey);
     };
   }, [presentMenuOpen]);
+
+  useEffect(() => {
+    if (!shareMenuOpen) return;
+    const onPointer = (e: MouseEvent) => {
+      if (!shareRef.current) return;
+      if (!shareRef.current.contains(e.target as Node)) setShareMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShareMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [shareMenuOpen]);
 
   useEffect(() => {
     setRefreshError(null);
@@ -593,6 +614,51 @@ export function LiveArtifactViewer({
     if (typeof window === 'undefined') return;
     window.open(liveArtifactPreviewUrl(projectId, liveArtifact.artifactId), '_blank', 'noopener,noreferrer');
   };
+
+  const exportTitle = liveArtifact.title || `live-artifact-${liveArtifact.artifactId}`;
+  const fetchRenderedHtml = async () => {
+    const url = liveArtifactPreviewUrl(projectId, liveArtifact.artifactId);
+    const res = await fetch(url, { credentials: 'include' });
+    if (!res.ok) throw new Error(`Failed to fetch preview (${res.status})`);
+    return await res.text();
+  };
+  const handleExportHtml = async () => {
+    setShareMenuOpen(false);
+    setShareBusy(true);
+    try {
+      const html = await fetchRenderedHtml();
+      exportAsHtml(html, exportTitle);
+    } catch {
+      // Fall back to opening the URL so users still get a snapshot path
+      if (typeof window !== 'undefined') {
+        window.open(liveArtifactPreviewUrl(projectId, liveArtifact.artifactId), '_blank', 'noopener,noreferrer');
+      }
+    } finally {
+      setShareBusy(false);
+    }
+  };
+  const handleExportPdf = async () => {
+    setShareMenuOpen(false);
+    setShareBusy(true);
+    try {
+      const html = await fetchRenderedHtml();
+      exportAsPdf(html, exportTitle);
+    } finally {
+      setShareBusy(false);
+    }
+  };
+  const handleCopyLink = async () => {
+    setShareMenuOpen(false);
+    if (typeof window === 'undefined' || !navigator.clipboard) return;
+    const url = `${window.location.origin}${liveArtifactPreviewUrl(projectId, liveArtifact.artifactId)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+      window.setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      // ignore — clipboard may be blocked in non-secure contexts
+    }
+  };
   useEffect(() => {
     if (!inTabPresent) return;
     const onKey = (e: KeyboardEvent) => {
@@ -607,34 +673,82 @@ export function LiveArtifactViewer({
       {((node: ReactNode) => (
         chromeActionsHost ? createPortal(node, chromeActionsHost) : node
       ))(
-        <div className="present-wrap chrome-present-wrap" ref={presentWrapRef}>
-          <button
-            className="chrome-action chrome-action-secondary present-trigger"
-            aria-haspopup="menu"
-            aria-expanded={presentMenuOpen}
-            onClick={() => setPresentMenuOpen((v) => !v)}
-          >
-            <Icon name="present" size={13} />
-            <span>{t('fileViewer.present')}</span>
-            <Icon name="chevron-down" size={11} />
-          </button>
-          {presentMenuOpen ? (
-            <div className="present-menu" role="menu">
-              <button role="menuitem" onClick={presentInThisTab}>
-                <span className="present-icon"><Icon name="eye" size={13} /></span>{' '}
-                {t('fileViewer.presentInTab')}
-              </button>
-              <button role="menuitem" onClick={presentFullscreen}>
-                <span className="present-icon"><Icon name="play" size={13} /></span>{' '}
-                {t('fileViewer.presentFullscreen')}
-              </button>
-              <button role="menuitem" onClick={presentNewTab}>
-                <span className="present-icon"><Icon name="share" size={13} /></span>{' '}
-                {t('fileViewer.presentNewTab')}
-              </button>
-            </div>
-          ) : null}
-        </div>
+        <>
+          <div className="present-wrap chrome-present-wrap" ref={presentWrapRef}>
+            <button
+              className="chrome-action chrome-action-secondary present-trigger"
+              aria-haspopup="menu"
+              aria-expanded={presentMenuOpen}
+              onClick={() => setPresentMenuOpen((v) => !v)}
+            >
+              <Icon name="present" size={13} />
+              <span>{t('fileViewer.present')}</span>
+              <Icon name="chevron-down" size={11} />
+            </button>
+            {presentMenuOpen ? (
+              <div className="present-menu" role="menu">
+                <button role="menuitem" onClick={presentInThisTab}>
+                  <span className="present-icon"><Icon name="eye" size={13} /></span>{' '}
+                  {t('fileViewer.presentInTab')}
+                </button>
+                <button role="menuitem" onClick={presentFullscreen}>
+                  <span className="present-icon"><Icon name="play" size={13} /></span>{' '}
+                  {t('fileViewer.presentFullscreen')}
+                </button>
+                <button role="menuitem" onClick={presentNewTab}>
+                  <span className="present-icon"><Icon name="share" size={13} /></span>{' '}
+                  {t('fileViewer.presentNewTab')}
+                </button>
+              </div>
+            ) : null}
+          </div>
+          <div className="share-menu chrome-share-menu" ref={shareRef}>
+            <button
+              className="chrome-action chrome-action-primary"
+              aria-haspopup="menu"
+              aria-expanded={shareMenuOpen}
+              data-running={shareBusy ? 'true' : 'false'}
+              disabled={shareBusy}
+              onClick={() => setShareMenuOpen((v) => !v)}
+            >
+              <Icon name="share" size={13} />
+              <span>{t('fileViewer.shareLabel')}</span>
+              <Icon name="chevron-down" size={11} />
+            </button>
+            {shareMenuOpen ? (
+              <div className="share-menu-popover" role="menu">
+                <button
+                  type="button"
+                  className="share-menu-item"
+                  role="menuitem"
+                  onClick={() => { void handleExportPdf(); }}
+                >
+                  <span className="share-menu-icon"><Icon name="file" size={14} /></span>
+                  <span>{t('fileViewer.exportPdf')}</span>
+                </button>
+                <button
+                  type="button"
+                  className="share-menu-item"
+                  role="menuitem"
+                  onClick={() => { void handleExportHtml(); }}
+                >
+                  <span className="share-menu-icon"><Icon name="file-code" size={14} /></span>
+                  <span>{t('fileViewer.exportHtml')}</span>
+                </button>
+                <div className="share-menu-divider" />
+                <button
+                  type="button"
+                  className="share-menu-item"
+                  role="menuitem"
+                  onClick={() => { void handleCopyLink(); }}
+                >
+                  <span className="share-menu-icon"><Icon name="link" size={14} /></span>
+                  <span>{shareCopied ? t('fileViewer.copied') : t('fileViewer.copyDeployLink')}</span>
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </>
       )}
       {inTabPresent ? (
         <button
