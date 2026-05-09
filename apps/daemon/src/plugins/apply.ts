@@ -39,6 +39,7 @@ import {
   resolveConnectorBindings,
   type ConnectorProbe,
 } from './connector-gate.js';
+import { deriveAutoAtomSurfaces } from './atoms/auto-surfaces.js';
 
 export class MissingInputError extends Error {
   readonly fields: string[];
@@ -111,12 +112,6 @@ export function applyPlugin(input: ApplyInput): ApplyComputed {
     resolveConnectorBindings(manifest, input.connectorProbe);
   const required = requiredCapabilities(manifest);
   const granted = resolveCapabilitiesGranted({ manifest, trust });
-  const declaredSurfaces = manifest.od?.genui?.surfaces ?? [];
-  const autoSurfaces = input.connectorProbe
-    ? deriveAutoOAuthPrompts(connectorsResolved)
-    : [];
-  const genuiSurfaces = mergeAutoOAuthPrompts(declaredSurfaces, autoSurfaces);
-
   const taskKind = (manifest.od?.taskKind ?? 'new-generation') as AppliedPluginSnapshot['taskKind'];
 
   // Spec §23.3.3: when the plugin omits `od.pipeline`, fall back to
@@ -130,6 +125,22 @@ export function applyPlugin(input: ApplyInput): ApplyComputed {
     scenarios: input.registry.scenarios,
   });
   const appliedPipeline = pipelineResolution.pipeline;
+
+  const declaredSurfaces = manifest.od?.genui?.surfaces ?? [];
+  const autoOAuth = input.connectorProbe
+    ? deriveAutoOAuthPrompts(connectorsResolved)
+    : [];
+  // Spec §10.3.1 / §21.5: auto-derive surfaces for first-party atom
+  // stages (diff-review → choice surface). Plugin-author surfaces
+  // with the same id win; the merge helper handles the dedupe.
+  // We use the EFFECTIVE pipeline (appliedPipeline) so a plugin that
+  // inherits the bundled scenario's diff-review stage still gets
+  // the auto-surface.
+  const autoAtom = deriveAutoAtomSurfaces({ pipeline: appliedPipeline });
+  const genuiSurfaces = mergeAutoOAuthPrompts(
+    mergeAutoOAuthPrompts(declaredSurfaces, autoOAuth),
+    autoAtom,
+  );
 
   const projectMetadata: PluginProjectMetadataPatch = {
     name: manifest.title ?? manifest.name,
