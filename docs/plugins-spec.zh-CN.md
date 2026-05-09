@@ -116,6 +116,9 @@ OD 的核心不是「一次 prompt 一次输出」，而是 **long-running desig
 18. [风险与开放问题](#18-风险与开放问题)
 19. [为什么这是 Open Design 的重要一步](#19-为什么这是-open-design-的重要一步)
 20. [Post-v1 可扩展性：artifact taxonomy、evaluators 与 production handoff](#20-post-v1-可扩展性artifact-taxonomyevaluators-与-production-handoff)
+21. [场景覆盖矩阵与交付路线图](#21-场景覆盖矩阵与交付路线图)
+22. [作者扩展点：基于 v1 substrate 实现未交付场景](#22-作者扩展点基于-v1-substrate-实现未交付场景)
+23. [自举：把 OD 自己的硬流程做成一方 plugin](#23-自举把-od-自己的硬流程做成一方-plugin)
 
 ---
 
@@ -1986,6 +1989,419 @@ Evaluator 结果应该先作为 run events 落库；稳定后，再在 artifact 
 5. **Delivery evidence.** 最终 artifact 携带 `handoffKind: 'patch'` 或 `handoffKind: 'deployable-app'`、evaluator summaries，以及 export/deploy targets。
 
 这让 v1 的承诺保持诚实：plugins 已经可以组织 design-to-code workflows，但完整 production delivery 是建立在 `artifactKind`、evaluator atoms 与 repo-aware patch orchestration 之上的更严格 contract。
+
+## 21. 场景覆盖矩阵与交付路线图
+
+本节是对 §1 已声明的四个产品场景（"Four product scenarios"：`new-generation` / `code-migration` / `figma-migration` / `tune-collab`）与 v1 实际交付能力之间的**诚实对账**。它不引入新的设计面，而是把 §10（atoms，部分标 `(planned)`）、§16（分阶段计划）、§18（开放问题）、§20（post-v1 reservation）中已经隐含的 gap 集中到一处，作为未来实施时不需要重读全文就能 reconcile 的单点表格。
+
+为方便阅读，这里把 OD 产品锁定的"四个核心 agent-native 设计问题"重申一次：
+
+1. **存量 Figma → HTML / artifact 迁移**，并基于代码做调优、设计体系一致性、协作。
+2. **存量代码库刷新** —— 让旧仓库变得"更好看"且 patch-safe。
+3. **从 0 到 1 的设计** —— 类 Figma 设计、好看的原型、PPT、交互式视频，从 brief 起步。
+4. **设计 → 可交付业务代码** —— 把生成出来的设计落成可上线的业务级代码。
+
+### 21.1 一览表：v1 覆盖度
+
+| # | 场景 | `taskKind` | spec 是否覆盖契约 | v1 实现状态 | 阻挡 "v1 一键 native" 的关键缺口 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Figma 迁移 | `figma-migration` | 是（§1，§10 atom 占位） | **部分** —— `figma-extract` / `token-map` 在 §10 标 `(planned)`；pipeline shape 与 provenance 已就绪 | 需要补这两个 `(planned)` atom；其他（DS 注入、GenUI OAuth、devloop、snapshot）v1 已经具备 |
+| 2 | 存量代码库刷新 | `code-migration` | 是（§1、§10、§20.3） | **v1 不交付** —— `code-import` / `rewrite-plan` / `patch-edit` / `diff-review` 全部 `(planned)`；`build-test` evaluator 在 §20.2 | 需要 §20.3 整套契约（target stack / token mapping / component mapping / patch safety / build evidence） |
+| 3 | 0→1 设计（原型 / PPT / 交互式视频） | `new-generation` | 是（§1 默认 reference pipeline） | **v1 已交付** —— 所需的 `discovery-question-form`、`direction-picker`、`todo-write`、`live-artifact`、`media-image/video/audio`、`critique-theater` 全部 implemented | 可选：把 §20.2 的 `visual-diff` / `brand-consistency-check` 提前到 Phase 2，让 critique 有客观信号 |
+| 4 | 设计 → 可交付业务代码 | `tune-collab`（handoff 侧） | 部分（§20.3 显式 post-v1） | **v1 不交付** —— v1 的 `handoffKind` 上限是 `'design-only' \| 'implementation-plan' \| 'patch'`；`'deployable-app'` 是 post-v1 | 要么完整落 §20.3，要么把 §14.3 的 OD ↔ 外部 code-agent 接力正式化为 v1 的"设计→生产代码"路径 |
+
+阅读规则：**只有场景 3 在 v1 完全 native 命中**。场景 1、2 的契约和命名 v1 已经预留，但需要补 atom 实现；场景 4 显式 post-v1，过渡期靠 §14.3。
+
+### 21.2 v1 真正解决的 "agent-native 设计" 问题
+
+v1 在 native 完整性上停在场景 3，但它交付的 substrate 对四个场景都是正确的 substrate。下列 5 条契约是未来场景工作不需要重新设计就能直接继承的部分：
+
+1. **plugin = workflow contract，不是 UI extension**（§1，§13）。Figma 时代的 "plugin 拥有宿主的一个 panel" 假设被替换成 "plugin 是 manifest + atoms + assets，agent 通过 `ApplyResult` 消费"。场景 1、2、4 都直接继承这条；迁移和生产 handoff 都不需要重开这个决策。
+2. **`od.pipeline` + devloop 收敛**（§10.1，§10.2）。`repeat: true` + `until` 是场景 1、2、3 共用的收敛机制：场景 3 收敛在 critique 评分，场景 1 收敛在 token-map 保真度，场景 2 收敛在 `build-test` 通过。同一个 loop primitive 跑三个场景，差异仅在 `until` 信号。
+3. **GenUI 跨对话持久化状态**（§10.3，§11.4 `genui_surfaces` 表）。一次性 Figma OAuth、品牌确认、目标技术栈确认、direction pick 都在 `project` / `conversation` / `run` 层级被记住，并在后续多轮对话中复用。场景 1（Figma OAuth）和场景 2（目标栈确认）依赖这条；没有它，每次新对话都重新追问，体验直接崩塌。
+4. **`AppliedPluginSnapshot` 不可变 + 重放**（§8.2.1）。跨 plugin 升级的可重放性是场景 1、2 半年后仍可审计的关键 —— "哪个 figma 文件 → 哪个 token map → 哪个生成的 diff" 可以从一行 snapshot 完整复现。场景 3 受益较小，但成本为零。
+5. **CLI-first headless 模式**（§11.7，§14.3）。这是 v1 阶段场景 4 的 fallback：OD 把 SKILL.md / DESIGN.md / craft / 生成 artifact 都 stage 到 project cwd，由 Cursor / Claude Code / Codex 在那个 cwd 内完成 patch。这条接力在 §14.3 已规定；§21.5 把它升格为 v1 的"设计→生产代码"明确契约。
+
+v1 显式**不解决**的部分（一次性写明，避免歧义）：
+
+- native 的 `figma-extract` / `token-map` atom 对（场景 1）。
+- native 的 `code-import` / `rewrite-plan` / `patch-edit` / `diff-review` 链路加 `build-test` evaluator（场景 2，及场景 4 的 patch 端）。
+- §20.3 的 production-handoff 完整契约（场景 4 的 native 路径）。
+- 在 OD 内部做的 repo-aware 多文件 diff 编排 + build evidence（场景 4 的 native 路径）。
+
+### 21.3 逐场景 gap 分析
+
+#### 21.3.1 场景 1：Figma 迁移（`figma-migration`）
+
+**v1 已经免费给到的：**
+
+- `figma-migration` 的 `taskKind` 在 `AppliedPluginSnapshot`（§8.2.1）、`ArtifactManifest`（§11.5.1）和 marketplace filters（§18 关于一级 `taskKind` filter 的开放问题）中是一等枚举成员。
+- 推荐 pipeline shape 已锁定：`figma-extract → token-map → generate → critique`（§1）。
+- 现有 `composeSystemPrompt()` 链路负责把 active design system 注入 prompt；只要 `token-map` 落地，"与所选 DESIGN.md 的一致性" 就是下游效果，不需要新基础设施。
+- 只要注册 Figma connector，Figma OAuth 就走 GenUI 的 `oauth-prompt` surface kind + `oauth.route='connector'`（§10.3.1）；跨对话持久化通过 `genui_surfaces`（§10.3.3）自动生效。
+- `parentArtifactId` 链（§11.5.1）允许迁移产物直接成为后续 `tune-collab` run 的种子，无需重新抽取。
+
+**v1 native 落地仍缺：**
+
+- `figma-extract` atom —— 通过 Figma REST 从 Figma file URL 抽出 node tree、tokens、assets。spec 占了 id；实现不在 v1 范围。
+- `token-map` atom —— 把抽出来的 tokens 映射到 active OD design system（`design-systems/<id>/DESIGN.md`）。spec 占了 id。
+- 如果 `apps/daemon/src/connectors/` 里还没有 Figma connector，则需要补；如果已有，那么仅缺前两个 atom。
+
+**为什么这是三个 "缺失" 场景里最容易落地的：**
+
+- 输入边界明确：Figma 文件 URL + OAuth token。不需要应付"任意仓库结构"。
+- 输出边界是 HTML / artifact，不是真实 repo patch；patch-safety 不在关键路径。
+- 第一版 critique 可以保持 LLM 主观；客观 evaluator（如对原 Figma 导出做 `visual-diff`）可以增量加上。
+
+**建议落地路径：** 先把 `figma-extract` + `token-map` 作为 out-of-tree plugin 发布（这样能独立迭代，不阻塞 daemon 发版节奏）；等 Figma REST 表面与 token-mapping 启发式稳定后，再升级为一方 atom。
+
+#### 21.3.2 场景 2：存量代码库刷新（`code-migration`）
+
+**v1 已经免费给到的：**
+
+- `code-migration` 的 `taskKind` 与推荐 pipeline shape `code-import → design-extract → rewrite-plan → generate → diff-review` 已预留。
+- `ArtifactManifest` 已支持 `artifactKind: 'code-diff'`、`renderKind: 'diff' | 'repo'`、`handoffKind: 'patch'`（§11.5.1）。
+- `tune-collab` 与 `parentArtifactId` 链是"先生成候选刷新方案，再在同一个 artifact 上迭代"的正确 primitive，v1 已交付。
+
+**v1 native 落地仍缺（基本就是 §20.3 全部）：**
+
+- `code-import` atom —— clone 或读取已有仓库，抽出与设计相关的结构（当前组件树、token 使用、routing model）。仅占 id。
+- `design-extract` atom —— 从源代码 / Figma / 截图抽取 design tokens。仅占 id。
+- `rewrite-plan` atom —— 长时多文件重写规划，对接 §20.3 的 "Component mapping" 与 "Target stack contract"。仅占 id。
+- `patch-edit` atom —— 遵循 rewrite plan 做小步 file patch，并正确产出 `parentArtifactId`。仅占 id。
+- `diff-review` atom —— 把重写渲染成可 review 的 diff。仅占 id。
+- `build-test` evaluator atom（§20.2）—— 对代码产物运行 package 范围的 build / typecheck / lint / test，并发出 critique 信号。仅占名字。
+
+**为什么是三个 "缺失" 场景里最难的：**
+
+- 输入是"任意 repo + 任意 build/test 配置"；agent 不能瞎猜。
+- 输出是带 build evidence 的 repo patch；patch-safety 在关键路径上。
+- devloop 的 `until` 信号是 "build + test pass + visual-diff 阈值"，把三个缺失 atom 耦合在一起。
+
+**v1 fallback（同时见 §21.5）：** 不在 OD 内部端到端跑这条，而是引导用户走 §14.3 的 headless pipeline —— OD 产出 `html-prototype` 或 `implementation-plan` artifact；Cursor / Claude Code 在用户自己的 repo cwd 里 apply patch 并跑 build/test。v1 不阻挡这条路径，只是不拥有 patch-application 这一步。
+
+#### 21.3.3 场景 3：0→1 设计（`new-generation`）
+
+**v1 已经免费给到的（这是 v1 native 命中的场景）：**
+
+- 所有依赖 atom 已 implemented：`discovery-question-form`、`direction-picker`、`todo-write`、`live-artifact`、`media-image` / `media-video` / `media-audio`、`critique-theater`。见 §10 atom 表。
+- 默认 reference pipeline `discovery → plan → generate → critique` 与典型 `new-generation` 流程一致；plugin 不需要声明 `od.pipeline` 也能拿到一条工作 pipeline。
+- 四个 GenUI 内置 surface kind（`form` / `choice` / `confirmation` / `oauth-prompt`）都直接服务这个场景。
+- `live-artifact` 的 live preview 与 `od files watch`（§12）合在一起，让 hot reload 和 CLI co-watch 在 v1 都能跑通。
+
+**唯一值得提前的优化：**
+
+- §20.2 evaluator atoms —— 特别是 `visual-diff`、`responsive-check`、`accessibility-check`、`brand-consistency-check`、`screenshot-regression`。v1 critique 是 `critique-theater` 的 5 维 LLM panel，主观；`until: critique.score>=4` 也因此是主观信号。把 `visual-diff` 与 `brand-consistency-check` 提前到 §16 Phase 2 是 ROI 最高的一步：它给 devloop 一个客观收敛信号，让 "好看 + 设计体系一致" 在所有 plugin 之间都能 scale。
+
+**结论：** v1 已覆盖此场景，无需进一步设计工作。把 §20.2 提前视作可选的 Phase 2 质量提升，不是 blocking gap。
+
+#### 21.3.4 场景 4：设计 → 可交付业务代码（扩展的 `tune-collab`）
+
+**事实陈述（§20.3 对此已显式说明）：**
+
+- v1 的 `handoffKind` 上限是 `'design-only' | 'implementation-plan' | 'patch'`。`'deployable-app'` 在 `ArtifactManifest`（§11.5.1）中预留，但**没有 §20.3 契约就在 v1 内不可实现**。
+- §20.3 的五条要求（target stack contract、design-token mapping、component mapping、patch safety、delivery evidence）整体上预设场景 2 的 atom 链已就位 —— `build-test`、`rewrite-plan`、`patch-edit`、`diff-review` 缺一不可。没有场景 2，场景 4 的 native 路径无法落地。
+
+**v1 契约（锁定，详见 §21.5）：**
+
+- "设计 → 生产代码" 在 v1 是一个**双产品接力**：OD 拥有 design substrate（SKILL.md / DESIGN.md / craft / 生成 artifact 都被 stage 进 project cwd，加上 `od files` 管理的 artifact 簿记）；用户原本的 code agent（Cursor / Claude Code / Codex / Gemini CLI）在用户的 repo cwd 内拥有真实 repo patch。
+- handoff 表面是 §14.3 的 headless pipeline，外加 `od files read` / `od files watch` 让 code agent 内联消费 artifacts。
+
+**native v1 交付需要：**
+
+- 端到端实现场景 2（即 §21.3.2 全部）。
+- 加上在 OD 内部做的 repo-aware 多文件 patch 编排，并捕获 build evidence（这一步本身比 §20.3 还多迈一步）。
+- 加上"review patch、apply 或 reject"的 UI / CLI surface（v1 不交付）。
+
+因此，本场景是"spec 描述的能力" 与 "v1 native 交付能力" 之间最大的 gap。未来 spec patch 在宣称这个场景为 native 之前，应当先落 §20.3，再补 repo-aware 编排。
+
+### 21.4 建议交付顺序
+
+§16 的分阶段计划保持不变；本节是只补不改的 delta roadmap，把 §21.3 中的 gap 映射到增量 phase 上，不重构既有计划。
+
+| 序号 | Phase | 范围 | 为什么是这个顺序 |
+| --- | --- | --- | --- |
+| 1 | §16 Phase 1 + Phase 2A（已计划） | 端到端落地场景 3，按现有规范 | 在最干净的场景上验证 plugin-as-workflow-contract thesis |
+| 2 | §16 Phase 2A++（小幅增补） | 把 §20.2 的 `visual-diff`、`brand-consistency-check` 提前到 Phase 2A | 让 `critique-theater` 的 `until` 拥有客观信号，使 1、2、3 三个场景都能基于更强的标准收敛 |
+| 3 | §16 Phase 2B + Phase 3（已计划） | Marketplace 深页 UI + 联邦 trust | 在任何跨产品接力规范化之前先打通三方 plugin 分发 |
+| 4 | 新增 "Phase 6 — Figma 迁移 native 路径" | 实现 `figma-extract` 与 `token-map`，稳定后升级为一方 atom；发布官方 `figma-migration` plugin | 三个缺失场景里最容易；输入输出边界清晰；复用 GenUI OAuth + `parentArtifactId` 链，无需新 primitive |
+| 5 | 新增 "Phase 7 — 生产 handoff 契约（§20.3 §21.3.2）" | 实现 `code-import`、`design-extract`、`rewrite-plan`、`patch-edit`、`diff-review`、`build-test`；冻结目标技术栈契约；冻结 design-token mapping 契约 | 把场景 2 落成 native，并解锁场景 4 的 native 路径 |
+| 6 | 新增 "Phase 8 — 原生生产代码交付" | 在 OD 内部做 repo-aware 多文件 patch 编排；提供 native "review and apply" 表面；把 `handoffKind: 'deployable-app'` 从预留升格为实现 | 闭环场景 4 native 路径；依赖 Phase 7 |
+
+Phase 6、7、8 故意排在 §16 既有 Phase 5（云部署）之后，避免与 headless / Docker 稳定线索相互干扰。它们之间的内部顺序固定：7 必须先于 8；6 可与 7 并行，因为两个场景仅共享 `parentArtifactId` 链，不共享 atom 实现。
+
+### 21.5 OD ↔ code-agent 接力作为 v1 的生产代码路径
+
+在 Phase 6、7、8 落地之前，生产代码体验对用户而言走的是 §14.3 headless pipeline。本节把这个模式升格为 v1 的契约，使外部 code-agent 集成不需要重读 §14.3 就可以依赖它。
+
+契约锁定四点：
+
+1. **OD 把 design substrate stage 进 project cwd。** 按 §14.3，daemon 把 SKILL.md / DESIGN.md / craft 写入 `.od-skills/`，把生成 artifact 通过 `od files` 写入 project cwd。cwd 通过 `od project info <id> --json | jq -r .cwd` 可发现。
+2. **用户的 code agent 在该 cwd 或自己的 repo cwd 内操作。** OD 不在 IDE 里跑；它作为 daemon 与 IDE 并列。Cursor / Claude Code / Codex / Gemini CLI 是 patch-application 的表面。
+3. **簿记留在 OD。** `ArtifactManifest`（§11.5.1）记录 `sourcePluginSnapshotId`、`sourceTaskKind: 'tune-collab'`（Phase 7 落地后还有 `'code-migration'`）、`handoffKind: 'patch'`；`od files` 记录每一字节的 artifact。哪怕 patch 由 code agent 完成，OD 仍是 audit log 的拥有者。
+4. **重新进入 OD 是 single-step。** 用户随时可以通过 inline rail（§8）或 `od plugin apply ... --project <id>` 在同一个 project 上重新 apply 任意 plugin（或不同 plugin）。`parentArtifactId` 链（§11.5.1）跨越 OD ↔ code-agent 边界保留 lineage。
+
+这就是用户层面问题"v1 阶段我能不能用这套 plugin 体系交付业务代码？"的回答：**可以，但交付方式是 OD substrate + 外部 code-agent 接力，不是 OD native 一键**。Phase 8（§21.4）才是 native 一键交付的路径。
+
+### 21.6 阅读契约
+
+本节是关于"四个场景下哪些已交付、哪些是预留"的**唯一信息源**。未来 spec patch 在新增 atoms、evaluators、生产 handoff primitive 时，必须在同一次 patch 中更新 §21.1 的对应行与 §21.3 的对应小节。Reviewer 应当拒绝任何"新加 atom 但没更新 §21"的 phase 变更 —— 这是防止 spec 退化回 "看起来都覆盖了，实际上什么都没交付" 的关键护栏。§22（第三方可作者性）与 §23（自举）在各自范围内承担同样的更新义务；三节合在一起构成 spec 的 openness contract。
+
+## 22. 作者扩展点：基于 v1 substrate 实现未交付场景
+
+§21 记录的是 v1 native 交付到哪。本节记录的是**开放性的另一半**：即便 v1 只为场景 3（`new-generation`）交付了完整的 native pipeline，第三方 plugin 作者今天就可以在 v1 substrate 上为场景 1、2、4 写出可运行的 plugin，**而不必等 §21.4 的 Phase 6 / 7 / 8 落地**。两半合起来 ——OD 一方交付（§21）+ substrate 给第三方的可达性（§22）—— 才能把"插件系统真的开放吗？"这个问题答成具体的"是"。
+
+### 22.1 substrate 与 implementation
+
+本节正式区分这对概念：
+
+- **substrate**（底层基础）= v1 spec 给 plugin 作者的 primitive：manifest 字段、capability 词汇表、atom catalog、pipeline / devloop / GenUI / connector / MCP / `od files` / `parentArtifactId` / `AppliedPluginSnapshot`（§5–§11.5.1）。
+- **implementation**（实现）= 哪些 atom 已经作为 daemon 内置项可以一行写进 `od.pipeline`（§10）。
+
+只有 substrate 与 implementation 都到位，场景才算 "v1 native"。当 substrate 到位、缺的 implementation 可以由 plugin 作者用 substrate 提供的逃生通道补上时，场景就属于 "v1 community-buildable"。场景 1、2、4 今天都是 community-buildable —— 缺口在 atom ergonomics，不在 capability gate。
+
+### 22.2 扩展点 cookbook
+
+plugin 作者实际会用到的填补一方缺失的方式：
+
+| plugin 作者的需求 | v1 提供的对应 primitive | spec 出处 |
+| --- | --- | --- |
+| 调一个 OD 没有的工具（Figma REST、AST 解析、SVG 转换…） | 在 `od.context.mcp[]` 里捆绑一个 MCP server | §5 / §5.3（`mcp` + `subprocess` + `network`） |
+| 调用第三方 API（Slack / Notion / GitHub / Figma / Drive） | `od.connectors.required[]`，借现有 Composio 子系统 | §5 / §9 / §10.3.1 `oauth.route='connector'` |
+| 在用户真实仓库上工作 | `od project import <path>` 把 repo 装进 OD 的 project model；之后 `od files` 与 agent 文件操作就地可用 | §12 / §11.7 / §14.3 |
+| 跑任意 build / test / lint / 自定义脚本 | `bash` / `subprocess` capability | §5.3 |
+| 拉起一段第三方 OAuth | GenUI `oauth-prompt` surface，route=`connector` 或 `mcp` | §10.3.1 |
+| 自定义 HITL 表单 / 选项 / 确认 | GenUI `form` / `choice` / `confirmation` surface 声明 | §10.3 |
+| 让答案跨对话 / 跨 run 不再追问 | `genui_surfaces` 表 + `persist: 'project' \| 'conversation' \| 'run'` | §10.3.3 |
+| 多阶段 + 迭代收敛 | `od.pipeline.stages[]` + `repeat: true` + `until` | §10.1 / §10.2 |
+| 承载 artifact 血缘 | `ArtifactManifest.parentArtifactId` + `sourcePluginSnapshotId` | §11.5.1 |
+| 半年后仍可重放 | `AppliedPluginSnapshot` 不可变 + `od plugin replay` | §8.2.1 / §12 |
+| 教 agent 一整套领域工作流 | `SKILL.md` body 注入 prompt + `od.context.assets[]` 携带例子 | §11.3 `composeSystemPrompt()` |
+
+总结成一条规则：**OD 一方 atom 缺位 → plugin 作者用 `MCP server + bash + SKILL.md` 三件套替代**。代价是 ergonomics（每个 plugin 各自重新发明命名和 prompt fragment），不是能力。
+
+### 22.3 真实例子
+
+下面给出三个 "v1 not native" 场景的 plugin 作者落地草图。
+
+#### 22.3.1 不依赖一方 `figma-extract` / `token-map` 的 Figma 迁移 plugin
+
+manifest 草图：
+
+```jsonc
+{
+  "od": {
+    "taskKind": "figma-migration",
+    "context": {
+      "designSystem": { "ref": "linear-clone" },
+      "mcp": [
+        { "name": "figma-rest", "command": "npx",
+          "args": ["-y", "@community/figma-mcp"] }
+      ]
+    },
+    "connectors": { "required": [{ "id": "figma", "tools": ["files.get"] }] },
+    "genui": {
+      "surfaces": [
+        { "id": "figma-oauth", "kind": "oauth-prompt", "persist": "project",
+          "oauth": { "route": "connector", "connectorId": "figma" } },
+        { "id": "file-pick",   "kind": "form",         "persist": "conversation",
+          "schema": { "type": "object",
+            "properties": { "fileUrl": { "type": "string" } } } }
+      ]
+    },
+    "pipeline": { "stages": [
+      { "id": "discovery", "atoms": ["discovery-question-form"] },
+      { "id": "extract",   "atoms": ["todo-write", "file-write"] },
+      { "id": "generate",  "atoms": ["file-write", "live-artifact"] },
+      { "id": "critique",  "atoms": ["critique-theater"],
+        "repeat": true, "until": "critique.score>=4 || iterations>=3" }
+    ]},
+    "capabilities": ["prompt:inject", "fs:read", "fs:write", "mcp",
+                     "subprocess", "network", "connector:figma"]
+  }
+}
+```
+
+配套 SKILL.md 教 agent："收到 figma URL → 调 `figma-rest.get_file` → 遍历 node tree → 读 active design system 的 DESIGN.md → 在 cwd 里写 HTML，保留 figma 布局但用 DESIGN.md 的 token → live-artifact 预览 → critique 循环"。**不需要等 OD 实现 `figma-extract` / `token-map`**；它们只是把 SKILL.md 的指令压成可复用的 prompt fragment。
+
+#### 22.3.2 不依赖一方 `code-import` / `rewrite-plan` / `build-test` 的代码库刷新 plugin
+
+前置：用户先 `od project import /path/to/old-repo`，project cwd 就是真实仓库。
+
+manifest 声明 `bash` + `subprocess` + `fs:write`；SKILL.md 引导 agent：
+
+1. 通过 agent-native file-read 扫文件，抽出当前的 tokens、组件惯例、routing model。
+2. GenUI `form` surface 让用户确认 target stack（Next/Vite/Remix、shadcn/MUI、包管理、test 命令）。
+3. `todo-write` 写多文件 refactor 计划。
+4. `repeat: true` 的 devloop stage：每轮 `file-edit` 一小批 → `bash pnpm typecheck && pnpm test` → 把 build/test 成败编码进一个 `critique-theater` 事件，分数反映通过情况（5 = 都通过，1 = build 挂）。devloop 在 `critique.score>=4 || iterations>=8` 终止。
+5. 最后再做一次 `critique-theater`，覆盖视觉 + token 一致性。
+
+相对 native（§21.4 Phase 7）的两个 ergonomic gap：
+
+- build/test 结论被编码进 `critique.score` 而非自己的 `until` 信号 —— 能跑通，但读 run log 的人必须知道这个约定。
+- 没有 native diff-review UI；plugin 用一个 `confirmation` surface 配合 prompt 里的原始 diff 文本。
+
+两个 gap 都被 Phase 7 修复 —— 把 `build-test` 与 `diff-review` 升格为一方 atom，附带它们各自的 pipeline 与 surface 语义；同时 §22.4 limit-1 的 patch 让 `until` 接受 atom 自带的命名信号。
+
+#### 22.3.3 通过 OD ↔ code-agent 接力实现 设计→生产代码
+
+plugin 作者在 v1 不应该试图把整段 handoff 都在 OD 内部完成。正确的形态是：
+
+- plugin 在 project cwd 里产出 `artifactKind: 'code-diff'` + `handoffKind: 'patch'` 的 artifact。
+- 最后一个 stage 触发一个 `confirmation` GenUI surface："准备 apply 吗？把 project cwd 在 Cursor / Claude Code / Codex 中打开，按附带的指令执行。"
+- `od files` 留下 audit；`parentArtifactId` 把 patch artifact 接到 design artifact 上。
+
+这就是 §21.5 的契约；plugin 作者写 SKILL.md 引导 agent 产出 handoff 形态的 artifact，到 OD 内部跑 patch 这一步就此打住。
+
+### 22.4 substrate 级硬限制（plugin 作者绕不开）
+
+下面三条不是 ergonomics gap，而是 v1 substrate 的封闭词汇决策，需要未来 spec patch 才能放开：
+
+1. **`until` 信号词汇表是封闭的**（§10.1）。只接受 `critique.score`、`iterations`、`user.confirmed`、`preview.ok`。plugin 想用 `build.passing`、`tests.passing`、`visual_diff.delta < 0.05` 这种自定义信号，必须塞进 `critique.score`（语义模糊）或塞进 `confirmation` surface（失去自动化）。Phase 7（§21.4）与 §23.3.1 的 patch 1 联合放开这条 —— 让 atom 可以声明自己的命名信号；在那之前，场景 2 的"build/test 通过即收敛"无法 native 表达。
+2. **atom registry 是封闭的**。`od.pipeline.stages[*].atoms[]` 必须命中 §10 catalog（implemented + reserved）。plugin 作者无法注册新 atom 名字。变通：把新能力封成 MCP tool，挂到最近的通用 atom（`file-write` / `todo-write` / `critique-theater`）下；daemon 发出的 `pipeline_stage_started` / `pipeline_stage_completed` 事件流就丢失这一步的粒度。
+3. **GenUI surface kind 在 v1 是封闭枚举**（§10.3.1）。只有 `form` / `choice` / `confirmation` / `oauth-prompt`。plugin 作者想要分屏 diff review、画板涂改、3D 预览或任何高保真 UI，必须等 Phase 4 的 `od.genui.surfaces[].component` + React 组件 sandbox。
+
+第 1 条对场景 2 影响最大，第 3 条对场景 4 影响最大，第 2 条所有人都受一点影响、但通过 MCP 最容易绕过去。
+
+### 22.5 promotion 路径：out-of-tree → 一方
+
+这是把 §21.3.1 的 Figma 例子推广为整张路线图通则的写法：
+
+1. **先发 out-of-tree plugin**。社区作者用 §22.2 的逃生通道发布社区 plugin，迭代节奏不绑 daemon 发版。
+2. **稳定契约**。SKILL.md 指令、MCP tool surface、pipeline shape 稳定后，提取成候选一方 atom 契约：atom id、prompt fragment、tool gating、可选的 `until` 信号、可选的 GenUI surface 默认值。
+3. **晋升一方 atom**。把该 atom 加入 §10 catalog（从 `(planned)` 转 implemented），并在 §23 的 bundled scenario plugin 里使用它。晋升对原 plugin 透明：原 plugin 可以继续走 SKILL.md 路径，也可以改用新的 atom 名。
+4. **更新 §21 与 §23**。按 §21.6，coverage matrix 必须在晋升 atom 的同一次 patch 中更新；按 §23.6，任何 kernel 边界的变化（例如扩 `until` 信号词汇表）也必须同步反映到 §23.3。
+
+这就是 spec 保持诚实的方式：缺一方 atom 永远不是永久 gap，只是社区工作还没被蒸馏的"晋升前"状态。
+
+## 23. 自举：把 OD 自己的硬流程做成一方 plugin
+
+§22 确立了**第三方** plugin 在 v1 substrate 上的可扩展性。本节确立对称性质：**OD 自己写死的流程也可以被重新表达为运行在同一份 substrate 上的一方 plugin**，没有任何只有 OD 能用、第三方触不到的特权路径。plugin substrate 是真正的"地板"，OD-the-product 只是它上面的一种配置。
+
+§10.2 已经为 atom 暗示了这条路径："A future Phase 4 can extract each atom into `skills/_official/<atom>/SKILL.md` to make the system prompt fully data-driven。" 本节把这句承诺落地：明确画出 kernel/userspace 边界，列出需要的 5 项 spec patch，并定义新的 `bundled` trust tier。
+
+### 23.1 kernel/userspace 边界
+
+OD 今天做的事可以归到三类：
+
+| 类别 | 自举之后住在哪里 | 今天 daemon 里的例子 |
+| --- | --- | --- |
+| **A. 用户态（可移到 plugin）** | 一方 plugin 的 manifest + SKILL.md | atom prompt fragment、默认 reference pipeline、atom 自带的 MCP server、critique 评分坐标、discovery 提问措辞 |
+| **B. 内核（必须留在 daemon）** | `apps/daemon/src/...` | snapshot SQLite 写表、GenUI 持久化与复用、capability gate + tool-token 颁发、devloop scheduler + `until` 求值 + ceiling、OAuth token 存储、`composeSystemPrompt()` *作为 assembler*、project metadata block |
+| **C. v1 已经是 plugin 驱动** | 已经在 `~/.open-design/plugins/...` 或 per-project plugin 文件夹 | 当前 SKILL.md、DESIGN.md、craft .md、plugin 声明的 MCP server、plugin 声明的 GenUI surface、plugin 声明的 pipeline |
+
+B 类的清单是**内核边界**：不是"难以 plugin 化"，而是"出于安全、持久化、运行时状态原因必须留在 daemon"。一个让 plugin 直接写 `applied_plugin_snapshots` 行或颁发 connector tool token 的 plugin runtime 是坏掉的 runtime。
+
+A 类是 spec 承诺自举之后**会移动**的部分。今天它们大都是 `apps/daemon/src/prompts/system.ts` 里的字符串常量。
+
+### 23.2 v1 已经自举的部分（容易的那一半）
+
+C 类是 v1 已交付的那一半。截至本 spec：
+
+- 当前 SKILL.md、DESIGN.md、craft .md 由 `apps/daemon/src/skills.ts` / `design-systems.ts` / `craft.ts` 加载，§11.3 已把它们重构为委托 `apps/daemon/src/plugins/registry.ts`。Phase 1 之后，prompt 中所有进入的行为内容都是 plugin-loaded 的，即使内容本身是 bundled。
+- plugin 声明的 MCP server、connector 需求、GenUI surface、`od.pipeline.stages[]` 全部走的是和第三方 plugin 同一套 registry / resolver 路径。
+- 驱动 §1 产品 brief 里"一致性"的 active design system + craft 注入，已经是 plugin substrate 的读：一方 DESIGN.md 没有比第三方 DESIGN.md 多任何特权路径。
+
+这就是 §22 成立的原因：substrate 的前一半已经自举完了，只剩 atom 层和默认 pipeline 选择器还在硬编码。
+
+### 23.3 v1 还在硬编码的部分（完成自举要做的工作）
+
+下面 5 项 spec patch 把 A 类从 daemon 里抽出来。做完之后，整套 prompt + pipeline 都由 plugin manifest 驱动；`composeSystemPrompt()` 变成纯 assembler，自身不再携带任何行为内容。
+
+#### 23.3.1 Patch 1 —— `od.kind: 'atom'` 的正式契约
+
+§5 的 `od.kind` 枚举里有 `'atom'`，但从未定义 atom plugin 的形态。这条 patch：
+
+- atom plugin 是带 `open-design.json`（`od.kind: 'atom'`）+ `SKILL.md` 的目录。
+- `SKILL.md` 正文就是该 atom 的 prompt fragment；当某个 stage 用 id 引用了该 atom，daemon assembler 把它注入。
+- 可选的 `od.context.mcp[]` 声明该 atom 用到的 MCP tool（如 `live-artifact`、`connector`）。
+- 可选的 `od.atom.untilSignals[]` 声明该 atom 发出的命名信号变量，贡献到 §10.1 的 `until` 词汇表。这正是 patch 1 同时放开 §22.4 limit 1 的方式：每个 atom 自带信号（例如 `build-test` 声明 `build.passing` 和 `tests.passing`），`until` 求值器对照当前 stage 的 atoms 而非硬编码列表来查表。
+- 可选的 `od.atom.toolGating[]` 声明该 atom 期望可用的 agent 端工具（file-read/write/edit、bash）。
+
+#### 23.3.2 Patch 2 —— 把 atom prompt fragment 从 `system.ts` 迁出
+
+`apps/daemon/src/prompts/system.ts` 里的字符串常量（`DISCOVERY_AND_PHILOSOPHY`、critique addendum、TodoWrite policy、file-ops policy 等）迁到 `plugins/_official/atoms/<atom>/SKILL.md`。`composeSystemPrompt()` 解析当前 stage 的 `atoms[]`，逐个 atom plugin 读 SKILL.md fragment，按 stage 顺序拼接，并加稳定 header（`## Active stage: <stage-id>` 后跟 atom fragment）。
+
+迁移是机械工作：`system.ts` 里每条 prose 常量都有一对一的目的地 `plugins/_official/atoms/<atom>/SKILL.md`。Reviewer 应当拒绝 patch 落地后仍把行为类 prose 常量留在 `system.ts` 里的迁移。
+
+#### 23.3.3 Patch 3 —— 把默认 reference pipeline 迁到 bundled scenario plugin
+
+§10.1 今天写的"`od.pipeline` 缺省时，daemon 按 `od.taskKind` 选 reference pipeline" —— 这条逻辑从 daemon 代码迁到 per-`taskKind` 的 bundled scenario plugin：
+
+- `plugins/_official/scenarios/od-new-generation/open-design.json`
+- `plugins/_official/scenarios/od-figma-migration/open-design.json`（Phase 6 后）
+- `plugins/_official/scenarios/od-code-migration/open-design.json`（Phase 7 后）
+- `plugins/_official/scenarios/od-tune-collab/open-design.json`
+
+每个 plugin 只 ship 一个 `od.pipeline` 加（可选）一些 scenario 默认的 `od.genui.surfaces[]`。daemon 解析变成："没传 `od.pipeline` + 有 `taskKind` → 查匹配 `taskKind` 的 bundled scenario plugin → 用它的 `od.pipeline`"。
+
+这条 patch 之后，**替换或 fork `od-new-generation`** 是 ship 一个不同 OD 风味产品的标准做法。
+
+#### 23.3.4 Patch 4 —— 新的 `bundled` trust 等级
+
+§9 今天把 "随 daemon 一起 bundled" 与 "来自官方 marketplace" 都叫 `trusted`。这条 patch 把它们分开：
+
+| trust 等级 | 来源 | 安装时是否 capability prompt | 是否可被 marketplace upgrade 替换 | SQLite `source_kind` |
+| --- | --- | --- | --- | --- |
+| `bundled` | `<repo-root>/plugins/_official/**` | 否 —— daemon 内部 allowlist 直接授权 | 否 —— 仅随 daemon 升级一同替换 | `bundled` |
+| `trusted` | 一方 / 显式 trust 的 marketplace | 否 —— 安装即自动授权 | 是 —— `od plugin update` 可以拉新版本 | `marketplace` |
+| `restricted` | 其他来源（GitHub URL、任意 marketplace、本地文件夹） | 是 —— 需 capability checklist | 是 | `github` / `url` / `local` / `marketplace` |
+
+`bundled` 等级让 patch 2 与 patch 3 安全：daemon 不会就自己一直拥有的 capability 来给自己提示，恶意 marketplace plugin 也无法靠重用 bundled atom 的 id 来冒充。
+
+#### 23.3.5 Patch 5 —— `plugins/_official/` 目录约定 + 首次启动自动安装
+
+daemon 启动多一步：
+
+1. 走 `<repo-root>/plugins/_official/**`，把每个 plugin 注册到 `installed_plugins` 中：`source_kind='bundled'`、`trust='bundled'`、capabilities = 该 plugin 声明的 `od.capabilities`。
+2. bundled plugin **不**复制到 `~/.open-design/plugins/`；它们直接从 repo path 加载并热重载，daemon 升级时与 daemon 代码同步替换。
+3. `od plugin uninstall` 拒绝 uninstall `bundled` plugin（会让 daemon 失能）；`od plugin update` 对 bundled 是 no-op。
+4. 用户可以安装一个 id 与 bundled 相同的 `trusted` 或 `restricted` plugin；正常 apply 时用户 copy 胜出，但 daemon 保留 bundled copy 作为 fallback，给那些 pin 了 bundled 版本的旧 `AppliedPluginSnapshot` replay 用。
+
+### 23.4 自举之后的 kernel：纯 assembler
+
+5 条 patch 全部落地之后，`apps/daemon/src/prompts/system.ts` 的 `composeSystemPrompt()` 变成纯 assembler，形态如下（只示意，不是规范）：
+
+```ts
+function composeSystemPrompt(input: PromptInput): string {
+  const stack: string[] = [];
+  stack.push(renderProjectMetadata(input.project));         // kernel 独有
+  stack.push(renderResolvedDesignSystem(input.context));    // 已经 plugin 驱动
+  stack.push(renderResolvedCraft(input.context));           // 已经 plugin 驱动
+  for (const stage of input.pipeline.stages) {
+    stack.push(`## Active stage: ${stage.id}`);
+    for (const atomId of stage.atoms) {
+      const atom = registry.getAtomPlugin(atomId);          // bundled plugin
+      stack.push(atom.skillFragment);                       // SKILL.md body
+    }
+  }
+  stack.push(renderResolvedSkillBody(input.context));       // 已经 plugin 驱动
+  stack.push(renderPluginInputs(input.appliedPlugin));      // 已经 plugin 驱动
+  return stack.join('\n\n');
+}
+```
+
+这个函数里没有任何行为内容。所有行为内容都住在 `plugins/_official/...`（一方）或 user-installed plugin 文件夹（第三方）。B 类 kernel 责任（snapshot、GenUI 持久化、capability gate、devloop、OAuth）不受影响 —— 它们是 runtime 关切，不是 prompt 组装关切。
+
+### 23.5 这件事在产品上的意义
+
+3 条具体收益足以证明这套 patch 序列值得做：
+
+1. **审计 surface 收敛**。所有进入 agent 系统 prompt 的字节都从 plugin manifest + SKILL.md 可达。读 `plugins/_official/...` 就能完整回答"OD 今天在指挥 agent 干什么"，不需要 grep 代码。
+2. **风味可替换**。企业部署、行业版本（地产 / 游戏 / 法律 / 财报）、伙伴集成可以替换自己的 `plugins/_official/scenarios/od-<taskKind>` 而不需要 fork daemon。产品风味（discovery 提问风格、critique 维度、默认 pipeline 形态）从代码关切变成内容关切。
+3. **一方工作走的是和第三方一样的路径**。OD 落 Phase 6 / 7 / 8（§21.4）的时候，那些场景就是住进 `plugins/_official/scenarios/` 的一方 plugin，跑的是任何社区 plugin 都在跑的 loader / resolver / snapshot / GenUI runtime。如果一方撞 ergonomics 墙，第三方撞得只会更狠 —— 这是最强的 dogfooding 压力来源。
+
+### 23.6 与 §21、§22 的关系
+
+三节合在一起回答"插件系统是什么、谁能用、边界在哪"：
+
+| 章节 | 回答的问题 | 受众 |
+| --- | --- | --- |
+| §21 | OD 在 v1 里 native 交付了什么？哪些场景是 covered / partial / post-v1？ | 计划 §16 分阶段交付的 maintainer |
+| §22 | 不等 OD 多 ship native atom，第三方 plugin 作者在 v1 substrate 上能走多远？ | 评估这套平台的 plugin 作者与集成方 |
+| §23 | OD 自己的硬流程能不能在 plugin substrate 内重新表达？kernel 边界在哪？ | 确保没有特权后门的架构师与 reviewer |
+
+未来 spec patch 在新增 atoms、evaluators、scenarios 或 kernel 责任时，必须在同一次 patch 中更新对应章节。§21 记录已交付的内容，§22 记录从外部可达的内容，§23 记录从内部可达的内容；三节合起来构成 spec 的 openness contract。
 
 ---
 
