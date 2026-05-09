@@ -178,6 +178,14 @@ flowchart TD
 - Loading shell 保持全局，因为它在 client SPA component tree 可用前渲染。
 - 现有长尾全局 CSS 需要分类处理：组件级样式迁移到 TSX，loading shell、keyframes、第三方/内容渲染边界和真正跨树样式继续保留全局。
 
+### Guardrail Rules
+
+Guard 需要覆盖三类规则，并为每个例外记录文件范围、匹配模式和理由。
+
+1. 默认 Tailwind palette class 检查：在 app UI 文件中拒绝 `text-red-500`、`bg-white`、`border-zinc-200`、`from-orange-500`、`ring-blue-400` 等默认 palette utilities。允许的颜色 utility 来自 `token.md` 中 `@theme` 暴露的项目 token。
+2. 硬编码 UI color 检查：在 app UI chrome 和组件样式中拒绝未登记的 `#hex`、`rgb()`、`rgba()`、`hsl()`、`hsla()` 和命名色。命中后优先迁移到 Tailwind token class 或 CSS variable；重复出现的任意色需要新增命名 token。
+3. 显式 allowlist 检查：允许品牌资产、SVG 插画、用户 accent 输入、canvas/sketch 用户色、文件/inspect 用户内容颜色转换、external document/iframe/popup runtime HTML、测试 fixture。allowlist 需要尽量窄，按文件、函数或 pattern 标注原因，避免路径级豁免覆盖普通 UI chrome。
+
 ## Plan
 
 - [ ] Step 1: 安装 Tailwind 基础能力
@@ -194,11 +202,13 @@ flowchart TD
   - [ ] Substep 2.5 Verify: 运行 `pnpm --filter @open-design/web build`。
 - [ ] Step 3: 添加样式 guardrails
   - [ ] Substep 3.1 Implement: 在 `scripts/guard.ts` 中添加 app UI code 默认 Tailwind palette classes 检查。
-  - [ ] Substep 3.2 Implement: 添加硬编码 UI color 检查，并显式 allowlist brand/user-content/canvas 场景。
-  - [ ] Substep 3.3 Implement: 需要抽取 helper 时，在 `apps/web/tests/` 下添加聚焦测试。
-  - [ ] Substep 3.4 Verify: 运行 `pnpm guard`。
-  - [ ] Substep 3.5 Verify: 故意在一个 TSX 文件中临时写入默认 Tailwind 原生颜色 class（例如 `text-red-500`），确认 `pnpm guard` 能检出并失败，然后移除临时代码。
-  - [ ] Substep 3.6 Verify: 运行 `pnpm --filter @open-design/web test`。
+  - [ ] Substep 3.2 Implement: 添加硬编码 UI color 检查，覆盖 `#hex`、`rgb()`、`rgba()`、`hsl()`、`hsla()` 和命名色。
+  - [ ] Substep 3.3 Implement: 添加显式 allowlist 机制，覆盖 brand assets、SVG illustrations、user accent input、canvas/sketch user colors、user-authored file/inspect colors、external runtime documents 和 tests/fixtures。
+  - [ ] Substep 3.4 Implement: 需要抽取 helper 时，在 `apps/web/tests/` 下添加聚焦测试。
+  - [ ] Substep 3.5 Verify: 运行 `pnpm guard`。
+  - [ ] Substep 3.6 Verify: 故意在一个 TSX 文件中临时写入默认 Tailwind 原生颜色 class（例如 `text-red-500`），确认 `pnpm guard` 能检出并失败，然后移除临时代码。
+  - [ ] Substep 3.7 Verify: 故意在普通 app UI TSX 中临时写入未 allowlist 的硬编码色（例如 `style={{ color: '#ff0000' }}`），确认 `pnpm guard` 能检出并失败，然后移除临时代码。
+  - [ ] Substep 3.8 Verify: 运行 `pnpm --filter @open-design/web test`。
 - [ ] Step 4: 盘点并分类现有全局 class
   - [ ] Substep 4.1 Implement: 生成 `apps/web/src/**/*.tsx` 中引用的全局 CSS class 清单，并映射到 `apps/web/src/index.css` 中的定义。
   - [ ] Substep 4.2 Implement: 将 class 分为组件级可迁移样式、全局基础样式、loading shell、keyframes/animation、内容级/第三方边界样式和需保留例外。
