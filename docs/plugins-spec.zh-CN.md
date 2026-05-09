@@ -115,6 +115,7 @@ OD 的核心不是「一次 prompt 一次输出」，而是 **long-running desig
 17. [示例](#17-示例)
 18. [风险与开放问题](#18-风险与开放问题)
 19. [为什么这是 Open Design 的重要一步](#19-为什么这是-open-design-的重要一步)
+20. [Post-v1 可扩展性：artifact taxonomy、evaluators 与 production handoff](#20-post-v1-可扩展性artifact-taxonomyevaluators-与-production-handoff)
 
 ---
 
@@ -1118,6 +1119,19 @@ export interface ArtifactManifest {
   sourceRunId?: string;
   sourceProjectId?: string;
 
+  /** Stable output taxonomy used by preview, export, deploy, tuning, and handoff flows.
+   *  These fields are optional in v1 but must be preserved by readers and writers. */
+  artifactKind?:
+    | 'html-prototype'
+    | 'deck'
+    | 'interactive-video'
+    | 'design-system'
+    | 'code-diff'
+    | 'production-app'
+    | 'asset-pack';
+  renderKind?: 'html' | 'jsx' | 'pptx' | 'markdown' | 'video' | 'image' | 'diff' | 'repo';
+  handoffKind?: 'design-only' | 'implementation-plan' | 'patch' | 'deployable-app';
+
   /** 该 artifact 已经被推送到哪些下游协作面，用于 §1 中提到的 "分发到 cli / 其他 code agent / 云 / 桌面端" */
   exportTargets?: Array<{
     surface: 'cli' | 'desktop' | 'web' | 'docker' | 'github' | 'figma' | 'code-agent';
@@ -1137,6 +1151,7 @@ export interface ArtifactManifest {
 写入规则：
 
 - run 完成时，daemon 把当前 `appliedPluginSnapshotId` + 冗余字段写入新生成的每个 artifact manifest。
+- 当 plugin 声明 output hints 时，daemon 写入 `artifactKind`、`renderKind` 与 `handoffKind`；否则根据 `od.mode`、`od.preview.type` 和实际产出文件推断最保守的值。未知 reader 即使暂时不用这些字段，也必须原样 preserve。
 - 每次 `od plugin export` / `od files upload --to <target>` / `od deploy ...` 追加一行 `exportTargets` / `deployTargets`，**不**修改 `sourcePluginSnapshotId`。
 - 二次调优时（`tune-collab`）创建的 artifact 同时记录 `sourcePluginSnapshotId`（本轮 plugin）与 `parentArtifactId`（被调优的上一版），形成可回溯链。
 
@@ -1930,6 +1945,47 @@ installer 会把 nested skills/design-systems/craft fan out 到 registry 的 nam
 - **可逆重构。** 现有 loaders（[`apps/daemon/src/skills.ts`](../apps/daemon/src/skills.ts) 等）与 `composeSystemPrompt()` 保持 public shape；Phase 1 是 drop-in delegate，Phase 2 只**追加** prompt block。
 - **CLI 从 day 1 存在。** 每个新 endpoint 都有对应 `od plugin …` subcommand，因此同一 surface 可被任何 code agent 访问，不依赖 desktop app。
 - **Marketplace-first 产品叙事。** 从 Phase 2 开始，home screen 变成「input + chip strip + deep marketplace」；这正是 brief 中描述的反转：主交互 = 输入框 + 插件社区。
+
+## 20. Post-v1 可扩展性：artifact taxonomy、evaluators 与 production handoff
+
+本节有意作为 **contract reservation**，而不是 v1 implementation commitment。Plugin runtime、pipeline 与 marketplace 可以在 evaluator 与 production-handoff stack 完整落地前先发布，但核心数据模型必须为这些能力留下稳定位置，避免后续 preview / export / deploy 逻辑各自分叉。
+
+### 20.1 Artifact taxonomy
+
+每个 plugin 产出的 artifact 最终都应该携带三组互相独立的标签：
+
+| Field | 含义 | 初始取值 |
+| --- | --- | --- |
+| `artifactKind` | 这个 artifact 作为产品对象是什么 | `html-prototype`, `deck`, `interactive-video`, `design-system`, `code-diff`, `production-app`, `asset-pack` |
+| `renderKind` | OD 应该如何 preview 或打开它 | `html`, `jsx`, `pptx`, `markdown`, `video`, `image`, `diff`, `repo` |
+| `handoffKind` | 它对下游交付承诺到什么程度 | `design-only`, `implementation-plan`, `patch`, `deployable-app` |
+
+§11.5.1 的 v1 `ArtifactManifest` 扩展已经预留这些 optional 字段。v1 producer 可以保守推断；v1 consumer 必须 preserve 未知值。这样后续阶段不需要依赖文件名 sniffing（`index.html`、`slides.json`、`diff.patch`），也不需要把 export 与 handoff 决策硬塞进 `od.mode`。
+
+### 20.2 Evaluator atoms
+
+现有 `critique-theater` 与 devloop stage 是正确入口，但「critique」不能长期停留在纯 LLM 主观评价。后续 evaluator 能力应该作为 first-party atoms 接入 `od.pipeline.stages[]`：
+
+- `visual-diff` 对比截图或 Figma capture 与生成后的 HTML。
+- `responsive-check` 校验常见 viewport breakpoints。
+- `accessibility-check` 运行自动化 a11y checks，并总结需要人工判断的问题。
+- `brand-consistency-check` 根据 active `DESIGN.md` 对比颜色、字体、间距和语气。
+- `build-test` 为 code outputs 运行 package-scoped build / typecheck / lint commands。
+- `screenshot-regression` 记录并比较 devloop iterations 之间的 preview snapshots。
+
+Evaluator 结果应该先作为 run events 落库；稳定后，再在 artifact manifest 上汇总为 `evaluationSummary` 并链接到详细 reports。它们不需要新 plugin primitive：它们就是 atoms，像其他 atom 一样走 capability gate，也能参与现有 `repeat` / `until` devloop condition。
+
+### 20.3 Production handoff
+
+`code-migration` 与 `figma-migration` 初期可以先产出 `html-prototype`、`code-diff` 或 `implementation-plan` artifacts。后续 production-handoff phase 会把这条路径升级为可交付业务代码 workflow，但不需要改变 plugin substrate：
+
+1. **Target stack contract.** Run 记录 framework、package manager、styling system、component library、routing model 与 test command assumptions。
+2. **Design-token mapping.** 生成的 tokens 映射到现有 app tokens；如果无法直接映射，先生成 migration plan，再 patch code。
+3. **Component mapping.** Agent 把 artifact-level components 映射到 repo 内已有组件、shadcn-style primitives，或新建符合 ownership boundary 的 local components。
+4. **Patch safety.** 输出是可 review 的 diff，并附 build/test evidence，而不是 opaque generated repo overwrite。
+5. **Delivery evidence.** 最终 artifact 携带 `handoffKind: 'patch'` 或 `handoffKind: 'deployable-app'`、evaluator summaries，以及 export/deploy targets。
+
+这让 v1 的承诺保持诚实：plugins 已经可以组织 design-to-code workflows，但完整 production delivery 是建立在 `artifactKind`、evaluator atoms 与 repo-aware patch orchestration 之上的更严格 contract。
 
 ---
 

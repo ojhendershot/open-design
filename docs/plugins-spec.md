@@ -115,6 +115,7 @@ All four scenarios share the same `ApplyResult`, the same run pipeline, and the 
 17. [Examples](#17-examples)
 18. [Risks and open questions](#18-risks-and-open-questions)
 19. [Why this is a meaningful step for Open Design](#19-why-this-is-a-meaningful-step-for-open-design)
+20. [Post-v1 extensibility — artifact taxonomy, evaluators, and production handoff](#20-post-v1-extensibility--artifact-taxonomy-evaluators-and-production-handoff)
 
 ---
 
@@ -1118,6 +1119,19 @@ export interface ArtifactManifest {
   sourceRunId?: string;
   sourceProjectId?: string;
 
+  /** Stable output taxonomy used by preview, export, deploy, tuning, and handoff flows.
+   *  These fields are optional in v1 but must be preserved by readers and writers. */
+  artifactKind?:
+    | 'html-prototype'
+    | 'deck'
+    | 'interactive-video'
+    | 'design-system'
+    | 'code-diff'
+    | 'production-app'
+    | 'asset-pack';
+  renderKind?: 'html' | 'jsx' | 'pptx' | 'markdown' | 'video' | 'image' | 'diff' | 'repo';
+  handoffKind?: 'design-only' | 'implementation-plan' | 'patch' | 'deployable-app';
+
   /** Which downstream collaboration surfaces this artifact has been pushed to,
    *  serving §1's "distribution to cli / other code agents / cloud / desktop" claim */
   exportTargets?: Array<{
@@ -1138,6 +1152,7 @@ export interface ArtifactManifest {
 Write rules:
 
 - On run completion, the daemon writes the current `appliedPluginSnapshotId` plus redundant fields into every newly produced artifact manifest.
+- When a plugin declares output hints, the daemon writes `artifactKind`, `renderKind`, and `handoffKind`; otherwise it infers the safest value from `od.mode`, `od.preview.type`, and the emitted files. Unknown readers must preserve these fields even when they do not use them yet.
 - Every `od plugin export` / `od files upload --to <target>` / `od deploy ...` appends an `exportTargets` / `deployTargets` row but **never** mutates `sourcePluginSnapshotId`.
 - Tuning-class artifacts (`tune-collab`) record both `sourcePluginSnapshotId` (the current plugin) and `parentArtifactId` (the previous version being tuned), forming a back-pointer chain.
 
@@ -1929,6 +1944,47 @@ Open questions worth confirming before code lands:
 - **Reversible refactors.** Existing loaders ([`apps/daemon/src/skills.ts`](../apps/daemon/src/skills.ts) etc.) and `composeSystemPrompt()` keep their public shape; Phase 1 is a drop-in delegate, Phase 2 only **appends** a prompt block.
 - **CLI from day 1.** Every new endpoint has a matching `od plugin …` subcommand, so the same surface is reachable from any code agent without the desktop app.
 - **Marketplace-first product narrative.** From Phase 2 onward, the home screen becomes "input + chip strip + deep marketplace" — exactly the inversion described in the brief: 主交互 = 输入框 + 插件社区.
+
+## 20. Post-v1 extensibility — artifact taxonomy, evaluators, and production handoff
+
+This section is intentionally a **contract reservation**, not a v1 implementation commitment. The plugin runtime, pipeline, and marketplace can ship without the full evaluator and production-handoff stack, but the core data model must leave stable places for those capabilities so later work does not fork preview/export/deploy logic.
+
+### 20.1 Artifact taxonomy
+
+Every artifact produced by a plugin should eventually carry three orthogonal labels:
+
+| Field | Meaning | Initial values |
+| --- | --- | --- |
+| `artifactKind` | What the artifact is as a product object | `html-prototype`, `deck`, `interactive-video`, `design-system`, `code-diff`, `production-app`, `asset-pack` |
+| `renderKind` | How OD previews or opens it | `html`, `jsx`, `pptx`, `markdown`, `video`, `image`, `diff`, `repo` |
+| `handoffKind` | What downstream delivery promise it makes | `design-only`, `implementation-plan`, `patch`, `deployable-app` |
+
+The v1 `ArtifactManifest` extension in §11.5.1 already reserves these optional fields. v1 producers may infer them conservatively; v1 consumers must preserve unknown values. This prevents later phases from relying on filename sniffing (`index.html`, `slides.json`, `diff.patch`) or overloading `od.mode` for export and handoff decisions.
+
+### 20.2 Evaluator atoms
+
+The existing `critique-theater` and devloop stages are the right entry point, but "critique" must not remain purely LLM-subjective. Future evaluator capabilities should land as first-party atoms that can be scheduled in `od.pipeline.stages[]`:
+
+- `visual-diff` compares screenshots or Figma captures against generated HTML.
+- `responsive-check` validates common viewport breakpoints.
+- `accessibility-check` runs automated a11y checks and summarizes manual issues.
+- `brand-consistency-check` compares color, typography, spacing, and tone against the active `DESIGN.md`.
+- `build-test` runs package-scoped build / typecheck / lint commands for code outputs.
+- `screenshot-regression` records and compares preview snapshots across devloop iterations.
+
+Evaluator results should be stored as run events and, once stable, summarized on the artifact manifest as `evaluationSummary` plus links to detailed reports. They do not require a new plugin primitive: they are atoms, capability-gated like any other atom, and can participate in the existing `repeat` / `until` devloop condition.
+
+### 20.3 Production handoff
+
+`code-migration` and `figma-migration` can initially produce `html-prototype`, `code-diff`, or `implementation-plan` artifacts. A later production-handoff phase upgrades that path into a deployable business-code workflow without changing the plugin substrate:
+
+1. **Target stack contract.** The run records framework, package manager, styling system, component library, routing model, and test command assumptions.
+2. **Design-token mapping.** Generated tokens map to existing app tokens or create a migration plan before code is patched.
+3. **Component mapping.** The agent maps artifact-level components to repo components, shadcn-style primitives, or new local components with ownership boundaries.
+4. **Patch safety.** The output is a reviewable diff with build/test evidence, not an opaque generated repo overwrite.
+5. **Delivery evidence.** The final artifact carries `handoffKind: 'patch'` or `handoffKind: 'deployable-app'`, evaluator summaries, and export/deploy targets.
+
+This keeps v1 honest: plugins can already organize design-to-code workflows, but full production delivery is a stricter contract layered on top of `artifactKind`, evaluator atoms, and repo-aware patch orchestration.
 
 ---
 
