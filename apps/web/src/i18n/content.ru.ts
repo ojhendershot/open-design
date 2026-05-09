@@ -387,6 +387,7 @@ export const RU_DESIGN_SYSTEM_IDS_WITH_EN_FALLBACK = [
   'brutalism',
   'cafe',
   'canva',
+  'cisco',
   'claymorphism',
   'clean',
   'colorful',
@@ -436,6 +437,7 @@ export const RU_DESIGN_SYSTEM_IDS_WITH_EN_FALLBACK = [
   'shadcn',
   'simple',
   'skeumorphism',
+  'slack',
   'sleek',
   'spacious',
   'storytelling',
@@ -444,6 +446,7 @@ export const RU_DESIGN_SYSTEM_IDS_WITH_EN_FALLBACK = [
   'urdu',
   'vibrant',
   'vintage',
+  'webex',
 ] as const;
 
 export const RU_PROMPT_TEMPLATE_CATEGORIES: Record<string, string> = {

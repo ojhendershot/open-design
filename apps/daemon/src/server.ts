@@ -1,4 +1,5 @@
 // @ts-nocheck
+import type { DesktopExportPdfInput, DesktopExportPdfResult } from '@open-design/sidecar-proto';
 import express from 'express';
 import multer from 'multer';
 import { execFile, spawn } from 'node:child_process';
@@ -60,6 +61,7 @@ import { subscribe as subscribeFileEvents } from './project-watchers.js';
 import { renderDesignSystemPreview } from './design-system-preview.js';
 import { renderDesignSystemShowcase } from './design-system-showcase.js';
 import { createChatRunService } from './runs.js';
+import { reportRunCompletedFromDaemon } from './langfuse-bridge.js';
 import {
   redactSecrets,
   testAgentConnection,
@@ -77,6 +79,7 @@ import { buildDocumentPreview } from './document-preview.js';
 import { lintArtifact, renderFindingsForAgent } from './lint-artifact.js';
 import { loadCraftSections } from './craft.js';
 import { stageActiveSkill } from './cwd-aliases.js';
+import { buildDesktopPdfExportInput } from './pdf-export.js';
 import { generateMedia } from './media.js';
 import { searchResearch, ResearchError } from './research/index.js';
 import { renderResearchCommandContract } from './prompts/research-contract.js';
@@ -90,6 +93,15 @@ import {
   VIDEO_MODELS,
 } from './media-models.js';
 import { readMaskedConfig, writeConfig } from './media-config.js';
+import {
+  deleteMediaTask,
+  getMediaTask,
+  insertMediaTask,
+  listMediaTasksByProject,
+  listRecentMediaTasks,
+  reconcileMediaTasksOnBoot,
+  updateMediaTask,
+} from './media-tasks.js';
 import {
   MCP_TEMPLATES,
   buildAcpMcpServers,
@@ -1098,6 +1110,22 @@ function sendApiError(res, status, code, message, init = {}) {
     .json(createCompatApiErrorResponse(code, message, init));
 }
 
+const TERMINAL_RUN_STATUSES = new Set(['succeeded', 'failed', 'canceled']);
+
+export function shouldReportRunCompletedFromMessage(saved, body = {}) {
+  return Boolean(
+    saved &&
+      saved.runId &&
+      typeof saved.runStatus === 'string' &&
+      TERMINAL_RUN_STATUSES.has(saved.runStatus) &&
+      body?.telemetryFinalized === true,
+  );
+}
+
+export function telemetryPromptFromRunRequest(message, currentPrompt) {
+  return typeof currentPrompt === 'string' ? currentPrompt : message;
+}
+
 const CLOUDFLARE_PAGES_PROJECT_METADATA_KEY = 'cloudflarePagesProjectName';
 
 function cloudflarePagesDeploymentMetadata(projectName) {
@@ -1678,8 +1706,34 @@ function sendMulterError(res, err) {
 
 const mediaTasks = new Map();
 const TASK_TTL_AFTER_DONE_MS = 10 * 60 * 1000;
+const MEDIA_TERMINAL_STATUSES = new Set(['done', 'failed', 'interrupted']);
 
-function createMediaTask(taskId, projectId, info = {}) {
+function hydrateMediaTask(row) {
+  const task = {
+    id: row.id,
+    projectId: row.projectId,
+    status: row.status,
+    surface: row.surface,
+    model: row.model,
+    progress: Array.isArray(row.progress) ? row.progress.slice() : [],
+    file: row.file ?? null,
+    error: row.error ?? null,
+    startedAt: row.startedAt,
+    endedAt: row.endedAt,
+    waiters: new Set(),
+  };
+  mediaTasks.set(task.id, task);
+  return task;
+}
+
+function getLiveMediaTask(db, taskId) {
+  const cached = mediaTasks.get(taskId);
+  if (cached) return cached;
+  const row = getMediaTask(db, taskId);
+  return row ? hydrateMediaTask(row) : null;
+}
+
+function createMediaTask(db, taskId, projectId, info = {}) {
   const task = {
     id: taskId,
     projectId,
@@ -1694,15 +1748,41 @@ function createMediaTask(taskId, projectId, info = {}) {
     waiters: new Set(),
   };
   mediaTasks.set(taskId, task);
+  insertMediaTask(db, {
+    id: taskId,
+    projectId,
+    status: task.status,
+    surface: task.surface,
+    model: task.model,
+    progress: task.progress,
+    file: task.file,
+    error: task.error,
+    startedAt: task.startedAt,
+    endedAt: task.endedAt,
+  });
   return task;
 }
 
-function appendTaskProgress(task, line) {
-  task.progress.push(line);
-  notifyTaskWaiters(task);
+function persistMediaTask(db, task) {
+  updateMediaTask(db, task.id, {
+    status: task.status,
+    surface: task.surface,
+    model: task.model,
+    progress: task.progress,
+    file: task.file,
+    error: task.error,
+    startedAt: task.startedAt,
+    endedAt: task.endedAt,
+  });
 }
 
-function notifyTaskWaiters(task) {
+function appendTaskProgress(db, task, line) {
+  task.progress.push(line);
+  persistMediaTask(db, task);
+  notifyTaskWaiters(db, task);
+}
+
+function notifyTaskWaiters(db, task) {
   const wakers = Array.from(task.waiters);
   for (const w of wakers) {
     try {
@@ -1712,14 +1792,33 @@ function notifyTaskWaiters(task) {
     }
   }
   if (
-    (task.status === 'done' || task.status === 'failed') &&
+    MEDIA_TERMINAL_STATUSES.has(task.status) &&
     !task._gcScheduled
   ) {
     task._gcScheduled = true;
     setTimeout(() => {
-      if (task.waiters.size === 0) mediaTasks.delete(task.id);
+      if (task.waiters.size === 0) {
+        mediaTasks.delete(task.id);
+        deleteMediaTask(db, task.id);
+      }
     }, TASK_TTL_AFTER_DONE_MS).unref?.();
   }
+}
+
+function mediaTaskSnapshot(task, since = 0) {
+  const snapshot = {
+    taskId: task.id,
+    status: task.status,
+    startedAt: task.startedAt,
+    endedAt: task.endedAt,
+    progress: task.progress.slice(since),
+    nextSince: task.progress.length,
+  };
+  if (task.status === 'done') snapshot.file = task.file;
+  if (task.status === 'failed' || task.status === 'interrupted') {
+    snapshot.error = task.error;
+  }
+  return snapshot;
 }
 
 export function createSseResponse(
@@ -1761,9 +1860,13 @@ export function createSseResponse(
     /** @param {ChatSseEvent['event'] | ProxySseEvent['event'] | string} event */
     send(event, data, id: string | number | null | undefined = null) {
       if (!canWrite()) return false;
-      if (id !== null && id !== undefined) res.write(`id: ${id}\n`);
-      res.write(`event: ${event}\n`);
-      res.write(`data: ${JSON.stringify(data)}\n\n`);
+      // Assemble the full SSE event into a single write so id/event/data land
+      // in one TCP chunk. Three separate writes would let `event: <type>` flush
+      // ahead of the `data:` payload, which produces partial events for
+      // consumers that read chunk-by-chunk (e.g. tests using a Response body
+      // reader with a substring marker).
+      const idLine = id !== null && id !== undefined ? `id: ${id}\n` : '';
+      res.write(`${idLine}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       return true;
     },
     writeKeepAlive,
@@ -1775,6 +1878,15 @@ export function createSseResponse(
       }
     },
   };
+}
+
+export type DesktopPdfExporter = (input: DesktopExportPdfInput) => Promise<DesktopExportPdfResult>;
+
+export interface StartServerOptions {
+  desktopPdfExporter?: DesktopPdfExporter | null;
+  host?: string;
+  port?: number;
+  returnServer?: boolean;
 }
 
 function resolveChatRunInactivityTimeoutMs() {
@@ -1789,7 +1901,12 @@ function resolveChatRunShutdownGraceMs() {
   return Math.max(0, Math.floor(raw));
 }
 
-export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST || '127.0.0.1', returnServer = false } = {}) {
+export async function startServer({
+  port = 7456,
+  host = process.env.OD_BIND_HOST || '127.0.0.1',
+  returnServer = false,
+  desktopPdfExporter = null,
+}: StartServerOptions = {}) {
   let resolvedPort = port;
   let daemonShuttingDown = false;
   const extraAllowedOrigins = configuredAllowedOrigins();
@@ -1865,6 +1982,19 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
   const reconciledStaleRuns = reconcileStaleRuns(db, { staleAfterMs: critiqueCfg.totalTimeoutMs });
   if (reconciledStaleRuns > 0) {
     console.warn(`[critique] reconcileStaleRuns flipped ${reconciledStaleRuns} stale running row(s) to interrupted`);
+  }
+  const mediaReconcile = reconcileMediaTasksOnBoot(db, {
+    terminalTtlMs: TASK_TTL_AFTER_DONE_MS,
+  });
+  if (mediaReconcile.interrupted > 0 || mediaReconcile.deleted > 0) {
+    console.warn(
+      `[media] reconcileMediaTasksOnBoot interrupted ${mediaReconcile.interrupted} task(s), ` +
+        `deleted ${mediaReconcile.deleted} expired terminal task(s)`,
+    );
+  }
+  mediaTasks.clear();
+  for (const row of listRecentMediaTasks(db, { terminalTtlMs: TASK_TTL_AFTER_DONE_MS })) {
+    hydrateMediaTask(row);
   }
 
   if (process.env.OD_CODEX_DISABLE_PLUGINS === '1') {
@@ -2749,6 +2879,31 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     });
     // Bump the parent project's updatedAt so the project list re-orders.
     updateProject(db, req.params.id, {});
+    // Forward to Langfuse only on the explicit final message write. The web
+    // stream can persist a terminal runStatus before onDone has flushed the
+    // final assistant content and produced-file manifest; telemetryFinalized
+    // marks the later PUT that is safe for the bridge's SQLite read.
+    if (
+      shouldReportRunCompletedFromMessage(saved, m) &&
+      !reportedRuns.has(saved.runId)
+    ) {
+      const run = design.runs.get(saved.runId);
+      if (run) {
+        reportedRuns.add(saved.runId);
+        // Auto-evict so the Set doesn't accumulate forever in long-running
+        // daemons. Same TTL as the runs map cleanup in runs.ts.
+        setTimeout(() => reportedRuns.delete(saved.runId), 30 * 60 * 1000).unref?.();
+        void reportRunCompletedFromDaemon({
+          db,
+          dataDir: RUNTIME_DATA_DIR,
+          run,
+          persistedRunStatus: saved.runStatus,
+          persistedEndedAt:
+            typeof saved.endedAt === 'number' ? saved.endedAt : undefined,
+          appVersion: cachedAppVersion,
+        });
+      }
+    }
     res.json({ message: saved });
   });
 
@@ -4338,6 +4493,41 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     }
   });
 
+  app.post('/api/projects/:id/export/pdf', async (req, res) => {
+    if (typeof desktopPdfExporter !== 'function') {
+      return sendApiError(
+        res,
+        501,
+        'UPSTREAM_UNAVAILABLE',
+        'desktop PDF export is only available in the desktop runtime',
+      );
+    }
+    try {
+      const { fileName, title, deck } = req.body || {};
+      if (typeof fileName !== 'string' || fileName.length === 0) {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'fileName required');
+      }
+      const input = await buildDesktopPdfExportInput({
+        daemonUrl,
+        deck: deck === true,
+        fileName,
+        projectId: req.params.id,
+        projectsRoot: PROJECTS_DIR,
+        title: typeof title === 'string' ? title : undefined,
+      });
+      const result = await desktopPdfExporter(input);
+      res.json(result);
+    } catch (err) {
+      const status = err && err.code === 'ENOENT' ? 404 : 400;
+      sendApiError(
+        res,
+        status,
+        status === 404 ? 'FILE_NOT_FOUND' : 'BAD_REQUEST',
+        String(err?.message || err),
+      );
+    }
+  });
+
   app.delete('/api/projects/:id/raw/*', async (req, res) => {
     try {
       const project = getProject(db, req.params.id);
@@ -4618,7 +4808,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
       if (!project) return res.status(404).json({ error: 'project not found' });
 
       const taskId = randomUUID();
-      const task = createMediaTask(taskId, projectId, {
+      const task = createMediaTask(db, taskId, projectId, {
         surface: req.body?.surface,
         model: req.body?.model,
       });
@@ -4630,6 +4820,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
       );
 
       task.status = 'running';
+      persistMediaTask(db, task);
       generateMedia({
         projectRoot: PROJECT_ROOT,
         projectsRoot: PROJECTS_DIR,
@@ -4650,13 +4841,14 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
         language: typeof req.body?.language === 'string' ? req.body.language : undefined,
         compositionDir: req.body?.compositionDir,
         image: req.body?.image,
-        onProgress: (line) => appendTaskProgress(task, line),
+        onProgress: (line) => appendTaskProgress(db, task, line),
       })
         .then((meta) => {
           task.status = 'done';
           task.file = meta;
           task.endedAt = Date.now();
-          notifyTaskWaiters(task);
+          persistMediaTask(db, task);
+          notifyTaskWaiters(db, task);
           console.error(
             `[task ${taskId.slice(0, 8)}] done size=${meta?.size} mime=${meta?.mime} ` +
               `elapsed=${Math.round((task.endedAt - task.startedAt) / 1000)}s`,
@@ -4670,7 +4862,8 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
             code: err?.code,
           };
           task.endedAt = Date.now();
-          notifyTaskWaiters(task);
+          persistMediaTask(db, task);
+          notifyTaskWaiters(db, task);
           console.error(
             `[task ${taskId.slice(0, 8)}] failed status=${task.error.status} ` +
               `message=${(task.error.message || '').slice(0, 240)}`,
@@ -4732,7 +4925,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
       return res.status(403).json({ error: 'cross-origin request rejected' });
     }
     const taskId = req.params.id;
-    const task = mediaTasks.get(taskId);
+    const task = getLiveMediaTask(db, taskId);
     if (!task) return res.status(404).json({ error: 'task not found' });
 
     const since = Number.isFinite(req.body?.since) ? Number(req.body.since) : 0;
@@ -4743,22 +4936,11 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
 
     const respond = () => {
       if (res.writableEnded) return;
-      const snapshot = {
-        taskId,
-        status: task.status,
-        startedAt: task.startedAt,
-        endedAt: task.endedAt,
-        progress: task.progress.slice(since),
-        nextSince: task.progress.length,
-      };
-      if (task.status === 'done') snapshot.file = task.file;
-      if (task.status === 'failed') snapshot.error = task.error;
-      res.json(snapshot);
+      res.json(mediaTaskSnapshot(task, since));
     };
 
     if (
-      task.status === 'done' ||
-      task.status === 'failed' ||
+      MEDIA_TERMINAL_STATUSES.has(task.status) ||
       task.progress.length > since
     ) {
       return respond();
@@ -4784,25 +4966,21 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     const projectId = req.params.id;
     const includeDone =
       req.query.includeDone === '1' || req.query.includeDone === 'true';
-    const tasks = [];
-    for (const t of mediaTasks.values()) {
-      if (t.projectId !== projectId) continue;
-      const isTerminal = t.status === 'done' || t.status === 'failed';
-      if (isTerminal && !includeDone) continue;
-      tasks.push({
-        taskId: t.id,
-        status: t.status,
-        startedAt: t.startedAt,
-        endedAt: t.endedAt,
-        elapsed: Math.round(((t.endedAt ?? Date.now()) - t.startedAt) / 1000),
-        surface: t.surface,
-        model: t.model,
-        progress: t.progress.slice(-3),
-        progressCount: t.progress.length,
-        ...(t.status === 'done' ? { file: t.file } : {}),
-        ...(t.status === 'failed' ? { error: t.error } : {}),
-      });
-    }
+    const tasks = listMediaTasksByProject(db, projectId, {
+      includeTerminal: includeDone,
+    }).map((t) => ({
+      taskId: t.id,
+      status: t.status,
+      startedAt: t.startedAt,
+      endedAt: t.endedAt,
+      elapsed: Math.round(((t.endedAt ?? Date.now()) - t.startedAt) / 1000),
+      surface: t.surface,
+      model: t.model,
+      progress: t.progress.slice(-3),
+      progressCount: t.progress.length,
+      ...(t.status === 'done' ? { file: t.file } : {}),
+      ...(t.status === 'failed' || t.status === 'interrupted' ? { error: t.error } : {}),
+    }));
     tasks.sort((a, b) => b.startedAt - a.startedAt);
     res.json({ tasks });
   });
@@ -4844,6 +5022,26 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
   const design = {
     runs: createChatRunService({ createSseResponse, createSseErrorPayload }),
   };
+
+  // Tracks runs whose completion has already been forwarded to Langfuse so
+  // that repeated PUT /messages/:id calls (web buffers + retries) only emit
+  // one trace per run. Entries are scrubbed when the run's TTL window
+  // expires (30 min, mirrors runs.ts).
+  const reportedRuns = new Set();
+
+  // App-version snapshot read once at server start. Used as static metadata
+  // on every Langfuse trace so we can correlate behaviour with releases
+  // without paying the package.json read cost per turn. Updates require a
+  // daemon restart, which is fine — version doesn't change in-process.
+  let cachedAppVersion = null;
+  void (async () => {
+    try {
+      cachedAppVersion = await readCurrentAppVersionInfo();
+    } catch {
+      // Telemetry is best-effort; running with appVersion === null just
+      // omits the field from the trace.
+    }
+  })();
 
   const composeDaemonSystemPrompt = async ({
     agentId,
@@ -5029,6 +5227,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     const {
       agentId,
       message,
+      currentPrompt,
       systemPrompt,
       imagePaths = [],
       projectId,
@@ -5052,6 +5251,17 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     if (typeof clientRequestId === 'string' && clientRequestId)
       run.clientRequestId = clientRequestId;
     if (typeof agentId === 'string' && agentId) run.agentId = agentId;
+    // Stash the original user prompt + per-turn config so the
+    // langfuse-bridge report path can include them without reaching back
+    // into chatBody across the createChatRunService boundary. Each field
+    // is optional and only set when the chat body actually carried it.
+    const telemetryPrompt = telemetryPromptFromRunRequest(message, currentPrompt);
+    if (typeof telemetryPrompt === 'string') run.userPrompt = telemetryPrompt;
+    if (typeof model === 'string' && model) run.model = model;
+    if (typeof reasoning === 'string' && reasoning) run.reasoning = reasoning;
+    if (typeof skillId === 'string' && skillId) run.skillId = skillId;
+    if (typeof designSystemId === 'string' && designSystemId)
+      run.designSystemId = designSystemId;
     const def = getAgentDef(agentId);
     if (!def)
       return design.runs.fail(
@@ -5705,6 +5915,12 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
 
+    // Reset the inactivity watchdog on every raw stdout byte so that
+    // structured adapters that buffer partial lines (Codex item.completed,
+    // pi-rpc session/prompt, ACP agent messages) and models that spend a
+    // long time in non-streamed reasoning still keep the run alive.
+    child.stdout.on('data', () => noteAgentActivity());
+
     // Critique Theater branch (M0 dark launch, default disabled).
     // Only plain-stream adapters are routed through runOrchestrator in v1.
     // Adapters that emit structured wrappers (claude-stream-json,
@@ -6169,6 +6385,16 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
       return sendApiError(res, 503, 'UPSTREAM_UNAVAILABLE', 'daemon is shutting down');
     }
     const run = design.runs.create(req.body || {});
+    // Capture which front-end carrier started the run (Electron desktop
+    // shell vs. plain browser). Web sets this header explicitly; falls
+    // back to a UA sniff if header is absent. Used as a telemetry tag.
+    const declared = String(req.get('x-od-client') ?? '').toLowerCase();
+    if (declared === 'desktop' || declared === 'web') {
+      run.clientType = declared;
+    } else {
+      const ua = String(req.get('user-agent') ?? '');
+      run.clientType = ua.includes('Electron/') ? 'desktop' : 'web';
+    }
     /** @type {import('@open-design/contracts').ChatRunCreateResponse} */
     const body = { runId: run.id };
     res.status(202).json(body);
@@ -6715,15 +6941,26 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
       );
     }
 
+    const url = new URL(baseUrl);
+    const basePath = url.pathname.replace(/\/+$/, '');
+    const usesVersionedOpenAIPath = /\/openai\/v\d+(?:$|\/)/.test(basePath);
     const version =
       typeof apiVersion === 'string' && apiVersion.trim()
         ? apiVersion.trim()
-        : '2024-10-21';
-    const url = new URL(baseUrl);
-    url.pathname = `${url.pathname.replace(/\/+$/, '')}/openai/deployments/${encodeURIComponent(model)}/chat/completions`;
-    url.searchParams.set('api-version', version);
+        : usesVersionedOpenAIPath
+          ? ''
+          : '2024-10-21';
+    url.pathname = usesVersionedOpenAIPath
+      ? `${basePath}/chat/completions`
+      : `${basePath}/openai/deployments/${encodeURIComponent(model)}/chat/completions`;
+    if (usesVersionedOpenAIPath && !version) {
+      url.searchParams.delete('api-version');
+    }
+    if (version) {
+      url.searchParams.set('api-version', version);
+    }
     console.log(
-      `[proxy:azure] ${req.method} ${validated.parsed.hostname} deployment=${model} api-version=${version}`,
+      `[proxy:azure] ${req.method} ${validated.parsed.hostname} deployment=${model} api-version=${version || 'omitted'}`,
     );
 
     const payloadMessages = Array.isArray(messages) ? [...messages] : [];
@@ -6732,6 +6969,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     }
 
     const payload = {
+      ...(usesVersionedOpenAIPath ? { model } : {}),
       messages: payloadMessages,
       max_tokens:
         typeof maxTokens === 'number' && maxTokens > 0 ? maxTokens : 8192,

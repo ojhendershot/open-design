@@ -36,6 +36,7 @@ import {
   exportAsJsx,
   exportAsMd,
   exportAsPdf,
+  exportProjectAsPdf,
   exportProjectAsZip,
   exportReactComponentAsHtml,
   exportReactComponentAsZip,
@@ -1418,14 +1419,16 @@ function BoardComposerPopover({
         >
           Add note
         </button>
-        <button
-          type="button"
-          className="ghost"
-          disabled={target.selectionKind === 'pod' || !draft.trim()}
-          onClick={() => void onSaveComment()}
-        >
-          Save comment
-        </button>
+        {target.selectionKind === 'pod' ? null : (
+          <button
+            type="button"
+            className="ghost"
+            disabled={!draft.trim()}
+            onClick={() => void onSaveComment()}
+          >
+            Save comment
+          </button>
+        )}
         <button
           type="button"
           className="primary"
@@ -4340,7 +4343,13 @@ function HtmlViewer({
                     role="menuitem"
                     onClick={() => {
                       setShareMenuOpen(false);
-                      exportAsPdf(source ?? '', exportTitle, { deck: effectiveDeck });
+                      void exportProjectAsPdf({
+                        deck: effectiveDeck,
+                        fallbackPdf: () => exportAsPdf(source ?? '', exportTitle, { deck: effectiveDeck }),
+                        filePath: file.name,
+                        projectId,
+                        title: exportTitle,
+                      });
                     }}
                   >
                     <span className="share-menu-icon"><Icon name="file" size={14} /></span>
@@ -4730,7 +4739,7 @@ function HtmlViewer({
       ) : null}
       {deployModalOpen ? (
         <div className="modal-backdrop" role="presentation">
-          <div className="modal deploy-modal" role="dialog" aria-modal="true">
+          <div className="modal deploy-modal deploy-flow-modal" role="dialog" aria-modal="true">
             <div className="modal-head">
               <div className="kicker">{deployProviderLabel}</div>
               <h2>{t('fileViewer.deployToProvider', { provider: deployProviderLabel })}</h2>

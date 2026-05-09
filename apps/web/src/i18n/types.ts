@@ -168,6 +168,23 @@ export interface Dict {
   'settings.mediaProviderClearConfirm': string;
   'settings.mediaProviderPlaceholder': string;
   'settings.mediaProviderBaseUrlPlaceholder': string;
+  'settings.privacy': string;
+  'settings.privacyHint': string;
+  'settings.privacyConsentKicker': string;
+  'settings.privacyConsentLead': string;
+  'settings.privacyConsentFooter': string;
+  'settings.privacyConsentShare': string;
+  'settings.privacyConsentDecline': string;
+  'settings.privacyMetrics': string;
+  'settings.privacyMetricsHint': string;
+  'settings.privacyContent': string;
+  'settings.privacyContentHint': string;
+  'settings.privacyArtifacts': string;
+  'settings.privacyArtifactsHint': string;
+  'settings.privacyInstallationId': string;
+  'settings.privacyOptedOut': string;
+  'settings.privacyDataDeletion': string;
+  'settings.privacyDataDeletionHint': string;
   'settings.about': string;
   'settings.aboutHint': string;
   'settings.appVersion': string;
@@ -786,6 +803,7 @@ export interface Dict {
   'designFiles.downloadSelected': string;
   'designFiles.deleteSelected': string;
   'designFiles.clearSelection': string;
+  'designFiles.selectPage': string;
   'designFiles.selectAll': string;
   'designFiles.dropTitle': string;
   'designFiles.dropDesc': string;
@@ -815,6 +833,15 @@ export interface Dict {
   'designFiles.kindSpreadsheet': string;
   'designFiles.kindLiveArtifact': string;
   'designFiles.kindBinary': string;
+  'designFiles.colName': string;
+  'designFiles.colKind': string;
+  'designFiles.colModified': string;
+  'designFiles.perPage': string;
+  'designFiles.all': string;
+  'designFiles.prev': string;
+  'designFiles.next': string;
+  'designFiles.jumpToPage': string;
+  'designFiles.pageInfo': string;
   'quickSwitcher.placeholder': string;
   'quickSwitcher.empty': string;
   'quickSwitcher.noMatches': string;
@@ -1261,6 +1288,7 @@ export interface Dict {
   'sketch.undo': string;
   'sketch.clear': string;
   'sketch.close': string;
+  'sketch.closeConfirm': string;
   'sketch.textPrompt': string;
   'sketch.textModalTitle': string;
 }

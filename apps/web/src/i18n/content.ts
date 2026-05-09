@@ -436,6 +436,7 @@ const DE_DESIGN_SYSTEM_IDS_WITH_EN_FALLBACK = [
   'brutalism',
   'cafe',
   'canva',
+  'cisco',
   'claymorphism',
   'clean',
   'colorful',
@@ -485,6 +486,7 @@ const DE_DESIGN_SYSTEM_IDS_WITH_EN_FALLBACK = [
   'shadcn',
   'simple',
   'skeumorphism',
+  'slack',
   'sleek',
   'spacious',
   'storytelling',
@@ -493,6 +495,7 @@ const DE_DESIGN_SYSTEM_IDS_WITH_EN_FALLBACK = [
   'urdu',
   'vibrant',
   'vintage',
+  'webex',
 ] as const;
 
 const DE_PROMPT_TEMPLATE_CATEGORIES: Record<string, string> = {
