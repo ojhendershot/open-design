@@ -181,7 +181,9 @@ This section tracks **what exists in the repo today**. Update in the same PR tha
 | `od project import` (CLI wrapper of `/api/import/folder`) | absent | Phase 2C |
 | `od conversation new` | absent | Phase 2C |
 | `od marketplace search` (catalog query) | absent | Phase 3 |
-| `od plugin export/scaffold/publish` | absent | Phase 4 |
+| `od plugin scaffold` (interactive starter) | shipped | Phase 4 — `apps/daemon/src/plugins/scaffold.ts` + `od plugin scaffold --id <id>` |
+| `od plugin export <projectId> --as od\|claude-plugin\|agent-skill` | shipped | Phase 4 — `apps/daemon/src/plugins/export.ts` + `POST /api/applied-plugins/export` |
+| `od plugin publish --to <catalog>` | absent | Phase 4 |
 | `od skills/design-systems/craft/atoms list/show` | absent | Phase 4 |
 | `od status/doctor/version/config` | partial | Phase 4 (some pieces exist; audit) |
 
@@ -197,9 +199,9 @@ This section tracks **what exists in the repo today**. Update in the same PR tha
 | `apps/web/src/components/GenUISurfaceRenderer.tsx` | shipped | Phase 2A (confirmation/oauth-prompt first-class; form/choice fall back to JSON Schema preview until Phase 2A.5) |
 | `apps/web/src/components/GenUIInbox.tsx` | shipped | Phase 2A |
 | `NewProjectPanel` plugin rail mount | shipped | Phase 2B (entry slice) — `PluginsSection` mounted under the project-name input |
-| `ChatComposer` plugin rail mount | absent | Phase 2B (deeper Send-gating + per-conversation projectId binding) |
-| `apps/web/src/components/MarketplaceView.tsx` | absent | Phase 2B |
-| `apps/web/src/components/PluginDetailView.tsx` | absent | Phase 2B |
+| `ChatComposer` plugin rail mount | shipped | Phase 2B — `PluginsSection variant='strip'` rendered above the composer input when a `projectId` is bound |
+| `apps/web/src/components/MarketplaceView.tsx` | shipped | Phase 2B — catalog grid + trust filters + configured-catalogs panel; routes `/marketplace`. |
+| `apps/web/src/components/PluginDetailView.tsx` | shipped | Phase 2B — `/marketplace/:id` (alias `/plugins/:id`); 'Use this plugin' calls applyPlugin → Home. |
 
 ---
 
@@ -426,10 +428,10 @@ Validation
 
 Deliverables
 
-- [ ] `docs/atoms.md`; `GET /api/atoms` returns implemented + reserved (with `(planned)` marker).
-- [ ] `od plugin export <projectId> --as od|claude-plugin|agent-skill`.
-- [ ] `od plugin run <id> --input k=v --follow` (apply + run start + watch wrapper).
-- [ ] `od plugin scaffold` interactive starter.
+- [x] `docs/atoms.md`; `GET /api/atoms` returns implemented + reserved (with `(planned)` marker). Source of truth: `apps/daemon/src/plugins/atoms.ts`.
+- [x] `od plugin export <projectId> --as od|claude-plugin|agent-skill` — `apps/daemon/src/plugins/export.ts` + `POST /api/applied-plugins/export`.
+- [x] `od plugin run <id> --input k=v --follow` (apply + run start wrapper) — landed in §3.B3 (Phase 2A). Full ND-JSON streaming via `od run watch` is also shipped (Phase 1 follow-up §3.F1).
+- [x] `od plugin scaffold` interactive starter — `apps/daemon/src/plugins/scaffold.ts`.
 - [ ] `od plugin publish --to anthropics-skills|awesome-agent-skills|clawhub` (PR template launcher).
 - [ ] CLI parity remainder: `od skills/design-systems/craft/atoms list/show`, `od status/doctor/version`, `od config get/set/list/unset`, `od marketplace search`.
 - [ ] Optional `plugins/_official/atoms/<atom>/SKILL.md` extraction (spec §23.3.2 patch 2).
@@ -522,10 +524,10 @@ Plus repo-wide gates
 
 | Field | Value |
 | --- | --- |
-| Current phase | Phase 2A + 1 + 1.5 + 2C entry slice + 2B (composer mount + state helper) + 3 (entry slice incl. `od plugin install <name>`) + early 5 |
-| Next planned PR | Plug `runPipelineForRun()` into the live agent loop in `startChatRun()` (lifts e2e-3 from entry-slice to the full §8 'first SSE event = pipeline_stage_started' contract); Phase 2B marketplace deep UI + ChatComposer mount; Phase 4 atom migration / AG-UI / publish |
+| Current phase | Phase 2A + 1 + 1.5 + 2B (composer mount + ChatComposer mount + marketplace deep UI) + 2C entry slice + 3 (entry slice incl. `od plugin install <name>`) + 4 (scaffold + export + atoms doc) + early 5 |
+| Next planned PR | Plug `runPipelineForRun()` into the live agent loop in `startChatRun()` (lifts e2e-3 from entry-slice to the full §8 'first SSE event = `pipeline_stage_started`' contract); Phase 4 `od plugin publish --to <catalog>` PR-template launcher; Phase 4 atom migration into `plugins/_official/atoms/<atom>/SKILL.md`; Phase 4 AG-UI adapter; Phase 5 Docker image |
 | Open spec push-backs | none — PB1 / PB2 resolved (see §7) |
-| Last sync against `docs/plugins-spec.md` | 2026-05-09 (Phase 1.5 + Phase 1 follow-up CLI + Phase 2C entry slice + Phase 3 `od plugin install <name>` resolution + composer mount landing) |
+| Last sync against `docs/plugins-spec.md` | 2026-05-09 (Phase 4 scaffold / export / atoms doc + Phase 2B marketplace deep UI + ChatComposer mount landing) |
 
 Update this table on every plugin-system PR merge. When the value of "Current phase" advances, also flip the matching deliverables in §6 and the modules in §3.
 
