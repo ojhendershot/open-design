@@ -836,6 +836,7 @@ async function runPlugin(args) {
     case 'trust':     return runPluginTrust(rest);
     case 'snapshots': return runPluginSnapshots(rest);
     case 'simulate':  return runPluginSimulate(rest);
+    case 'verify':    return runPluginVerify(rest);
     case 'run':       return runPluginRun(rest);
     case 'scaffold': return runPluginScaffold(rest);
     case 'validate': return runPluginValidate(rest);
@@ -1750,6 +1751,176 @@ async function runPluginInstall(rest) {
 // Plan §3.Z2 — `od plugin upgrade <id>`. Re-installs the plugin
 // from its recorded source. Streams the same SSE event shape as
 // install, so 'progress' / 'success' / 'error' arrive verbatim.
+// Plan §3.FF1 — `od plugin verify <pluginId>` CI meta-command.
+//
+// Reads an optional .od-verify.json config from the plugin folder
+// or --config <path> and runs the enabled subset of:
+//
+//   doctor   — calls /api/plugins/<id>/doctor
+//   simulate — calls /api/plugins/<id> + simulatePipeline()
+//   canon    — fetches /api/applied-plugins/<snapshotId>/canon and
+//              compares against the on-disk fixture
+//
+// Aggregates into a unified pass/fail report. Exit 4 on any failed
+// check; useful as a one-liner CI check for a plugin's repo.
+async function runPluginVerify(rest) {
+  const flags = parseFlags(rest, {
+    string:  new Set([...PLUGIN_STRING_FLAGS, 'config']),
+    boolean: PLUGIN_BOOLEAN_FLAGS,
+  });
+  const positional = rest.filter((a) => !a.startsWith('-'));
+  const id = positional[0];
+  if (flags.help || flags.h || !id) {
+    console.log(`Usage:
+  od plugin verify <pluginId> [--config <path>] [--json]
+
+CI meta-command. Reads an optional config from
+'<plugin-folder>/.od-verify.json' (or --config <path>) and runs:
+
+  doctor    — manifest + atom + ref lint
+  simulate  — convergence dry-run for every until expression,
+              with per-stage signals from config.simulate.signals
+  canon     — byte-equality check against
+              config.canon.fixturePath using the snapshot at
+              config.canon.snapshotId
+
+Sample .od-verify.json:
+
+  {
+    "enabled": ["doctor", "simulate"],
+    "simulate": {
+      "signals": { "critique.score": 5, "build.passing": true },
+      "iterationCap": 5
+    },
+    "canon": {
+      "snapshotId": "snap-abc",
+      "fixturePath": "tests/expected-block.md"
+    }
+  }
+
+Exit codes:
+  0  every enabled check passed
+  4  one or more enabled checks failed
+  2  CLI usage error / plugin not found / config malformed`);
+    process.exit(id ? 0 : 2);
+  }
+  const base = pluginDaemonUrl(flags).replace(/\/$/, '');
+
+  // 1. Resolve the plugin record (fsPath + manifest).
+  const pluginResp = await fetch(`${base}/api/plugins/${encodeURIComponent(id)}`);
+  if (pluginResp.status === 404) {
+    console.error(`plugin ${id} not found`);
+    process.exit(65);
+  }
+  if (!pluginResp.ok) {
+    console.error(`GET /api/plugins/${id} failed: ${pluginResp.status} ${await pluginResp.text()}`);
+    process.exit(1);
+  }
+  const plugin = await pluginResp.json();
+
+  // 2. Load .od-verify.json from --config or <fsPath>/.od-verify.json.
+  const fs = await import('node:fs/promises');
+  const path = await import('node:path');
+  const configPath = typeof flags.config === 'string'
+    ? path.resolve(flags.config)
+    : (typeof plugin?.fsPath === 'string' ? path.join(plugin.fsPath, '.od-verify.json') : null);
+  let config = { enabled: ['doctor', 'simulate', 'canon'] };
+  if (configPath) {
+    try {
+      const raw = await fs.readFile(configPath, 'utf8');
+      config = JSON.parse(raw);
+    } catch (err) {
+      const e = err;
+      if (e?.code !== 'ENOENT') {
+        console.error(`[verify] cannot read config ${configPath}: ${e?.message ?? e}`);
+        process.exit(2);
+      }
+      // ENOENT → run with defaults. canon will skip cleanly because no
+      // config.canon entry was supplied.
+    }
+  }
+
+  // 3. doctor (when enabled)
+  const enabledSet = new Set((config.enabled ?? ['doctor', 'simulate', 'canon']).filter((c) =>
+    c === 'doctor' || c === 'simulate' || c === 'canon'));
+  let doctorReport = null;
+  if (enabledSet.has('doctor')) {
+    const doctorResp = await fetch(`${base}/api/plugins/${encodeURIComponent(id)}/doctor`);
+    if (doctorResp.ok) {
+      doctorReport = await doctorResp.json();
+    }
+  }
+
+  // 4. simulate (when enabled)
+  let simulateReport = null;
+  if (enabledSet.has('simulate')) {
+    const pipeline = plugin?.manifest?.od?.pipeline;
+    if (pipeline && Array.isArray(pipeline.stages) && pipeline.stages.length > 0) {
+      const { simulatePipeline } = await import('./plugins/simulate.js');
+      simulateReport = simulatePipeline({
+        pipeline,
+        signals: config.simulate?.signals ?? {},
+        ...(typeof config.simulate?.iterationCap === 'number' && config.simulate.iterationCap > 0
+          ? { iterationCap: config.simulate.iterationCap }
+          : {}),
+      });
+    }
+  }
+
+  // 5. canon (when enabled + fixture supplied)
+  let canonActual = null;
+  let canonExpected = null;
+  if (enabledSet.has('canon') && config.canon?.snapshotId && config.canon?.fixturePath) {
+    const fixturePath = path.resolve(
+      typeof flags.config === 'string'
+        ? path.dirname(path.resolve(flags.config))
+        : (typeof plugin?.fsPath === 'string' ? plugin.fsPath : process.cwd()),
+      config.canon.fixturePath,
+    );
+    try {
+      canonExpected = await fs.readFile(fixturePath, 'utf8');
+    } catch {
+      canonExpected = null;
+    }
+    if (canonExpected !== null) {
+      const canonResp = await fetch(
+        `${base}/api/applied-plugins/${encodeURIComponent(config.canon.snapshotId)}/canon`,
+        { headers: { accept: 'text/plain' } },
+      );
+      if (canonResp.ok) {
+        canonActual = await canonResp.text();
+      }
+    }
+  }
+
+  // 6. Aggregate.
+  const { verifyPlugin } = await import('./plugins/verify.js');
+  const report = verifyPlugin({
+    config: {
+      enabled: [...enabledSet],
+      ...(config.simulate ? { simulate: config.simulate } : {}),
+      ...(config.canon    ? { canon:    config.canon    } : {}),
+    },
+    ...(doctorReport   ? { doctor:        doctorReport } : {}),
+    ...(simulateReport ? { simulate:      simulateReport } : {}),
+    ...(canonActual    ? { canon:         canonActual } : {}),
+    ...(canonExpected  ? { canonExpected: canonExpected } : {}),
+  });
+  if (flags.json) {
+    process.stdout.write(JSON.stringify({ pluginId: id, ...report }, null, 2) + '\n');
+  } else {
+    console.log(`[verify] plugin ${id} \u2014 ${report.passed ? 'PASSED' : 'FAILED'}`);
+    for (const o of report.outcomes) {
+      const tag = o.status === 'passed' ? '\u2713'
+                : o.status === 'failed' ? '\u2717'
+                : o.status === 'skipped' ? '-'
+                : '!';
+      console.log(`  ${tag} ${o.summary}`);
+    }
+  }
+  process.exit(report.passed ? 0 : 4);
+}
+
 // Plan §3.EE1 — `od plugin simulate <pluginId> [-s key=value ...]`.
 //
 // Walks the plugin's pipeline against caller-supplied signals and
@@ -2622,6 +2793,8 @@ function printPluginHelp() {
   od plugin simulate <pluginId> [-s k=v]  Walk the plugin's pipeline against caller-supplied
                                           signals; report stage convergence + iterations
                                           (no LLM in the loop).
+  od plugin verify <pluginId>             CI meta-command: doctor + simulate + canon --check
+                                          driven by an .od-verify.json config in the plugin folder.
   od plugin diff <a> <b> [--json]         Compare two installed plugins by id.
   od plugin replay <runId> --snapshot-id <id>
                                           Re-emit the immutable snapshot a run launched against.

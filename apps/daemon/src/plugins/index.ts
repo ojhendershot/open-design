@@ -48,6 +48,14 @@ export {
   type SimulateStageOutcome,
   type StageSignalProvider,
 } from './simulate.js';
+export {
+  verifyPlugin,
+  type VerifyConfig,
+  type VerifyInput,
+  type VerifyReport,
+  type VerifyCheckOutcome,
+  type VerifyCheckId,
+} from './verify.js';
 export * from './atoms/build-test.js';
 export * from './atoms/code-import.js';
 export * from './atoms/design-extract.js';
