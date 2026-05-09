@@ -10,6 +10,9 @@ export interface RegisterChatRoutesDeps {
   agents: AnyRouteDeps;
   critique: AnyRouteDeps;
   validation: AnyRouteDeps;
+  lifecycle?: {
+    isDaemonShuttingDown: () => boolean;
+  };
 }
 
 export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
@@ -19,8 +22,19 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
   const { testProviderConnection, testAgentConnection, getAgentDef, isKnownModel, sanitizeCustomModel } = ctx.agents;
   const { handleCritiqueInterrupt, critiqueRunRegistry } = ctx.critique;
   const { validateBaseUrl } = ctx.validation;
+  const isDaemonShuttingDown = ctx.lifecycle?.isDaemonShuttingDown ?? (() => false);
   app.post('/api/runs', (req, res) => {
+    if (isDaemonShuttingDown()) {
+      return sendApiError(res, 503, 'UPSTREAM_UNAVAILABLE', 'daemon is shutting down');
+    }
     const run = design.runs.create(req.body || {});
+    const declared = String(req.get('x-od-client') ?? '').toLowerCase();
+    if (declared === 'desktop' || declared === 'web') {
+      run.clientType = declared;
+    } else {
+      const ua = String(req.get('user-agent') ?? '');
+      run.clientType = ua.includes('Electron/') ? 'desktop' : 'web';
+    }
     /** @type {import('@open-design/contracts').ChatRunCreateResponse} */
     const body = { runId: run.id };
     res.status(202).json(body);
@@ -57,6 +71,9 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
   });
 
   app.post('/api/chat', (req, res) => {
+    if (isDaemonShuttingDown()) {
+      return sendApiError(res, 503, 'UPSTREAM_UNAVAILABLE', 'daemon is shutting down');
+    }
     const run = design.runs.create();
     design.runs.stream(run, req, res);
     design.runs.start(run, () => startChatRun(req.body || {}, run));
@@ -86,13 +103,13 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
         const protocol = body.protocol;
         if (
           typeof protocol !== 'string' ||
-          !['anthropic', 'openai', 'azure', 'google'].includes(protocol)
+          !['anthropic', 'openai', 'azure', 'google', 'ollama'].includes(protocol)
         ) {
           return sendApiError(
             res,
             400,
             'BAD_REQUEST',
-            'protocol must be one of anthropic|openai|azure|google',
+            'protocol must be one of anthropic|openai|azure|google|ollama',
           );
         }
         if (
@@ -297,6 +314,42 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
 
     const tail = buffer.trim();
     if (tail) await onFrame(collectSseFrame(tail));
+  };
+
+  const streamUpstreamNdjson = async (response: any, onFrame: any) => {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let newline = buffer.indexOf('\n');
+      while (newline !== -1) {
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        newline = buffer.indexOf('\n');
+        if (!line) continue;
+        try {
+          const data = JSON.parse(line);
+          if (await onFrame({ data })) return;
+        } catch {
+          // Ignore malformed provider keepalive lines.
+        }
+      }
+    }
+
+    const tail = buffer.trim();
+    if (tail) {
+      try {
+        const data = JSON.parse(tail);
+        await onFrame({ data });
+      } catch {
+        // Ignore malformed provider tail data.
+      }
+    }
   };
 
   const extractOpenAIText = (data: any) => {
@@ -564,15 +617,26 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       );
     }
 
+    const url = new URL(baseUrl);
+    const basePath = url.pathname.replace(/\/+$/, '');
+    const usesVersionedOpenAIPath = /\/openai\/v\d+(?:$|\/)/.test(basePath);
     const version =
       typeof apiVersion === 'string' && apiVersion.trim()
         ? apiVersion.trim()
-        : '2024-10-21';
-    const url = new URL(baseUrl);
-    url.pathname = `${url.pathname.replace(/\/+$/, '')}/openai/deployments/${encodeURIComponent(model)}/chat/completions`;
-    url.searchParams.set('api-version', version);
+        : usesVersionedOpenAIPath
+          ? ''
+          : '2024-10-21';
+    url.pathname = usesVersionedOpenAIPath
+      ? `${basePath}/chat/completions`
+      : `${basePath}/openai/deployments/${encodeURIComponent(model)}/chat/completions`;
+    if (usesVersionedOpenAIPath && !version) {
+      url.searchParams.delete('api-version');
+    }
+    if (version) {
+      url.searchParams.set('api-version', version);
+    }
     console.log(
-      `[proxy:azure] ${req.method} ${validated.parsed.hostname} deployment=${model} api-version=${version}`,
+      `[proxy:azure] ${req.method} ${validated.parsed.hostname} deployment=${model} api-version=${version || 'omitted'}`,
     );
 
     const payloadMessages = Array.isArray(messages) ? [...messages] : [];
@@ -581,6 +645,7 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
     }
 
     const payload = {
+      ...(usesVersionedOpenAIPath ? { model } : {}),
       messages: payloadMessages,
       max_tokens:
         typeof maxTokens === 'number' && maxTokens > 0 ? maxTokens : 8192,
@@ -734,6 +799,79 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       sse.end();
     } catch (err: any) {
       console.error(`[proxy:google] internal error: ${err.message}`);
+      sendProxyError(sse, err.message, { code: 'INTERNAL_ERROR' });
+      sse.end();
+    }
+  });
+
+  app.post('/api/proxy/ollama/stream', async (req, res) => {
+    const proxyBody = req.body || {};
+    const { baseUrl, apiKey, model, systemPrompt, messages, maxTokens } = proxyBody;
+    if (!apiKey || !model) {
+      return sendApiError(res, 400, 'BAD_REQUEST', 'apiKey and model are required');
+    }
+
+    const effectiveBaseUrl = baseUrl || 'https://ollama.com';
+    const validated = validateExternalApiBaseUrl(effectiveBaseUrl);
+    if (validated.error) {
+      return sendApiError(
+        res,
+        validated.forbidden ? 403 : 400,
+        validated.forbidden ? 'FORBIDDEN' : 'BAD_REQUEST',
+        validated.error,
+      );
+    }
+
+    const clean = effectiveBaseUrl.replace(/\/+$/, '').replace(/\/api\/?$/, '');
+    const url = `${clean}/api/chat`;
+    console.log(`[proxy:ollama] ${req.method} ${validated.parsed.hostname} model=${model}`);
+
+    const payloadMessages = Array.isArray(messages) ? [...messages] : [];
+    if (typeof systemPrompt === 'string' && systemPrompt) {
+      payloadMessages.unshift({ role: 'system', content: systemPrompt });
+    }
+
+    const payload: any = { model, messages: payloadMessages, stream: true };
+    if (typeof maxTokens === 'number' && maxTokens > 0) {
+      payload.options = { num_predict: maxTokens };
+    }
+
+    const sse = createSseResponse(res);
+    sse.send('start', { model });
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[proxy:ollama] upstream error: ${response.status} ${redactAuthTokens(errorText)}`);
+        sendProxyError(sse, `Upstream error: ${response.status}`, {
+          code: proxyErrorCode(response.status),
+          details: errorText,
+          retryable: response.status === 429 || response.status >= 500,
+        });
+        return sse.end();
+      }
+
+      let ended = false;
+      await streamUpstreamNdjson(response, ({ data }: any) => {
+        if (!data) return false;
+        if (data.done) {
+          sse.send('end', {});
+          ended = true;
+          return true;
+        }
+        const content = data.message?.content;
+        if (typeof content === 'string' && content) sse.send('delta', { delta: content });
+        return false;
+      });
+      if (!ended) sse.send('end', {});
+      sse.end();
+    } catch (err: any) {
+      console.error(`[proxy:ollama] internal error: ${err.message}`);
       sendProxyError(sse, err.message, { code: 'INTERNAL_ERROR' });
       sse.end();
     }

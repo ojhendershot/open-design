@@ -1,4 +1,5 @@
 // @ts-nocheck
+import type { DesktopExportPdfInput, DesktopExportPdfResult } from '@open-design/sidecar-proto';
 import express from 'express';
 import multer from 'multer';
 import { execFile, spawn } from 'node:child_process';
@@ -51,6 +52,7 @@ import { subscribe as subscribeFileEvents } from './project-watchers.js';
 import { renderDesignSystemPreview } from './design-system-preview.js';
 import { renderDesignSystemShowcase } from './design-system-showcase.js';
 import { createChatRunService } from './runs.js';
+import { reportRunCompletedFromDaemon } from './langfuse-bridge.js';
 import {
   redactSecrets,
   testAgentConnection,
@@ -68,6 +70,7 @@ import { buildDocumentPreview } from './document-preview.js';
 import { lintArtifact, renderFindingsForAgent } from './lint-artifact.js';
 import { loadCraftSections } from './craft.js';
 import { stageActiveSkill } from './cwd-aliases.js';
+import { buildDesktopPdfExportInput } from './pdf-export.js';
 import { generateMedia } from './media.js';
 import { searchResearch, ResearchError } from './research/index.js';
 import { renderResearchCommandContract } from './prompts/research-contract.js';
@@ -81,6 +84,15 @@ import {
   VIDEO_MODELS,
 } from './media-models.js';
 import { readMaskedConfig, writeConfig } from './media-config.js';
+import {
+  deleteMediaTask,
+  getMediaTask,
+  insertMediaTask,
+  listMediaTasksByProject,
+  listRecentMediaTasks,
+  reconcileMediaTasksOnBoot,
+  updateMediaTask,
+} from './media-tasks.js';
 import {
   MCP_TEMPLATES,
   buildAcpMcpServers,
@@ -1054,6 +1066,22 @@ function sendApiError(res, status, code, message, init = {}) {
     .json(createCompatApiErrorResponse(code, message, init));
 }
 
+const TERMINAL_RUN_STATUSES = new Set(['succeeded', 'failed', 'canceled']);
+
+export function shouldReportRunCompletedFromMessage(saved, body = {}) {
+  return Boolean(
+    saved &&
+      saved.runId &&
+      typeof saved.runStatus === 'string' &&
+      TERMINAL_RUN_STATUSES.has(saved.runStatus) &&
+      body?.telemetryFinalized === true,
+  );
+}
+
+export function telemetryPromptFromRunRequest(message, currentPrompt) {
+  return typeof currentPrompt === 'string' ? currentPrompt : message;
+}
+
 const CLOUDFLARE_PAGES_PROJECT_METADATA_KEY = 'cloudflarePagesProjectName';
 
 function cloudflarePagesDeploymentMetadata(projectName) {
@@ -1602,6 +1630,7 @@ function sendMulterError(res, err) {
       LIMIT_FIELD_KEY: 400,
       LIMIT_FIELD_VALUE: 400,
       LIMIT_FIELD_COUNT: 400,
+      MISSING_FIELD_NAME: 400,
     };
     const errorByCode = {
       LIMIT_FILE_SIZE: 'file too large',
@@ -1611,6 +1640,7 @@ function sendMulterError(res, err) {
       LIMIT_FIELD_KEY: 'field name too long',
       LIMIT_FIELD_VALUE: 'field value too long',
       LIMIT_FIELD_COUNT: 'too many form fields',
+      MISSING_FIELD_NAME: 'missing field name',
     };
     const status = statusByCode[code] ?? 400;
     const message = errorByCode[code] ?? 'upload failed';
@@ -1632,8 +1662,34 @@ function sendMulterError(res, err) {
 
 const mediaTasks = new Map();
 const TASK_TTL_AFTER_DONE_MS = 10 * 60 * 1000;
+const MEDIA_TERMINAL_STATUSES = new Set(['done', 'failed', 'interrupted']);
 
-function createMediaTask(taskId, projectId, info = {}) {
+function hydrateMediaTask(row) {
+  const task = {
+    id: row.id,
+    projectId: row.projectId,
+    status: row.status,
+    surface: row.surface,
+    model: row.model,
+    progress: Array.isArray(row.progress) ? row.progress.slice() : [],
+    file: row.file ?? null,
+    error: row.error ?? null,
+    startedAt: row.startedAt,
+    endedAt: row.endedAt,
+    waiters: new Set(),
+  };
+  mediaTasks.set(task.id, task);
+  return task;
+}
+
+function getLiveMediaTask(db, taskId) {
+  const cached = mediaTasks.get(taskId);
+  if (cached) return cached;
+  const row = getMediaTask(db, taskId);
+  return row ? hydrateMediaTask(row) : null;
+}
+
+function createMediaTask(db, taskId, projectId, info = {}) {
   const task = {
     id: taskId,
     projectId,
@@ -1648,15 +1704,41 @@ function createMediaTask(taskId, projectId, info = {}) {
     waiters: new Set(),
   };
   mediaTasks.set(taskId, task);
+  insertMediaTask(db, {
+    id: taskId,
+    projectId,
+    status: task.status,
+    surface: task.surface,
+    model: task.model,
+    progress: task.progress,
+    file: task.file,
+    error: task.error,
+    startedAt: task.startedAt,
+    endedAt: task.endedAt,
+  });
   return task;
 }
 
-function appendTaskProgress(task, line) {
-  task.progress.push(line);
-  notifyTaskWaiters(task);
+function persistMediaTask(db, task) {
+  updateMediaTask(db, task.id, {
+    status: task.status,
+    surface: task.surface,
+    model: task.model,
+    progress: task.progress,
+    file: task.file,
+    error: task.error,
+    startedAt: task.startedAt,
+    endedAt: task.endedAt,
+  });
 }
 
-function notifyTaskWaiters(task) {
+function appendTaskProgress(db, task, line) {
+  task.progress.push(line);
+  persistMediaTask(db, task);
+  notifyTaskWaiters(db, task);
+}
+
+function notifyTaskWaiters(db, task) {
   const wakers = Array.from(task.waiters);
   for (const w of wakers) {
     try {
@@ -1666,14 +1748,33 @@ function notifyTaskWaiters(task) {
     }
   }
   if (
-    (task.status === 'done' || task.status === 'failed') &&
+    MEDIA_TERMINAL_STATUSES.has(task.status) &&
     !task._gcScheduled
   ) {
     task._gcScheduled = true;
     setTimeout(() => {
-      if (task.waiters.size === 0) mediaTasks.delete(task.id);
+      if (task.waiters.size === 0) {
+        mediaTasks.delete(task.id);
+        deleteMediaTask(db, task.id);
+      }
     }, TASK_TTL_AFTER_DONE_MS).unref?.();
   }
+}
+
+function mediaTaskSnapshot(task, since = 0) {
+  const snapshot = {
+    taskId: task.id,
+    status: task.status,
+    startedAt: task.startedAt,
+    endedAt: task.endedAt,
+    progress: task.progress.slice(since),
+    nextSince: task.progress.length,
+  };
+  if (task.status === 'done') snapshot.file = task.file;
+  if (task.status === 'failed' || task.status === 'interrupted') {
+    snapshot.error = task.error;
+  }
+  return snapshot;
 }
 
 export function createSseResponse(
@@ -1715,9 +1816,13 @@ export function createSseResponse(
     /** @param {ChatSseEvent['event'] | ProxySseEvent['event'] | string} event */
     send(event, data, id: string | number | null | undefined = null) {
       if (!canWrite()) return false;
-      if (id !== null && id !== undefined) res.write(`id: ${id}\n`);
-      res.write(`event: ${event}\n`);
-      res.write(`data: ${JSON.stringify(data)}\n\n`);
+      // Assemble the full SSE event into a single write so id/event/data land
+      // in one TCP chunk. Three separate writes would let `event: <type>` flush
+      // ahead of the `data:` payload, which produces partial events for
+      // consumers that read chunk-by-chunk (e.g. tests using a Response body
+      // reader with a substring marker).
+      const idLine = id !== null && id !== undefined ? `id: ${id}\n` : '';
+      res.write(`${idLine}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       return true;
     },
     writeKeepAlive,
@@ -1731,14 +1836,35 @@ export function createSseResponse(
   };
 }
 
+export type DesktopPdfExporter = (input: DesktopExportPdfInput) => Promise<DesktopExportPdfResult>;
+
+export interface StartServerOptions {
+  desktopPdfExporter?: DesktopPdfExporter | null;
+  host?: string;
+  port?: number;
+  returnServer?: boolean;
+}
+
 function resolveChatRunInactivityTimeoutMs() {
   const raw = Number(process.env.OD_CHAT_RUN_INACTIVITY_TIMEOUT_MS);
   if (!Number.isFinite(raw)) return 2 * 60 * 1000;
   return Math.max(0, Math.floor(raw));
 }
 
-export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST || '127.0.0.1', returnServer = false } = {}) {
+function resolveChatRunShutdownGraceMs() {
+  const raw = Number(process.env.OD_CHAT_RUN_SHUTDOWN_GRACE_MS);
+  if (!Number.isFinite(raw)) return 3_000;
+  return Math.max(0, Math.floor(raw));
+}
+
+export async function startServer({
+  port = 7456,
+  host = process.env.OD_BIND_HOST || '127.0.0.1',
+  returnServer = false,
+  desktopPdfExporter = null,
+}: StartServerOptions = {}) {
   let resolvedPort = port;
+  let daemonShuttingDown = false;
   const extraAllowedOrigins = configuredAllowedOrigins();
   const app = express();
   app.use(express.json({ limit: '4mb' }));
@@ -1813,6 +1939,19 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
   if (reconciledStaleRuns > 0) {
     console.warn(`[critique] reconcileStaleRuns flipped ${reconciledStaleRuns} stale running row(s) to interrupted`);
   }
+  const mediaReconcile = reconcileMediaTasksOnBoot(db, {
+    terminalTtlMs: TASK_TTL_AFTER_DONE_MS,
+  });
+  if (mediaReconcile.interrupted > 0 || mediaReconcile.deleted > 0) {
+    console.warn(
+      `[media] reconcileMediaTasksOnBoot interrupted ${mediaReconcile.interrupted} task(s), ` +
+        `deleted ${mediaReconcile.deleted} expired terminal task(s)`,
+    );
+  }
+  mediaTasks.clear();
+  for (const row of listRecentMediaTasks(db, { terminalTtlMs: TASK_TTL_AFTER_DONE_MS })) {
+    hydrateMediaTask(row);
+  }
 
   if (process.env.OD_CODEX_DISABLE_PLUGINS === '1') {
     console.log('[od] Codex plugins disabled via OD_CODEX_DISABLE_PLUGINS=1');
@@ -1859,6 +1998,20 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
   const design = {
     runs: createChatRunService({ createSseResponse, createSseErrorPayload }),
   };
+
+  // Tracks runs whose completion has already been forwarded to Langfuse so
+  // repeated message updates only emit one trace per run.
+  const reportedRuns = new Set();
+
+  // App-version snapshot read once at server start for Langfuse trace metadata.
+  let cachedAppVersion = null;
+  void (async () => {
+    try {
+      cachedAppVersion = await readCurrentAppVersionInfo();
+    } catch {
+      // Telemetry is best-effort; appVersion is omitted when unavailable.
+    }
+  })();
 
   const validateExternalApiBaseUrl = (baseUrl) => validateBaseUrl(baseUrl);
 
@@ -1941,6 +2094,9 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
   const projectExportDeps = {
     buildProjectArchive,
     buildBatchArchive,
+    buildDesktopPdfExportInput,
+    desktopPdfExporter,
+    daemonUrlRef,
     sanitizeArchiveFilename,
   };
   const artifactDeps = {
@@ -1986,9 +2142,12 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     writeConfig,
     generateMedia,
     mediaTasks,
-    createMediaTask,
-    appendTaskProgress,
-    notifyTaskWaiters,
+    createMediaTask: (taskId, projectId, info) => createMediaTask(db, taskId, projectId, info),
+    appendTaskProgress: (task, line) => appendTaskProgress(db, task, line),
+    notifyTaskWaiters: (task) => notifyTaskWaiters(db, task),
+    getLiveMediaTask: (taskId) => getLiveMediaTask(db, taskId),
+    mediaTaskSnapshot,
+    listMediaTasksByProject,
   };
   const appConfigDeps = { readAppConfig, writeAppConfig };
   const orbitDeps = { orbitService };
@@ -2288,6 +2447,7 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     const {
       agentId,
       message,
+      currentPrompt,
       systemPrompt,
       imagePaths = [],
       projectId,
@@ -2310,6 +2470,17 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     if (typeof clientRequestId === 'string' && clientRequestId)
       run.clientRequestId = clientRequestId;
     if (typeof agentId === 'string' && agentId) run.agentId = agentId;
+    // Stash the original user prompt + per-turn config so the
+    // langfuse-bridge report path can include them without reaching back
+    // into chatBody across the createChatRunService boundary. Each field
+    // is optional and only set when the chat body actually carried it.
+    const telemetryPrompt = telemetryPromptFromRunRequest(message, currentPrompt);
+    if (typeof telemetryPrompt === 'string') run.userPrompt = telemetryPrompt;
+    if (typeof model === 'string' && model) run.model = model;
+    if (typeof reasoning === 'string' && reasoning) run.reasoning = reasoning;
+    if (typeof skillId === 'string' && skillId) run.skillId = skillId;
+    if (typeof designSystemId === 'string' && designSystemId)
+      run.designSystemId = designSystemId;
     const def = getAgentDef(agentId);
     if (!def)
       return design.runs.fail(
@@ -2956,6 +3127,12 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
 
+    // Reset the inactivity watchdog on every raw stdout byte so that
+    // structured adapters that buffer partial lines (Codex item.completed,
+    // pi-rpc session/prompt, ACP agent messages) and models that spend a
+    // long time in non-streamed reasoning still keep the run alive.
+    child.stdout.on('data', () => noteAgentActivity());
+
     // Critique Theater branch (M0 dark launch, default disabled).
     // Only plain-stream adapters are routed through runOrchestrator in v1.
     // Adapters that emit structured wrappers (claude-stream-json,
@@ -3420,19 +3597,27 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     agents: agentDeps,
     critique: critiqueDeps,
     validation: validationDeps,
+    lifecycle: { isDaemonShuttingDown: () => daemonShuttingDown },
   });
 
   // Wait for `listen` to bind so callers always see the resolved URL —
   // critical when port=0 (ephemeral port) and when the embedding sidecar
   // needs to advertise the port to a parent process before any request
   // can flow. Three callers depend on this contract:
-  //   - `apps/daemon/src/cli.ts`            → expects a `url` string
+  //   - `apps/daemon/src/cli.ts`            → expects `{ url, server, shutdown }`
   //   - `apps/daemon/sidecar/server.ts`     → expects `{ url, server }`
   //   - `apps/daemon/tests/version-route.test.ts` → expects `{ url, server }`
   return await new Promise((resolve, reject) => {
+    let daemonShutdownStarted = false;
     const cleanupDaemonBackgroundWork = () => {
       composioConnectorProvider.stopCatalogRefreshLoop();
       orbitService.stop();
+    };
+    const shutdownDaemonRuns = async () => {
+      if (daemonShutdownStarted) return;
+      daemonShutdownStarted = true;
+      daemonShuttingDown = true;
+      await design.runs.shutdownActive({ graceMs: resolveChatRunShutdownGraceMs() });
     };
     let server;
     try {
@@ -3462,14 +3647,16 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
           console.log(`[od] daemon listening on ${url}`);
         }
         daemonUrl = url;
-        resolve(returnServer ? { url, server } : url);
+        resolve(returnServer ? { url, server, shutdown: shutdownDaemonRuns } : url);
       });
     } catch (error) {
       cleanupDaemonBackgroundWork();
       reject(error);
       return;
     }
-    server.once('close', cleanupDaemonBackgroundWork);
+    server.once('close', () => {
+      void shutdownDaemonRuns().finally(cleanupDaemonBackgroundWork);
+    });
     // `app.listen` throws synchronously when the port is already in use on
     // some Node versions, but emits an `error` event on others (and for
     // EACCES / EADDRNOTAVAIL even on the same Node). Wire the event so the

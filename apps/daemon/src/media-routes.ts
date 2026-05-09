@@ -22,7 +22,7 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
   const { sendApiError, requireLocalDaemonRequest, isLocalSameOrigin, resolvedPortRef } = ctx.http;
   const { PROJECT_ROOT, PROJECTS_DIR, RUNTIME_DATA_DIR } = ctx.paths;
   const { randomUUID } = ctx.ids;
-  const { MEDIA_PROVIDERS, IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS_BY_KIND, MEDIA_ASPECTS, VIDEO_LENGTHS_SEC, AUDIO_DURATIONS_SEC, readMaskedConfig, writeConfig, generateMedia, mediaTasks, createMediaTask, appendTaskProgress, notifyTaskWaiters } = ctx.media;
+  const { MEDIA_PROVIDERS, IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS_BY_KIND, MEDIA_ASPECTS, VIDEO_LENGTHS_SEC, AUDIO_DURATIONS_SEC, readMaskedConfig, writeConfig, generateMedia, createMediaTask, appendTaskProgress, notifyTaskWaiters, getLiveMediaTask, mediaTaskSnapshot, listMediaTasksByProject } = ctx.media;
   const { readAppConfig, writeAppConfig } = ctx.appConfig;
   const { orbitService } = ctx.orbit;
   const { openNativeFolderDialog } = ctx.nativeDialogs;
@@ -264,7 +264,7 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
       return res.status(403).json({ error: 'cross-origin request rejected' });
     }
     const taskId = req.params.id;
-    const task = mediaTasks.get(taskId);
+    const task = getLiveMediaTask(taskId);
     if (!task) return res.status(404).json({ error: 'task not found' });
 
     const since = Number.isFinite(req.body?.since) ? Number(req.body.since) : 0;
@@ -275,22 +275,13 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
 
     const respond = () => {
       if (res.writableEnded) return;
-      const snapshot: any = {
-        taskId,
-        status: task.status,
-        startedAt: task.startedAt,
-        endedAt: task.endedAt,
-        progress: task.progress.slice(since),
-        nextSince: task.progress.length,
-      };
-      if (task.status === 'done') snapshot.file = task.file;
-      if (task.status === 'failed') snapshot.error = task.error;
-      res.json(snapshot);
+      res.json(mediaTaskSnapshot(task, since));
     };
 
     if (
       task.status === 'done' ||
       task.status === 'failed' ||
+      task.status === 'interrupted' ||
       task.progress.length > since
     ) {
       return respond();
@@ -316,12 +307,9 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
     const projectId = req.params.id;
     const includeDone =
       req.query.includeDone === '1' || req.query.includeDone === 'true';
-    const tasks = [];
-    for (const t of mediaTasks.values()) {
-      if (t.projectId !== projectId) continue;
-      const isTerminal = t.status === 'done' || t.status === 'failed';
-      if (isTerminal && !includeDone) continue;
-      tasks.push({
+    const tasks = listMediaTasksByProject(db, projectId, {
+      includeTerminal: includeDone,
+    }).map((t: any) => ({
         taskId: t.id,
         status: t.status,
         startedAt: t.startedAt,
@@ -332,10 +320,8 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
         progress: t.progress.slice(-3),
         progressCount: t.progress.length,
         ...(t.status === 'done' ? { file: t.file } : {}),
-        ...(t.status === 'failed' ? { error: t.error } : {}),
-      });
-    }
-    tasks.sort((a, b) => b.startedAt - a.startedAt);
+        ...(t.status === 'failed' || t.status === 'interrupted' ? { error: t.error } : {}),
+      }));
     res.json({ tasks });
   });
 

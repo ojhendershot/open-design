@@ -86,6 +86,34 @@ describe('connector display sorting', () => {
     expect(connector.tools).toEqual([]);
   });
 
+  it('prefers advertised tool counts over curated preview tool names', () => {
+    const connector = {
+      id: 'github',
+      name: 'GitHub',
+      provider: 'Composio',
+      category: 'Developer',
+      status: 'connected' as const,
+      toolCount: 846,
+      tools: [
+        {
+          title: 'Search repositories',
+          name: 'github.github_search_repositories',
+          safety: { sideEffect: 'read' as const, approval: 'auto' as const, reason: 'Read-only search.' },
+          refreshEligible: true,
+        },
+        {
+          title: 'Get issue',
+          name: 'github.github_get_issue',
+          safety: { sideEffect: 'read' as const, approval: 'auto' as const, reason: 'Read-only get.' },
+          refreshEligible: true,
+        },
+      ],
+      curatedToolNames: ['github.github_search_repositories', 'github.github_get_issue'],
+    };
+
+    expect(getConnectorDisplayToolCount(connector)).toBe(846);
+  });
+
   it('appends paginated preview tools without duplicating rows', () => {
     const current = {
       id: 'canvas',
@@ -153,6 +181,8 @@ describe('connector display sorting', () => {
         status: 'connected',
         description: 'Sync issues from GitHub repositories.',
         tools: [],
+        allowedToolNames: [],
+        curatedToolNames: [],
       },
       {
         id: 'github-enterprise',
@@ -161,6 +191,8 @@ describe('connector display sorting', () => {
         category: 'Code',
         status: 'available',
         tools: [],
+        allowedToolNames: [],
+        curatedToolNames: [],
       },
       {
         id: 'github',
@@ -169,6 +201,8 @@ describe('connector display sorting', () => {
         category: 'Code',
         status: 'available',
         tools: [],
+        allowedToolNames: [],
+        curatedToolNames: [],
       },
       {
         id: 'slack',
@@ -184,6 +218,8 @@ describe('connector display sorting', () => {
             refreshEligible: false,
           },
         ],
+        allowedToolNames: [],
+        curatedToolNames: [],
       },
     ], 'github');
 
@@ -209,6 +245,8 @@ describe('connector authorization pending state', () => {
         category: 'Personal',
         status: 'available',
         tools: [],
+        allowedToolNames: [],
+        curatedToolNames: [],
       },
       auth: {
         kind: 'redirect_required',
@@ -258,6 +296,8 @@ describe('connector authorization pending state', () => {
         category: 'Personal',
         status: 'connected',
         tools: [],
+        allowedToolNames: [],
+        curatedToolNames: [],
       },
       auth: { kind: 'connected' },
     }, nowMs);

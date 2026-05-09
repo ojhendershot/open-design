@@ -192,7 +192,14 @@ export function registerProjectExportRoutes(app: Express, ctx: RegisterProjectEx
   const { sendApiError } = ctx.http;
   const { PROJECTS_DIR } = ctx.paths;
   const { getProject } = ctx.projectStore;
-  const { buildProjectArchive, buildBatchArchive, sanitizeArchiveFilename } = ctx.exports;
+  const {
+    buildProjectArchive,
+    buildBatchArchive,
+    buildDesktopPdfExportInput,
+    desktopPdfExporter,
+    daemonUrlRef,
+    sanitizeArchiveFilename,
+  } = ctx.exports;
   // Streams a ZIP of the project's on-disk tree so the "Download as .zip"
   // share menu can hand the user the actual files they uploaded — e.g. the
   // imported `ui-design/` folder — instead of a one-file snapshot of the
@@ -263,6 +270,41 @@ export function registerProjectExportRoutes(app: Express, ctx: RegisterProjectEx
     } catch (err: any) {
       const code = err && err.code;
       const status = code === 'ENOENT' ? 404 : 400;
+      sendApiError(
+        res,
+        status,
+        status === 404 ? 'FILE_NOT_FOUND' : 'BAD_REQUEST',
+        String(err?.message || err),
+      );
+    }
+  });
+
+  app.post('/api/projects/:id/export/pdf', async (req, res) => {
+    if (typeof desktopPdfExporter !== 'function') {
+      return sendApiError(
+        res,
+        501,
+        'UPSTREAM_UNAVAILABLE',
+        'desktop PDF export is only available in the desktop runtime',
+      );
+    }
+    try {
+      const { fileName, title, deck } = req.body || {};
+      if (typeof fileName !== 'string' || fileName.length === 0) {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'fileName required');
+      }
+      const input = await buildDesktopPdfExportInput({
+        daemonUrl: daemonUrlRef.current,
+        deck: deck === true,
+        fileName,
+        projectId: req.params.id,
+        projectsRoot: PROJECTS_DIR,
+        title: typeof title === 'string' ? title : undefined,
+      });
+      const result = await desktopPdfExporter(input);
+      res.json(result);
+    } catch (err: any) {
+      const status = err && err.code === 'ENOENT' ? 404 : 400;
       sendApiError(
         res,
         status,

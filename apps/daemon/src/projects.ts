@@ -339,7 +339,8 @@ export async function readProjectFile(projectsRoot, projectId, name, metadata?) 
   const file = await resolveSafeReal(dir, name);
   const buf = await readFile(file);
   const st = await stat(file);
-  const rel = toProjectPath(path.relative(dir, file));
+  const rootReal = await realpath(dir).catch(() => dir);
+  const rel = toProjectPath(path.relative(rootReal, file));
   const manifest = await readManifestForPath(dir, rel);
   return {
     buffer: buf,
@@ -578,6 +579,7 @@ const EXT_MIME = {
   '.cjs': 'text/javascript; charset=utf-8',
   '.jsx': 'text/javascript; charset=utf-8',
   '.ts': 'text/typescript; charset=utf-8',
+  '.py': 'text/x-python; charset=utf-8',
   // `.tsx` previously served as `text/typescript`, which browser module
   // loaders and strict CSPs do not accept as a JavaScript MIME. Multi-file
   // React prototypes that load `.tsx` via Babel-standalone (`<script
