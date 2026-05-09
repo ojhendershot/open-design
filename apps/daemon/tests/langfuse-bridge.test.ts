@@ -349,6 +349,46 @@ describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
     });
   });
 
+  it('reports only the current user turn captured on the run', async () => {
+    await writeAppCfg({
+      installationId: 'install-1',
+      telemetry: { metrics: true, content: true },
+    });
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(new Response('{}', { status: 207 }));
+    process.env.LANGFUSE_PUBLIC_KEY = 'pk';
+    process.env.LANGFUSE_SECRET_KEY = 'sk';
+    try {
+      await reportRunCompletedFromDaemon({
+        db: makeDbWithListMessages({
+          'conv-1': [
+            {
+              id: 'msg-1',
+              role: 'assistant',
+              content: 'latest answer',
+            },
+          ],
+        }),
+        dataDir,
+        run: makeRun({ userPrompt: 'post-consent revision' }) as any,
+        fetchImpl: fetchSpy as any,
+      });
+    } finally {
+      delete process.env.LANGFUSE_PUBLIC_KEY;
+      delete process.env.LANGFUSE_SECRET_KEY;
+    }
+
+    const init = fetchSpy.mock.calls[0]![1] as RequestInit;
+    const payload = init.body as string;
+    const batch = JSON.parse(payload).batch as any[];
+    expect(batch[0].body.input).toBe('post-consent revision');
+    expect(bodyOf(batch, 'span-create', 'agent-run').input).toBe(
+      'post-consent revision',
+    );
+    expect(payload).not.toContain('pre-consent brief');
+  });
+
   it('passes status=failed and a clipped error message through', async () => {
     await writeAppCfg({
       installationId: 'install-1',

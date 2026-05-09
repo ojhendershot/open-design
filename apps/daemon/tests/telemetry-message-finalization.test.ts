@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { shouldReportRunCompletedFromMessage } from '../src/server.js';
+import {
+  shouldReportRunCompletedFromMessage,
+  telemetryPromptFromRunRequest,
+} from '../src/server.js';
 
 describe('Langfuse message finalization gate', () => {
   const terminalMessage = {
@@ -36,5 +39,20 @@ describe('Langfuse message finalization gate', () => {
         { telemetryFinalized: true },
       ),
     ).toBe(false);
+  });
+
+  it('uses the explicit current prompt for telemetry instead of the full transcript', () => {
+    expect(
+      telemetryPromptFromRunRequest(
+        '## user\npre-consent brief\n\n## assistant\ndraft\n\n## user\npost-consent revision',
+        'post-consent revision',
+      ),
+    ).toBe('post-consent revision');
+  });
+
+  it('falls back to the legacy message when currentPrompt is absent', () => {
+    expect(telemetryPromptFromRunRequest('legacy prompt', undefined)).toBe(
+      'legacy prompt',
+    );
   });
 });

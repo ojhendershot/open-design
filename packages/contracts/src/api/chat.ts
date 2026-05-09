@@ -11,6 +11,8 @@ export type ChatRole = 'user' | 'assistant';
 export interface ChatRequest {
   agentId: string;
   message: string;
+  /** The latest user turn only, used for per-turn telemetry content. */
+  currentPrompt?: string;
   systemPrompt?: string;
   projectId?: string | null;
   conversationId?: string | null;

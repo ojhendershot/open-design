@@ -42,6 +42,14 @@ function detectClientType(): 'desktop' | 'web' | 'unknown' {
 }
 import { parseSseFrame } from './sse';
 
+export function latestUserPromptFromHistory(history: ChatMessage[]): string {
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const message = history[i];
+    if (message?.role === 'user') return message.content;
+  }
+  return '';
+}
+
 export interface DaemonStreamHandlers extends StreamHandlers {
   onAgentEvent: (ev: AgentEvent) => void;
 }
@@ -123,6 +131,7 @@ export async function streamViaDaemon({
   const request: ChatRequest = {
     agentId,
     message: transcript,
+    currentPrompt: latestUserPromptFromHistory(history),
     projectId: projectId ?? null,
     conversationId: conversationId ?? null,
     assistantMessageId: assistantMessageId ?? null,

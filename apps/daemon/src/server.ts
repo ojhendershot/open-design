@@ -1069,6 +1069,10 @@ export function shouldReportRunCompletedFromMessage(saved, body = {}) {
   );
 }
 
+export function telemetryPromptFromRunRequest(message, currentPrompt) {
+  return typeof currentPrompt === 'string' ? currentPrompt : message;
+}
+
 const CLOUDFLARE_PAGES_PROJECT_METADATA_KEY = 'cloudflarePagesProjectName';
 
 function cloudflarePagesDeploymentMetadata(projectName) {
@@ -4940,6 +4944,7 @@ export async function startServer({
     const {
       agentId,
       message,
+      currentPrompt,
       systemPrompt,
       imagePaths = [],
       projectId,
@@ -4966,7 +4971,8 @@ export async function startServer({
     // langfuse-bridge report path can include them without reaching back
     // into chatBody across the createChatRunService boundary. Each field
     // is optional and only set when the chat body actually carried it.
-    if (typeof message === 'string' && message) run.userPrompt = message;
+    const telemetryPrompt = telemetryPromptFromRunRequest(message, currentPrompt);
+    if (typeof telemetryPrompt === 'string') run.userPrompt = telemetryPrompt;
     if (typeof model === 'string' && model) run.model = model;
     if (typeof reasoning === 'string' && reasoning) run.reasoning = reasoning;
     if (typeof skillId === 'string' && skillId) run.skillId = skillId;
