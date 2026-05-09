@@ -36,7 +36,7 @@
 
 ## 📋 What
 
-✨ **Open Design (OD)는 자연어를 통해 완성된 디자인 산출물을 생성하는 오픈소스 워크스페이스입니다.**
+✨ **Open Design (OD)는 [Claude Design][cd]의 오픈소스 대안 ── 자연어를 통해 완성된 디자인 산출물을 생성하는 오픈소스 워크스페이스입니다.**
 
 📝 한 문장으로 디자인을 설명하면, 곧바로 납품 가능한 프로토타입, Live Artifact, Slides, 이미지, 비디오, 오디오를 만들어 냅니다 ── 🎨 시니어 디자이너 수준의 완성도이며, 흔한 AI 같은 결과물이 아닙니다.
 
@@ -249,6 +249,11 @@ Open Design을 앞으로 나아가게 해주신 모든 분께 감사드립니다
 <br/>
 
 처음 PR을 보내시나요? 환영합니다. [`good-first-issue` / `help-wanted`](https://github.com/nexu-io/open-design/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22%2C%22help+wanted%22) 라벨이 입구입니다.
+
+
+## 📊 GitHub Stats
+
+<a href="https://repobeats.axiom.co"><img alt="Repobeats analytics" src="https://repobeats.axiom.co/api/embed/nexu-io/open-design.svg" width="100%" /></a>
 
 ## ⭐ Star History
 

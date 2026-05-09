@@ -36,7 +36,7 @@
 
 ## 📋 What
 
-✨ **Open Design (OD) ist ein Open-Source-Workspace, der natürliche Sprache in lieferfertige Design-Artefakte verwandelt.**
+✨ **Open Design (OD) ist die Open-Source-Alternative zu [Claude Design][cd] — ein Open-Source-Workspace, der natürliche Sprache in lieferfertige Design-Artefakte verwandelt.**
 
 📝 Beschreibe dein Design in einem Satz, und OD produziert lieferfertige Prototypen, Live Artifacts, Slides, Bilder, Videos und Audio ── 🎨 mit dem Handwerk eines erfahrenen Designers, nicht der Eintönigkeit generischer KI-Outputs.
 
@@ -249,6 +249,11 @@ Danke an alle, die Open Design vorantreiben ── durch Code, Docs, Skills, Des
 <br/>
 
 Erster PR? Willkommen. Die Labels [`good-first-issue` / `help-wanted`](https://github.com/nexu-io/open-design/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22%2C%22help+wanted%22) sind der Einstiegspunkt.
+
+
+## 📊 GitHub Stats
+
+<a href="https://repobeats.axiom.co"><img alt="Repobeats analytics" src="https://repobeats.axiom.co/api/embed/nexu-io/open-design.svg" width="100%" /></a>
 
 ## ⭐ Star History
 

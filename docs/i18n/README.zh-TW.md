@@ -36,7 +36,7 @@
 
 ## 📋 What
 
-✨ **Open Design（OD）是一個用自然語言生成成品設計稿的開源工作台。**
+✨ **Open Design（OD）是 [Claude Design][cd] 的開源替代——一個用自然語言生成成品設計稿的開源工作台。**
 
 📝 用一句話描述你的設計需求，即可產出可直接交付的原型、Live Artifact、Slides、圖片、影片、音訊——🎨 出品對標資深設計師水準，而非千篇一律的 AI 風格。
 
@@ -249,6 +249,11 @@ pnpm tools-dev start
 <br/>
 
 第一次提 PR？歡迎。[`good-first-issue` / `help-wanted`](https://github.com/nexu-io/open-design/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22%2C%22help+wanted%22) 標籤是入口。
+
+
+## 📊 GitHub Stats
+
+<a href="https://repobeats.axiom.co"><img alt="Repobeats analytics" src="https://repobeats.axiom.co/api/embed/nexu-io/open-design.svg" width="100%" /></a>
 
 ## ⭐ Star History
 

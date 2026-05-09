@@ -36,7 +36,7 @@
 
 ## 📋 What
 
-✨ **Open Design (OD), doğal dili teslime hazır tasarım çıktılarına dönüştüren açık kaynaklı bir çalışma alanıdır.**
+✨ **Open Design (OD), [Claude Design][cd]'in açık kaynak alternatifi ── doğal dili teslime hazır tasarım çıktılarına dönüştüren açık kaynaklı bir çalışma alanıdır.**
 
 📝 Tasarımını tek cümleyle anlat, OD teslim edilebilir prototipler, Live Artifact'ler, Slides, görüntüler, videolar ve ses üretsin ── 🎨 kıdemli bir tasarımcının zanaatıyla, sıradan AI çıktılarının tekdüzeliği değil.
 
@@ -249,6 +249,11 @@ Open Design'ı ileri taşıyan herkese teşekkürler ── kod, dokümantasyon,
 <br/>
 
 İlk PR'ın mı? Hoş geldin. [`good-first-issue` / `help-wanted`](https://github.com/nexu-io/open-design/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22%2C%22help+wanted%22) etiketleri giriş noktası.
+
+
+## 📊 GitHub Stats
+
+<a href="https://repobeats.axiom.co"><img alt="Repobeats analytics" src="https://repobeats.axiom.co/api/embed/nexu-io/open-design.svg" width="100%" /></a>
 
 ## ⭐ Star History
 
