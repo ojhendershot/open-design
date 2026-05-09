@@ -1,5 +1,5 @@
 ---
-name: hyperframes-video-template
+name: 8-bit-orbit-video-template
 description: |
   Hyperframes-based video template for retro pixel deck motion design.
   Use when users want a high-fidelity, multi-scene HTML-to-video composition
@@ -42,7 +42,7 @@ Ship a premium template-mode Hyperframes composition with a ready default showca
 ## Resource map
 
 ```text
-hyperframes-video-template/
+8-bit-orbit-video-template/
 ├── SKILL.md
 ├── assets/
 │   ├── template.html
@@ -67,7 +67,7 @@ hyperframes-video-template/
 Emit one short sentence before the artifact, then a single HTML artifact:
 
 ```xml
-<artifact identifier="hyperframes-video-template" type="text/html" title="Hyperframes Video Template">
+<artifact identifier="8-bit-orbit-video-template" type="text/html" title="8-Bit Orbit Video Template">
 <!doctype html>
 <html>...</html>
 </artifact>
