@@ -118,6 +118,31 @@ export function doctorPlugin(
     }
   }
 
+  // Plan §3.K3 / spec §10.3.5 — surface.component capability gate.
+  // A plugin that ships a custom React component must declare the
+  // `genui:custom-component` capability so the trust gate at apply
+  // time can refuse it for restricted installs.
+  for (const surface of manifest.od?.genui?.surfaces ?? []) {
+    if (!surface.component) continue;
+    const declared = new Set(manifest.od?.capabilities ?? []);
+    if (!declared.has('genui:custom-component')) {
+      issues.push({
+        severity: 'error',
+        code:     'genui.component-capability',
+        message:  `Surface '${surface.id}' ships a component but the manifest does not declare the 'genui:custom-component' capability.`,
+        field:    'od.genui.surfaces',
+      });
+    }
+    if (surface.component.path.includes('..')) {
+      issues.push({
+        severity: 'error',
+        code:     'genui.component-traversal',
+        message:  `Surface '${surface.id}' component path must be relative without traversal segments.`,
+        field:    'od.genui.surfaces',
+      });
+    }
+  }
+
   const resolved = resolveContext(manifest, {
     registry,
     warnOnMissing: options?.warnOnMissingRefs ?? true,

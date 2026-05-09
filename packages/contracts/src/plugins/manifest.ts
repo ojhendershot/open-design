@@ -71,6 +71,25 @@ export const GenUISurfaceSpecSchema = z.object({
     connectorId: z.string().optional(),
     mcpServerId: z.string().optional(),
   }).passthrough().optional(),
+  // Phase 4 / spec §10.3.5 alignment-roadmap row 2 — plugin-bundled
+  // React component path. Capability-gated by `genui:custom-component`
+  // (a future patch to the §5.3 capability vocabulary). The web
+  // GenUISurfaceRenderer falls back to the built-in renderer when the
+  // capability is not granted; the field stays an opaque relpath in
+  // v1 contracts so the UI loader / sandbox can evolve without
+  // touching the manifest schema.
+  component: z.object({
+    // Path to the entry module relative to the plugin folder, e.g.
+    // `./surfaces/critique-panel.tsx`. The host loader is responsible
+    // for compilation + sandboxing.
+    path:     z.string().min(1),
+    // Optional named export the host should mount; defaults to the
+    // module's default export.
+    export:   z.string().optional(),
+    // Sandbox tier the surface needs. v1 only ships 'iframe' but the
+    // contract leaves room for a Phase 4 React-component sandbox.
+    sandbox:  z.enum(['iframe', 'react']).optional(),
+  }).passthrough().optional(),
 }).passthrough();
 
 export type GenUISurfaceSpec = z.infer<typeof GenUISurfaceSpecSchema>;
