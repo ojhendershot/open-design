@@ -373,6 +373,7 @@ export const RU_SKILL_IDS_WITH_EN_FALLBACK = [
   'x-research',
   'trading-analysis-dashboard-template',
   'github-dashboard',
+  'html-ppt-retro-quarterly-review',
 ] as const;
 
 export const RU_DESIGN_SYSTEM_IDS_WITH_EN_FALLBACK = [
