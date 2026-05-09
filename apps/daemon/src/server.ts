@@ -49,6 +49,7 @@ import {
   listIterationsForRun,
   MissingInputError,
   pluginPromptBlock,
+  resolvePluginSnapshot,
   uninstallPlugin,
 } from './plugins/index.js';
 import {
@@ -2473,8 +2474,36 @@ export async function startServer({
           }
         }
       }
+      // Plan §3.A1 / spec §11.5: if the body carries a pluginId or
+      // appliedPluginSnapshotId, resolve the snapshot now and link it
+      // to the new project + seed conversation. Capability + missing-input
+      // failures land on a 4xx here; the project is left in place because
+      // it is already inserted (the snapshot resolver runs after — re-
+      // applying via /api/plugins/:id/apply is the recovery path).
+      let projectAppliedSnapshot = null;
+      if (req.body && (req.body.pluginId || req.body.appliedPluginSnapshotId)) {
+        try {
+          const registry = await loadPluginRegistryView();
+          const resolved = resolvePluginSnapshot({
+            db,
+            body: req.body,
+            projectId: id,
+            conversationId: cid,
+            registry,
+          });
+          if (resolved && !resolved.ok) {
+            return res.status(resolved.status).json(resolved.body);
+          }
+          projectAppliedSnapshot = resolved;
+        } catch (err) {
+          return sendApiError(res, 500, 'PLUGIN_APPLY_FAILED', String(err));
+        }
+      }
       /** @type {import('@open-design/contracts').CreateProjectResponse} */
       const body = { project, conversationId: cid };
+      if (projectAppliedSnapshot?.ok) {
+        body.appliedPluginSnapshotId = projectAppliedSnapshot.snapshotId;
+      }
       res.json(body);
     } catch (err) {
       sendApiError(res, 400, 'BAD_REQUEST', String(err));
@@ -3204,30 +3233,44 @@ export async function startServer({
     }
   });
 
+  // Plan §3.A1: shared helper used by every endpoint that has to resolve
+  // plugin context against the live registry. Skills + design systems are
+  // walked from disk; craft is empty in v1; atoms come from the
+  // first-party catalog. Project-scoped overrides arrive in Phase 4.
+  async function loadPluginRegistryView() {
+    const [skills, designSystems] = await Promise.all([
+      listSkills(SKILLS_DIR),
+      listDesignSystems(DESIGN_SYSTEMS_DIR),
+    ]);
+    return {
+      skills: skills.map((s) => ({ id: s.id, title: s.name, description: s.description })),
+      designSystems: designSystems.map((d) => ({ id: d.id, title: d.title })),
+      craft: [],
+      atoms: FIRST_PARTY_ATOMS.map((a) => ({ id: a.id, label: a.label })),
+    };
+  }
+
   app.post('/api/plugins/:id/apply', async (req, res) => {
     try {
       const plugin = getInstalledPlugin(db, req.params.id);
       if (!plugin) return res.status(404).json({ error: 'plugin not found' });
       const body = req.body && typeof req.body === 'object' ? req.body : {};
       const inputs = body.inputs && typeof body.inputs === 'object' ? body.inputs : {};
+      const grantCaps = Array.isArray(body.grantCaps)
+        ? body.grantCaps.filter((c) => typeof c === 'string')
+        : [];
 
-      // Resolve the live registry view once per request. Phase 1 does not yet
-      // surface project-scoped registries; we just feed the daemon-wide
-      // catalogs.
-      const [skills, designSystems] = await Promise.all([
-        listSkills(SKILLS_DIR),
-        listDesignSystems(DESIGN_SYSTEMS_DIR),
-      ]);
-      const computed = applyPlugin({
-        plugin,
-        inputs,
-        registry: {
-          skills: skills.map((s) => ({ id: s.id, title: s.name, description: s.description })),
-          designSystems: designSystems.map((d) => ({ id: d.id, title: d.title })),
-          craft: [],
-          atoms: FIRST_PARTY_ATOMS.map((a) => ({ id: a.id, label: a.label })),
-        },
-      });
+      const registry = await loadPluginRegistryView();
+      const computed = applyPlugin({ plugin, inputs, registry });
+      // Plan §3.B2 — apply-time grants are merged into the snapshot's
+      // capabilitiesGranted so the §9 capability gate sees them, but
+      // they are NOT written back to installed_plugins.capabilities_granted.
+      // The snapshot is the only place this ephemeral grant lives.
+      if (grantCaps.length > 0) {
+        const merged = new Set([...computed.result.capabilitiesGranted, ...grantCaps]);
+        computed.result.capabilitiesGranted = Array.from(merged);
+        computed.result.appliedPlugin.capabilitiesGranted = Array.from(merged);
+      }
       res.json({ ok: true, ...computed.result, warnings: computed.warnings, manifestSourceDigest: computed.manifestSourceDigest });
     } catch (err) {
       if (err instanceof MissingInputError) {
@@ -3241,16 +3284,8 @@ export async function startServer({
     try {
       const plugin = getInstalledPlugin(db, req.params.id);
       if (!plugin) return res.status(404).json({ error: 'plugin not found' });
-      const [skills, designSystems] = await Promise.all([
-        listSkills(SKILLS_DIR),
-        listDesignSystems(DESIGN_SYSTEMS_DIR),
-      ]);
-      const report = doctorPlugin(plugin, {
-        skills: skills.map((s) => ({ id: s.id, title: s.name, description: s.description })),
-        designSystems: designSystems.map((d) => ({ id: d.id, title: d.title })),
-        craft: [],
-        atoms: FIRST_PARTY_ATOMS.map((a) => ({ id: a.id, label: a.label })),
-      });
+      const registry = await loadPluginRegistryView();
+      const report = doctorPlugin(plugin, registry);
       res.json(report);
     } catch (err) {
       res.status(500).json({ error: String(err) });
@@ -6319,11 +6354,52 @@ export async function startServer({
     };
   });
 
-  app.post('/api/runs', (req, res) => {
+  app.post('/api/runs', async (req, res) => {
     if (daemonShuttingDown) {
       return sendApiError(res, 503, 'UPSTREAM_UNAVAILABLE', 'daemon is shutting down');
     }
-    const run = design.runs.create(req.body || {});
+    // Plan §3.A1 / spec §11.5: resolve any pluginId / appliedPluginSnapshotId
+    // before the run is created. The resolver returns null when the body
+    // does not mention a plugin (legacy runs unchanged), an error envelope
+    // for missing-input / capability / not-found / stale, or an ok result
+    // whose `snapshotId` is pinned onto the run object so downstream
+    // code (system prompt block, tool tokens, replay) can reach it.
+    let resolvedSnapshot = null;
+    if (typeof req.body?.projectId === 'string' && req.body.projectId) {
+      let registryView;
+      try {
+        registryView = await loadPluginRegistryView();
+      } catch (err) {
+        return res.status(500).json({ error: String(err) });
+      }
+      const resolved = resolvePluginSnapshot({
+        db,
+        body: req.body,
+        projectId: req.body.projectId,
+        conversationId: typeof req.body.conversationId === 'string'
+          ? req.body.conversationId
+          : null,
+        registry: registryView,
+      });
+      if (resolved && !resolved.ok) {
+        return res.status(resolved.status).json(resolved.body);
+      }
+      resolvedSnapshot = resolved;
+    }
+    const meta = { ...(req.body || {}) };
+    if (resolvedSnapshot?.ok) {
+      meta.appliedPluginSnapshotId = resolvedSnapshot.snapshotId;
+      if (!meta.pluginId) meta.pluginId = resolvedSnapshot.snapshot.pluginId;
+    }
+    const run = design.runs.create(meta);
+    if (resolvedSnapshot?.ok) {
+      try {
+        const { linkSnapshotToRun } = await import('./plugins/snapshots.js');
+        linkSnapshotToRun(db, resolvedSnapshot.snapshotId, run.id);
+      } catch {
+        // Linking is best-effort here; in-memory run still carries the id.
+      }
+    }
     /** @type {import('@open-design/contracts').ChatRunCreateResponse} */
     const body = { runId: run.id };
     res.status(202).json(body);

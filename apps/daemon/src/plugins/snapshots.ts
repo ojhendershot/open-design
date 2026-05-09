@@ -136,8 +136,87 @@ export function linkSnapshotToRun(db: SqliteDb, snapshotId: string, runId: strin
   `).run(runId, snapshotId);
 }
 
+// Pin a snapshot to a project row. Mirrors `linkSnapshotToRun` but
+// updates `projects.applied_plugin_snapshot_id` (added by `migratePlugins`)
+// and also clears `expires_at` because a project-pinned snapshot is now
+// referenced (PB2 reproducibility-first). Idempotent — re-linking the
+// same id is a no-op.
+export function linkSnapshotToProject(db: SqliteDb, snapshotId: string, projectId: string): void {
+  db.prepare(
+    `UPDATE applied_plugin_snapshots
+        SET project_id = ?, expires_at = NULL
+      WHERE id = ?`,
+  ).run(projectId, snapshotId);
+  db.prepare(
+    `UPDATE projects
+        SET applied_plugin_snapshot_id = ?
+      WHERE id = ?`,
+  ).run(snapshotId, projectId);
+}
+
+// Pin a snapshot to a conversation row. Same shape as
+// `linkSnapshotToProject` but mutates `conversations.applied_plugin_snapshot_id`.
+// Used when a plugin is applied inside an existing chat composer (§8.4).
+export function linkSnapshotToConversation(
+  db: SqliteDb,
+  snapshotId: string,
+  conversationId: string,
+): void {
+  db.prepare(
+    `UPDATE applied_plugin_snapshots
+        SET conversation_id = ?, expires_at = NULL
+      WHERE id = ?`,
+  ).run(conversationId, snapshotId);
+  db.prepare(
+    `UPDATE conversations
+        SET applied_plugin_snapshot_id = ?
+      WHERE id = ?`,
+  ).run(snapshotId, conversationId);
+}
+
 export function markSnapshotStale(db: SqliteDb, snapshotId: string): void {
   db.prepare(`UPDATE applied_plugin_snapshots SET status = 'stale' WHERE id = ?`).run(snapshotId);
+}
+
+// Phase 5 / PB2 enforcement (§16). Deletes every `applied_plugin_snapshots`
+// row whose `expires_at` is non-null and not in the future. Returns the
+// count + the ids that were removed so callers can audit. Pure side-effect
+// over SQLite; safe to call from a periodic worker. The caller decides the
+// `now` clock so tests can pin time.
+export interface PruneExpiredResult {
+  removed: number;
+  ids: string[];
+}
+
+export function pruneExpiredSnapshots(
+  db: SqliteDb,
+  options: { now?: number; before?: number } = {},
+): PruneExpiredResult {
+  const now = options.now ?? Date.now();
+  // The `before` cutoff is an operator escape hatch (`od plugin snapshots prune --before <ts>`)
+  // that lets a hosted operator force-delete unreferenced rows older than
+  // an arbitrary time even when their TTL has not yet expired. It does
+  // NOT touch referenced rows (run_id IS NOT NULL) — reproducibility wins.
+  const cutoff = typeof options.before === 'number' ? options.before : now;
+  const expiredIds = db
+    .prepare(
+      `SELECT id FROM applied_plugin_snapshots
+        WHERE expires_at IS NOT NULL AND expires_at <= ?`,
+    )
+    .all(cutoff) as Array<{ id: string }>;
+  const beforeIds = typeof options.before === 'number'
+    ? (db
+        .prepare(
+          `SELECT id FROM applied_plugin_snapshots
+            WHERE expires_at IS NULL AND run_id IS NULL AND applied_at <= ?`,
+        )
+        .all(options.before) as Array<{ id: string }>)
+    : [];
+  const ids = [...expiredIds, ...beforeIds].map((r) => r.id);
+  if (ids.length === 0) return { removed: 0, ids: [] };
+  const placeholders = ids.map(() => '?').join(', ');
+  db.prepare(`DELETE FROM applied_plugin_snapshots WHERE id IN (${placeholders})`).run(...ids);
+  return { removed: ids.length, ids };
 }
 
 export function countSnapshotsForProject(db: SqliteDb, projectId: string): number {

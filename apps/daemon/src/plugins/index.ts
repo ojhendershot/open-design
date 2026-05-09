@@ -9,6 +9,7 @@ export * from './installer.js';
 export * from './persistence.js';
 export * from './pipeline.js';
 export * from './registry.js';
+export * from './resolve-snapshot.js';
 export * from './snapshots.js';
 export * from './trust.js';
 export * from './until.js';
