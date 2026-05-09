@@ -85,6 +85,7 @@ created: '2026-05-09'
 - `apps/web/package.json:23-50` - web scripts and dependency surface。
 - `scripts/guard.ts:138-151,205-221,328-350,401-422` - existing guard shape and failure behavior。
 - `apps/AGENTS.md:19-24,39-51` - app test/layout and validation boundaries。
+- `specs/change/20260509-token-first-tailwind/token.md` - Tailwind color token vocabulary, existing CSS variable mapping, native Tailwind primitive decision, and guardrail target。
 - `https://tailwindcss.com/docs/guides/nextjs` - Tailwind v4 Next.js setup。
 - `https://tailwindcss.com/docs/theme` - Tailwind v4 CSS-first theme variables and namespaces。
 
@@ -107,7 +108,7 @@ flowchart TD
 - 范围：`apps/web` 样式工具链。影响：在 web package 边界添加 Tailwind v4/PostCSS 依赖和配置，因为 `@open-design/web` 拥有 `dev/build/typecheck/test` 脚本，当前尚未声明 Tailwind/PostCSS 依赖。Source: `apps/web/package.json:23-50`; `https://tailwindcss.com/docs/guides/nextjs`
 - 范围：`apps/web/src/index.css`。影响：保留 CSS variables、dark/system 主题覆盖、reset、body 样式、loading shell、keyframes 和真正全局的内容样式；在同一入口加入 Tailwind import/theme 层，让现有 `layout.tsx` import 继续作为唯一全局 CSS 入口，并移除已经迁移到 TSX 的组件级全局 class。Source: `apps/web/app/layout.tsx:1-4`; `apps/web/src/index.css:6-181,1121-1143,6219-6299`
 - 范围：现有 `apps/web/src/**/*.tsx`。影响：按页面/组件区域迁移可替换的全局 CSS class 到 token-first Tailwind `className`，保持 DOM 结构和组件职责稳定。Source: `apps/web/src/index.css:183-219`; `apps/web/src/**/*.tsx`
-- 范围：token 映射。影响：把现有 CSS variables 暴露成 Tailwind theme variables，覆盖颜色、圆角、阴影和字体族，同时保留运行时写入同一批 `--accent*` variables 的自定义 accent 行为。Source: `apps/web/src/index.css:6-63`; `apps/web/src/state/appearance.ts:17-52`; `apps/web/app/layout.tsx:21-29`; `https://tailwindcss.com/docs/theme`
+- 范围：token 映射。影响：把现有颜色 CSS variables 暴露成 Tailwind theme variables，同时保留运行时写入同一批 `--accent*` variables 的自定义 accent 行为；圆角、阴影、字体、间距和字号使用 Tailwind 原生 utilities。Source: `apps/web/src/index.css:6-63`; `apps/web/src/state/appearance.ts:17-52`; `apps/web/app/layout.tsx:21-29`; `specs/change/20260509-token-first-tailwind/token.md`; `https://tailwindcss.com/docs/theme`
 - 范围：约束机制。影响：扩展 repository guard，显式检查默认 Tailwind palette classes 和未受控硬编码颜色，并为品牌/用户内容场景提供 allowlist。Source: `scripts/guard.ts:138-151,205-221`; `specs/change/20260509-token-first-tailwind/spec.md:75-77`
 - 范围：测试与验证。影响：web 自有测试放在 `apps/web/tests/`；通过 `pnpm guard`、`pnpm typecheck`、`pnpm --filter @open-design/web test` 和 `pnpm --filter @open-design/web build` 验证。Source: `apps/AGENTS.md:19-24,39-51`; `AGENTS.md#Validation strategy`
 
@@ -115,12 +116,13 @@ flowchart TD
 
 - 决策：在 `apps/web` 使用 Tailwind CSS v4，依赖 `tailwindcss`、`@tailwindcss/postcss` 和 `postcss`，通过 PostCSS 配置，并在现有全局 CSS 入口使用 `@import "tailwindcss"`。Source: `apps/web/package.json:23-50`; `apps/web/app/layout.tsx:1-4`; `https://tailwindcss.com/docs/guides/nextjs`
 - 决策：通过 CSS 中的 `@theme` 定义 Tailwind theme values，因为 v4 会把 `--color-*` theme variables 转成 `bg-*`、`text-*`、`border-*` 等 utilities。Source: `https://tailwindcss.com/docs/theme`; `https://tailwindcss.com/docs/customizing-colors`
-- 决策：把 Tailwind tokens 映射到现有运行时 CSS variables，例如 `--color-bg: var(--bg)`、`--color-panel: var(--bg-panel)`、`--color-accent: var(--accent)`、`--radius-card: var(--radius-lg)` 和 `--font-sans: var(--sans)`。Source: `apps/web/src/index.css:6-63`; `apps/web/src/state/appearance.ts:17-52`
+- 决策：把 Tailwind 颜色 tokens 映射到现有运行时 CSS variables，例如 `--color-bg: var(--bg)`、`--color-panel: var(--bg-panel)`、`--color-accent: var(--accent)`、`--color-danger: var(--red)` 和 `--color-success: var(--green)`。Source: `apps/web/src/index.css:6-63`; `apps/web/src/state/appearance.ts:17-52`; `specs/change/20260509-token-first-tailwind/token.md`
 - 决策：声明项目颜色前，用 `--color-*: initial` 清空默认 Tailwind color namespace，让项目 classes 表达 Open Design token 集合。Source: `https://tailwindcss.com/docs/customizing-colors`; `apps/web/src/index.css:6-49`
 - 决策：主题状态和自定义 accent 行为保持 CSS-variable-first；Tailwind utilities 通过 variables 解析，自动继承 light/dark/system/user accent 变化。Source: `apps/web/src/index.css:65-157`; `apps/web/src/state/appearance.ts:28-52`; `apps/web/app/layout.tsx:21-29`
 - 决策：`index.css` 继续负责 token 定义、reset、基础元素行为、loading shell、keyframes 和跨内容区域样式；本次保持现有组件抽象，在现有 TSX 内全量迁移可替换的组件级全局 class 为 token-first Tailwind class。Source: `apps/web/src/index.css:160-219,1121-1143,6219-6299`; `apps/web/app/[[...slug]]/client-app.tsx:5-13`
 - 决策：在 `scripts/guard.ts` 内添加项目自有样式约束检查，沿用现有 guard 聚合模型和 root command boundary。Source: `scripts/guard.ts:138-151,205-221,401-422`; `AGENTS.md#Root command boundary`
 - 决策：品牌资产、SVG 插画、canvas/用户内容颜色和颜色转换 helper 允许显式例外；app UI chrome 使用 token classes 或 CSS variables。Source: `specs/change/20260509-token-first-tailwind/spec.md:75-77`
+- 决策：项目自定义 Tailwind token 限定为颜色 token；radius、shadow、font、spacing 和 typography scale 使用 Tailwind 原生 utilities，保留 `index.css` 中现有 CSS variables 服务迁移期间仍留在全局 CSS 的样式。Source: `specs/change/20260509-token-first-tailwind/token.md`
 - 决策：添加依赖或配置相关 package 变更后运行 `pnpm install`，再执行 package-scoped web 验证和 repo 检查。Source: `AGENTS.md#Validation strategy`; `apps/web/package.json:23-29`
 
 ### Why this design
@@ -157,13 +159,14 @@ flowchart TD
 - `apps/web/package.json` - 在 web package 边界添加 Tailwind/PostCSS dependencies。
 - `apps/web/postcss.config.mjs` - 配置 Tailwind v4 PostCSS plugin。
 - `apps/web/src/index.css` - 保留全局 tokens/base styles，并添加 Tailwind import/theme aliases。
+- `specs/change/20260509-token-first-tailwind/token.md` - 记录 Tailwind color token 命名、与现有 CSS variables 的对应关系，以及 radius/shadow/font 使用 Tailwind 原生 utilities 的设计决策。
 - `apps/web/src/**/*.tsx` - 将可迁移的全局 CSS class 全量替换为 token-first Tailwind class。
 - `scripts/guard.ts` - 给现有 repo guard 添加 style policy checks。
 - `apps/web/tests/` - 抽取 style policy helpers 时添加聚焦测试。
 
 ### Interfaces / APIs
 
-- Tailwind class vocabulary 使用项目 token 名称，例如 `bg-bg`、`bg-panel`、`bg-subtle`、`text-text`、`text-muted`、`border-border`、`text-accent`、`bg-accent`、`rounded-card` 和 `font-sans`。
+- Tailwind color class vocabulary 使用项目 token 名称，例如 `bg-bg`、`bg-panel`、`bg-subtle`、`text-text`、`text-muted`、`border-border`、`text-accent`、`bg-accent`、`text-danger` 和 `bg-success-surface`；圆角、阴影、字体、间距和字号使用 Tailwind 原生 utilities，例如 `rounded-lg`、`shadow-sm`、`font-mono`、`gap-3` 和 `text-sm`。
 - Runtime appearance API 保持不变：`applyAppearanceToDocument()` 继续向 `document.documentElement` 写入 CSS variables。
 - 仓库命令保持不变：贡献者继续使用现有 `pnpm guard`、`pnpm typecheck` 和 package-scoped web commands。
 
@@ -184,7 +187,7 @@ flowchart TD
   - [ ] Substep 1.4 Verify: 运行 `pnpm install`。
   - [ ] Substep 1.5 Verify: 运行 `pnpm --filter @open-design/web build`。
 - [ ] Step 2: 把 Open Design tokens 暴露为 Tailwind utilities
-  - [ ] Substep 2.1 Implement: 为 colors、fonts、radii、shadows 和 core semantic tokens 添加 CSS-first `@theme` aliases。
+  - [ ] Substep 2.1 Implement: 为 colors 和 core semantic status tokens 添加 CSS-first `@theme` aliases；radius、shadow、font、spacing 和 typography scale 使用 Tailwind 原生 utilities。
   - [ ] Substep 2.2 Implement: 清空默认 Tailwind colors，并声明项目批准的 color namespace。
   - [ ] Substep 2.3 Implement: 在 theme block 附近记录 token class vocabulary。
   - [ ] Substep 2.4 Verify: 确认 light、dark、system 和 custom accent modes 都通过同一套 CSS variables 解析。
