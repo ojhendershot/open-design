@@ -6,8 +6,18 @@ import { MCP_TEMPLATES, buildAcpMcpServers, buildClaudeMcpJson, isManagedProject
 import { beginAuth, exchangeCodeForToken, refreshAccessToken } from './mcp-oauth.js';
 import { clearToken, getToken, isTokenExpired, readAllTokens, setToken } from './mcp-tokens.js';
 
-export function registerMcpRoutes(app: Express, ctx: any) {
-  const { isLocalSameOrigin, resolvedPortRef, OD_BIN, RUNTIME_DATA_DIR, sendApiError, projectsRoot: PROJECTS_DIR, pendingAuth, daemonUrlRef } = ctx;
+type AnyRouteDeps = Record<string, any>;
+
+export interface RegisterMcpRoutesDeps {
+  http: AnyRouteDeps;
+  paths: AnyRouteDeps;
+  mcp: AnyRouteDeps;
+}
+
+export function registerMcpRoutes(app: Express, ctx: RegisterMcpRoutesDeps) {
+  const { isLocalSameOrigin, resolvedPortRef, sendApiError } = ctx.http;
+  const { OD_BIN, RUNTIME_DATA_DIR, PROJECTS_DIR } = ctx.paths;
+  const { pendingAuth, daemonUrlRef } = ctx.mcp;
   const getResolvedPort = () => resolvedPortRef.current;
   const getDaemonUrl = () => daemonUrlRef.current;
   // Surfaces the absolute paths to the daemon's Node-compatible runtime and

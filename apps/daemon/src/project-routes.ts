@@ -1,8 +1,32 @@
 import type { Express } from 'express';
-import { registerImportRoutes } from './import-export-routes.js';
 
-export function registerProjectRoutes(app: Express, ctx: any) {
-  const { db, design, listLatestProjectRunStatuses, listProjectsAwaitingInput, normalizeProjectDisplayStatus, composeProjectDisplayStatus, listProjects, sendApiError, insertProject, validateLinkedDirs, randomId, insertConversation, getTemplate, writeProjectFile, PROJECTS_DIR, ensureProject, upload, importUpload, projectDir, importClaudeDesignZip, decodeMultipartFilename, listFiles, getProject, updateProject, dbDeleteProject, removeProjectDir, subscribeFileEvents, getConversation, listConversations, updateConversation, deleteConversation, listMessages, upsertMessage, listPreviewComments, upsertPreviewComment, updatePreviewCommentStatus, deletePreviewComment, listTabs, setTabs, listTemplates, deleteTemplate, insertTemplate, randomUUID, fs, path, RUNTIME_DATA_DIR, isPathWithin, sanitizeName, buildProjectArchive, buildBatchArchive, sanitizeArchiveFilename, readProjectFile, deleteProjectFile, buildDocumentPreview, searchProjectFiles, ARTIFACTS_DIR, sanitizeSlug, lintArtifact, renderFindingsForAgent, RUNTIME_DATA_DIR_CANONICAL, detectEntryFile, createSseResponse, activeProjectEventSinks } = ctx;
+type AnyRouteDeps = Record<string, any>;
+
+export interface RegisterProjectRoutesDeps {
+  db: any;
+  design: any;
+  http: AnyRouteDeps;
+  paths: AnyRouteDeps;
+  projectStore: AnyRouteDeps;
+  projectFiles: AnyRouteDeps;
+  conversations: AnyRouteDeps;
+  templates: AnyRouteDeps;
+  status: AnyRouteDeps;
+  events: AnyRouteDeps;
+  ids: AnyRouteDeps;
+}
+
+export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDeps) {
+  const { db, design } = ctx;
+  const { sendApiError, createSseResponse } = ctx.http;
+  const { PROJECTS_DIR } = ctx.paths;
+  const { insertProject, validateLinkedDirs, getProject, updateProject, dbDeleteProject, removeProjectDir } = ctx.projectStore;
+  const { writeProjectFile, readProjectFile, ensureProject, listFiles, listTabs, setTabs } = ctx.projectFiles;
+  const { insertConversation, getConversation, listConversations, updateConversation, deleteConversation, listMessages, upsertMessage, listPreviewComments, upsertPreviewComment, updatePreviewCommentStatus, deletePreviewComment } = ctx.conversations;
+  const { getTemplate, listTemplates, deleteTemplate, insertTemplate } = ctx.templates;
+  const { listLatestProjectRunStatuses, listProjectsAwaitingInput, normalizeProjectDisplayStatus, composeProjectDisplayStatus, listProjects } = ctx.status;
+  const { subscribeFileEvents, activeProjectEventSinks } = ctx.events;
+  const { randomId } = ctx.ids;
   app.get('/api/projects', (_req, res) => {
     try {
       const latestRunStatuses = listLatestProjectRunStatuses(db);
@@ -148,8 +172,6 @@ export function registerProjectRoutes(app: Express, ctx: any) {
       sendApiError(res, 400, 'BAD_REQUEST', String(err));
     }
   });
-
-  registerImportRoutes(app, { db, sendApiError, importUpload, fs, randomId, importClaudeDesignZip, projectDir, PROJECTS_DIR, insertProject, insertConversation, setTabs, path, RUNTIME_DATA_DIR_CANONICAL, detectEntryFile });
 
   app.get('/api/projects/:id', (req, res) => {
     const project = getProject(db, req.params.id);
@@ -524,8 +546,19 @@ export function registerProjectRoutes(app: Express, ctx: any) {
 
 }
 
-export function registerProjectArtifactRoutes(app: Express, ctx: any) {
-  const { sendApiError, upload, ARTIFACTS_DIR, path, fs, sanitizeSlug, lintArtifact, renderFindingsForAgent, RUNTIME_DATA_DIR_CANONICAL, detectEntryFile, createSseResponse, activeProjectEventSinks } = ctx;
+export interface RegisterProjectArtifactRoutesDeps {
+  http: AnyRouteDeps;
+  uploads: AnyRouteDeps;
+  paths: AnyRouteDeps;
+  node: AnyRouteDeps;
+  artifacts: AnyRouteDeps;
+}
+
+export function registerProjectArtifactRoutes(app: Express, ctx: RegisterProjectArtifactRoutesDeps) {
+  const { upload } = ctx.uploads;
+  const { ARTIFACTS_DIR } = ctx.paths;
+  const { path, fs } = ctx.node;
+  const { sanitizeSlug, lintArtifact, renderFindingsForAgent } = ctx.artifacts;
   app.post('/api/upload', upload.array('images', 8), (req, res) => {
     const files = ((req.files || []) as any[]).map((f: any) => ({
       name: f.originalname,
@@ -584,8 +617,28 @@ export function registerProjectArtifactRoutes(app: Express, ctx: any) {
 
 }
 
-export function registerProjectFileRoutes(app: Express, ctx: any) {
-  const { db, getProject, PROJECTS_DIR, listFiles, sendApiError, searchProjectFiles, buildProjectArchive, buildBatchArchive, sanitizeArchiveFilename, readProjectFile, deleteProjectFile, buildDocumentPreview, writeProjectFile, upload, sanitizeName, fs, sendMulterError, ensureProject, validateArtifactManifestInput } = ctx;
+export interface RegisterProjectFileRoutesDeps {
+  db: any;
+  http: AnyRouteDeps;
+  paths: AnyRouteDeps;
+  uploads: AnyRouteDeps;
+  node: AnyRouteDeps;
+  projectStore: AnyRouteDeps;
+  projectFiles: AnyRouteDeps;
+  documents: AnyRouteDeps;
+  artifacts: AnyRouteDeps;
+}
+
+export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFileRoutesDeps) {
+  const { db } = ctx;
+  const { sendApiError, sendMulterError } = ctx.http;
+  const { PROJECTS_DIR } = ctx.paths;
+  const { upload } = ctx.uploads;
+  const { fs } = ctx.node;
+  const { getProject } = ctx.projectStore;
+  const { listFiles, searchProjectFiles, readProjectFile, deleteProjectFile, writeProjectFile, sanitizeName, ensureProject } = ctx.projectFiles;
+  const { buildDocumentPreview } = ctx.documents;
+  const { validateArtifactManifestInput } = ctx.artifacts;
 
   // Project files. Each project owns a flat folder under .od/projects/<id>/
   // containing every file the user has uploaded, pasted, sketched, or that
@@ -828,8 +881,16 @@ export function registerProjectFileRoutes(app: Express, ctx: any) {
 
 }
 
-export function registerProjectUploadRoutes(app: Express, ctx: any) {
-  const { handleProjectUpload, fs, sendApiError } = ctx;
+export interface RegisterProjectUploadRoutesDeps {
+  http: AnyRouteDeps;
+  uploads: AnyRouteDeps;
+  node: AnyRouteDeps;
+}
+
+export function registerProjectUploadRoutes(app: Express, ctx: RegisterProjectUploadRoutesDeps) {
+  const { sendApiError } = ctx.http;
+  const { handleProjectUpload } = ctx.uploads;
+  const { fs } = ctx.node;
 
   app.post(
     '/api/projects/:id/upload',

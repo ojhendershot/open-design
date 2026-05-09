@@ -1,7 +1,23 @@
 import type { Express } from 'express';
 
-export function registerDeployRoutes(app: Express, ctx: any) {
-  const { sendApiError, VERCEL_PROVIDER_ID, CLOUDFLARE_PAGES_PROVIDER_ID, isDeployProviderId, publicDeployConfigForProvider, readDeployConfig, writeDeployConfig, listCloudflarePagesZones, DeployError, db, listDeployments, publicDeployments, getDeployment, getProject, buildDeployFileSet, PROJECTS_DIR, cloudflarePagesProjectNameForDeploy, deployToCloudflarePages, deployToVercel, upsertDeployment, publicDeployment, cloudflarePagesDeploymentMetadata, prepareDeployPreflight, randomUUID } = ctx;
+type AnyRouteDeps = Record<string, any>;
+
+export interface RegisterDeployRoutesDeps {
+  db: any;
+  http: AnyRouteDeps;
+  paths: AnyRouteDeps;
+  ids: AnyRouteDeps;
+  deploy: AnyRouteDeps;
+  projectStore: AnyRouteDeps;
+}
+
+export function registerDeployRoutes(app: Express, ctx: RegisterDeployRoutesDeps) {
+  const { db } = ctx;
+  const { sendApiError } = ctx.http;
+  const { PROJECTS_DIR } = ctx.paths;
+  const { randomUUID } = ctx.ids;
+  const { getProject } = ctx.projectStore;
+  const { VERCEL_PROVIDER_ID, CLOUDFLARE_PAGES_PROVIDER_ID, isDeployProviderId, publicDeployConfigForProvider, readDeployConfig, writeDeployConfig, listCloudflarePagesZones, DeployError, listDeployments, publicDeployments, getDeployment, buildDeployFileSet, cloudflarePagesProjectNameForDeploy, deployToCloudflarePages, deployToVercel, upsertDeployment, publicDeployment, cloudflarePagesDeploymentMetadata, prepareDeployPreflight } = ctx.deploy;
   // ---- Deploy --------------------------------------------------------------
 
   app.get('/api/deploy/config', async (req, res) => {
@@ -186,8 +202,16 @@ export function registerDeployRoutes(app: Express, ctx: any) {
 
 }
 
-export function registerDeploymentCheckRoutes(app: Express, ctx: any) {
-  const { sendApiError, db, getDeploymentById, CLOUDFLARE_PAGES_PROVIDER_ID, cloudflarePagesProjectNameFromDeployment, checkCloudflarePagesDeploymentLinks, checkDeploymentUrl, upsertDeployment, publicDeployment } = ctx;
+export interface RegisterDeploymentCheckRoutesDeps {
+  db: any;
+  http: AnyRouteDeps;
+  deploy: AnyRouteDeps;
+}
+
+export function registerDeploymentCheckRoutes(app: Express, ctx: RegisterDeploymentCheckRoutesDeps) {
+  const { db } = ctx;
+  const { sendApiError } = ctx.http;
+  const { getDeploymentById, CLOUDFLARE_PAGES_PROVIDER_ID, cloudflarePagesProjectNameFromDeployment, checkCloudflarePagesDeploymentLinks, checkDeploymentUrl, upsertDeployment, publicDeployment } = ctx.deploy;
 
   app.post(
     '/api/projects/:id/deployments/:deploymentId/check-link',

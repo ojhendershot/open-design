@@ -11,8 +11,18 @@ import { renderDesignSystemShowcase } from './design-system-showcase.js';
 import { listPromptTemplates, readPromptTemplate } from './prompt-templates.js';
 import { readAppConfig } from './app-config.js';
 
-export function registerStaticResourceRoutes(app: Express, ctx: any) {
-  const { sendApiError, RUNTIME_DATA_DIR, DESIGN_SYSTEMS_DIR, SKILLS_DIR, PROMPT_TEMPLATES_DIR, BUNDLED_PETS_DIR, mimeFor } = ctx;
+type AnyRouteDeps = Record<string, any>;
+
+export interface RegisterStaticResourceRoutesDeps {
+  http: AnyRouteDeps;
+  paths: AnyRouteDeps;
+  resources: AnyRouteDeps;
+}
+
+export function registerStaticResourceRoutes(app: Express, ctx: RegisterStaticResourceRoutesDeps) {
+  const { sendApiError } = ctx.http;
+  const { RUNTIME_DATA_DIR, DESIGN_SYSTEMS_DIR, SKILLS_DIR, PROMPT_TEMPLATES_DIR, BUNDLED_PETS_DIR } = ctx.paths;
+  const { mimeFor } = ctx.resources;
   app.get('/api/agents', async (_req, res) => {
     try {
       const config = await readAppConfig(RUNTIME_DATA_DIR);

@@ -1940,25 +1940,281 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
 
   const validateExternalApiBaseUrl = (baseUrl) => validateBaseUrl(baseUrl);
 
+  const resolvedPortRef = {
+    get current() {
+      return resolvedPort;
+    },
+  };
+  const daemonUrlRef = {
+    get current() {
+      return daemonUrl;
+    },
+  };
+  const httpDeps = {
+    sendApiError,
+    sendMulterError,
+    sendLiveArtifactRouteError,
+    createSseResponse,
+    requireLocalDaemonRequest,
+    isLocalSameOrigin,
+    resolvedPortRef,
+  };
+  const pathDeps = {
+    PROJECT_ROOT,
+    PROJECTS_DIR,
+    ARTIFACTS_DIR,
+    RUNTIME_DATA_DIR,
+    RUNTIME_DATA_DIR_CANONICAL,
+    DESIGN_SYSTEMS_DIR,
+    SKILLS_DIR,
+    PROMPT_TEMPLATES_DIR,
+    BUNDLED_PETS_DIR,
+    OD_BIN,
+  };
+  const nodeDeps = { fs, path };
+  const idDeps = { randomId, randomUUID };
+  const uploadDeps = { upload, importUpload, handleProjectUpload };
+  const projectStoreDeps = {
+    getProject,
+    insertProject,
+    updateProject,
+    dbDeleteProject,
+    removeProjectDir,
+    validateLinkedDirs,
+  };
+  const projectFileDeps = {
+    ensureProject,
+    listFiles,
+    searchProjectFiles,
+    readProjectFile,
+    deleteProjectFile,
+    writeProjectFile,
+    sanitizeName,
+    listTabs,
+    setTabs,
+  };
+  const conversationDeps = {
+    insertConversation,
+    getConversation,
+    listConversations,
+    updateConversation,
+    deleteConversation,
+    listMessages,
+    upsertMessage,
+    listPreviewComments,
+    upsertPreviewComment,
+    updatePreviewCommentStatus,
+    deletePreviewComment,
+  };
+  const templateDeps = { getTemplate, listTemplates, deleteTemplate, insertTemplate };
+  const projectStatusDeps = {
+    listLatestProjectRunStatuses,
+    listProjectsAwaitingInput,
+    normalizeProjectDisplayStatus,
+    composeProjectDisplayStatus,
+    listProjects,
+  };
+  const projectEventDeps = { subscribeFileEvents, activeProjectEventSinks };
+  const importDeps = { importClaudeDesignZip, projectDir, detectEntryFile };
+  const projectExportDeps = {
+    buildProjectArchive,
+    buildBatchArchive,
+    sanitizeArchiveFilename,
+  };
+  const artifactDeps = {
+    sanitizeSlug,
+    lintArtifact,
+    renderFindingsForAgent,
+    validateArtifactManifestInput,
+  };
+  const deployDeps = {
+    VERCEL_PROVIDER_ID,
+    CLOUDFLARE_PAGES_PROVIDER_ID,
+    isDeployProviderId,
+    publicDeployConfigForProvider,
+    readDeployConfig,
+    writeDeployConfig,
+    listCloudflarePagesZones,
+    DeployError,
+    listDeployments,
+    publicDeployments,
+    getDeployment,
+    getDeploymentById,
+    buildDeployFileSet,
+    cloudflarePagesProjectNameForDeploy,
+    cloudflarePagesProjectNameFromDeployment,
+    checkCloudflarePagesDeploymentLinks,
+    checkDeploymentUrl,
+    deployToCloudflarePages,
+    deployToVercel,
+    upsertDeployment,
+    publicDeployment,
+    cloudflarePagesDeploymentMetadata,
+    prepareDeployPreflight,
+  };
+  const mediaDeps = {
+    MEDIA_PROVIDERS,
+    IMAGE_MODELS,
+    VIDEO_MODELS,
+    AUDIO_MODELS_BY_KIND,
+    MEDIA_ASPECTS,
+    VIDEO_LENGTHS_SEC,
+    AUDIO_DURATIONS_SEC,
+    readMaskedConfig,
+    writeConfig,
+    generateMedia,
+    mediaTasks,
+    createMediaTask,
+    appendTaskProgress,
+    notifyTaskWaiters,
+  };
+  const appConfigDeps = { readAppConfig, writeAppConfig };
+  const orbitDeps = { orbitService };
+  const nativeDialogDeps = { openNativeFolderDialog };
+  const researchDeps = { searchResearch, ResearchError };
+  const liveArtifactDeps = {
+    createLiveArtifact,
+    listLiveArtifacts,
+    updateLiveArtifact,
+    refreshLiveArtifact,
+    emitLiveArtifactEvent,
+    emitLiveArtifactRefreshEvent,
+    readLiveArtifactCode,
+    setLiveArtifactCodeHeaders,
+    ensureLiveArtifactPreview,
+    setLiveArtifactPreviewHeaders,
+    getLiveArtifact,
+    listLiveArtifactRefreshLogEntries,
+    deleteLiveArtifact,
+  };
+  const authDeps = {
+    authorizeToolRequest,
+    requestProjectOverride,
+    requestRunOverride,
+  };
+  const finalizeDeps = {
+    finalizeDesignPackage,
+    FinalizePackageLockedError,
+    FinalizeUpstreamError,
+    redactSecrets,
+  };
+  const validationDeps = { isSafeId, validateExternalApiBaseUrl, validateBaseUrl };
+  const agentDeps = {
+    testProviderConnection,
+    testAgentConnection,
+    getAgentDef,
+    isKnownModel,
+    sanitizeCustomModel,
+  };
+  const critiqueDeps = { handleCritiqueInterrupt, critiqueRunRegistry };
+
   // External services
-  registerMcpRoutes(app, { isLocalSameOrigin, resolvedPortRef: { get current() { return resolvedPort; } }, OD_BIN, RUNTIME_DATA_DIR, sendApiError, projectsRoot: PROJECTS_DIR, pendingAuth: mcpPendingAuth, daemonUrlRef: { get current() { return daemonUrl; } } });
+  registerMcpRoutes(app, {
+    http: httpDeps,
+    paths: pathDeps,
+    mcp: { pendingAuth: mcpPendingAuth, daemonUrlRef },
+  });
   // Project workspace
-  registerProjectRoutes(app, { db, design, listLatestProjectRunStatuses, listProjectsAwaitingInput, normalizeProjectDisplayStatus, composeProjectDisplayStatus, listProjects, sendApiError, insertProject, validateLinkedDirs, randomId, insertConversation, getTemplate, writeProjectFile, PROJECTS_DIR, ensureProject, upload, listFiles, getProject, updateProject, dbDeleteProject, removeProjectDir, subscribeFileEvents, getConversation, listConversations, updateConversation, deleteConversation, listMessages, upsertMessage, listPreviewComments, upsertPreviewComment, updatePreviewCommentStatus, deletePreviewComment, listTabs, setTabs, listTemplates, deleteTemplate, insertTemplate, importUpload, fs, importClaudeDesignZip, projectDir, path, RUNTIME_DATA_DIR_CANONICAL, detectEntryFile, createSseResponse, activeProjectEventSinks });
+  registerProjectRoutes(app, {
+    db,
+    design,
+    http: httpDeps,
+    paths: pathDeps,
+    projectStore: projectStoreDeps,
+    projectFiles: projectFileDeps,
+    conversations: conversationDeps,
+    templates: templateDeps,
+    status: projectStatusDeps,
+    events: projectEventDeps,
+    ids: idDeps,
+  });
+  registerImportRoutes(app, {
+    db,
+    http: httpDeps,
+    uploads: uploadDeps,
+    node: nodeDeps,
+    ids: idDeps,
+    paths: pathDeps,
+    imports: importDeps,
+    projectStore: projectStoreDeps,
+    conversations: conversationDeps,
+    projectFiles: projectFileDeps,
+  });
 
   // Resource catalog
-  registerStaticResourceRoutes(app, { sendApiError, RUNTIME_DATA_DIR, DESIGN_SYSTEMS_DIR, SKILLS_DIR, PROMPT_TEMPLATES_DIR, BUNDLED_PETS_DIR, mimeFor });
-  registerProjectArtifactRoutes(app, { sendApiError, upload, ARTIFACTS_DIR, path, fs, sanitizeSlug, lintArtifact, renderFindingsForAgent });
-  registerLiveArtifactRoutes(app, { sendApiError, sendLiveArtifactRouteError, requireLocalDaemonRequest, PROJECTS_DIR, authorizeToolRequest, requestProjectOverride, requestRunOverride, createLiveArtifact, listLiveArtifacts, updateLiveArtifact, refreshLiveArtifact, emitLiveArtifactEvent, emitLiveArtifactRefreshEvent, readLiveArtifactCode, setLiveArtifactCodeHeaders, ensureLiveArtifactPreview, setLiveArtifactPreviewHeaders, getLiveArtifact, listLiveArtifactRefreshLogEntries, deleteLiveArtifact, updateProject, db });
+  registerStaticResourceRoutes(app, {
+    http: httpDeps,
+    paths: pathDeps,
+    resources: { mimeFor },
+  });
+  registerProjectArtifactRoutes(app, {
+    http: httpDeps,
+    uploads: uploadDeps,
+    paths: pathDeps,
+    node: nodeDeps,
+    artifacts: artifactDeps,
+  });
+  registerLiveArtifactRoutes(app, {
+    db,
+    http: httpDeps,
+    paths: pathDeps,
+    auth: authDeps,
+    liveArtifacts: liveArtifactDeps,
+    projectStore: projectStoreDeps,
+  });
   app.use('/artifacts', express.static(ARTIFACTS_DIR));
-  registerDeployRoutes(app, { sendApiError, VERCEL_PROVIDER_ID, CLOUDFLARE_PAGES_PROVIDER_ID, isDeployProviderId, publicDeployConfigForProvider, readDeployConfig, writeDeployConfig, listCloudflarePagesZones, DeployError, db, listDeployments, publicDeployments, getDeployment, getProject, buildDeployFileSet, PROJECTS_DIR, cloudflarePagesProjectNameForDeploy, deployToCloudflarePages, deployToVercel, upsertDeployment, publicDeployment, cloudflarePagesDeploymentMetadata, prepareDeployPreflight, randomUUID });
-  registerFinalizeRoutes(app, { sendApiError, isSafeId, validateExternalApiBaseUrl, getProject, db, PROJECTS_DIR, DESIGN_SYSTEMS_DIR, finalizeDesignPackage, FinalizePackageLockedError, FinalizeUpstreamError, redactSecrets });
-  registerDeploymentCheckRoutes(app, { sendApiError, db, getDeploymentById, CLOUDFLARE_PAGES_PROVIDER_ID, cloudflarePagesProjectNameFromDeployment, checkCloudflarePagesDeploymentLinks, checkDeploymentUrl, upsertDeployment, publicDeployment });
+  registerDeployRoutes(app, {
+    db,
+    http: httpDeps,
+    paths: pathDeps,
+    ids: idDeps,
+    deploy: deployDeps,
+    projectStore: projectStoreDeps,
+  });
+  registerFinalizeRoutes(app, {
+    db,
+    http: httpDeps,
+    paths: pathDeps,
+    projectStore: projectStoreDeps,
+    validation: validationDeps,
+    finalize: finalizeDeps,
+  });
+  registerDeploymentCheckRoutes(app, { db, http: httpDeps, deploy: deployDeps });
   app.use('/frames', express.static(FRAMES_DIR));
-  registerProjectExportRoutes(app, { db, getProject, PROJECTS_DIR, buildProjectArchive, buildBatchArchive, sanitizeArchiveFilename, sendApiError });
-  registerProjectFileRoutes(app, { db, getProject, PROJECTS_DIR, listFiles, sendApiError, searchProjectFiles, readProjectFile, deleteProjectFile, buildDocumentPreview, writeProjectFile, upload, sanitizeName, fs, sendMulterError, ensureProject, validateArtifactManifestInput });
+  registerProjectExportRoutes(app, {
+    db,
+    http: httpDeps,
+    paths: pathDeps,
+    projectStore: projectStoreDeps,
+    exports: projectExportDeps,
+  });
+  registerProjectFileRoutes(app, {
+    db,
+    http: httpDeps,
+    paths: pathDeps,
+    uploads: uploadDeps,
+    node: nodeDeps,
+    projectStore: projectStoreDeps,
+    projectFiles: projectFileDeps,
+    documents: { buildDocumentPreview },
+    artifacts: artifactDeps,
+  });
 
-  registerMediaRoutes(app, { MEDIA_PROVIDERS, IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS_BY_KIND, MEDIA_ASPECTS, VIDEO_LENGTHS_SEC, AUDIO_DURATIONS_SEC, readMaskedConfig, writeConfig, readAppConfig, writeAppConfig, orbitService, buildWindowsFolderDialogCommand, parseFolderDialogStdout, execFile, generateMedia, getProject, PROJECTS_DIR, writeProjectFile, insertConversation, db, upsertMessage, sendApiError, searchResearch, ResearchError, mediaTasks, requireLocalDaemonRequest, PROJECT_ROOT, RUNTIME_DATA_DIR, isLocalSameOrigin, resolvedPortRef: { get current() { return resolvedPort; } }, openNativeFolderDialog, randomUUID, createMediaTask, appendTaskProgress, notifyTaskWaiters });
-  registerProjectUploadRoutes(app, { handleProjectUpload, fs, sendApiError });
+  registerMediaRoutes(app, {
+    db,
+    http: httpDeps,
+    paths: pathDeps,
+    ids: idDeps,
+    media: mediaDeps,
+    appConfig: appConfigDeps,
+    orbit: orbitDeps,
+    nativeDialogs: nativeDialogDeps,
+    projectStore: projectStoreDeps,
+    projectFiles: projectFileDeps,
+    conversations: conversationDeps,
+    research: researchDeps,
+  });
+  registerProjectUploadRoutes(app, { http: httpDeps, uploads: uploadDeps, node: nodeDeps });
 
   const composeDaemonSystemPrompt = async ({
     agentId,
@@ -3229,7 +3485,15 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     };
   });
 
-  registerChatRoutes(app, { design, startChatRun, sendApiError, testProviderConnection, testAgentConnection, getAgentDef, isKnownModel, sanitizeCustomModel, handleCritiqueInterrupt, db, critiqueRunRegistry, validateBaseUrl, createSseResponse });
+  registerChatRoutes(app, {
+    db,
+    design,
+    http: httpDeps,
+    chat: { startChatRun },
+    agents: agentDeps,
+    critique: critiqueDeps,
+    validation: validationDeps,
+  });
 
   // Wait for `listen` to bind so callers always see the resolved URL —
   // critical when port=0 (ephemeral port) and when the embedding sidecar

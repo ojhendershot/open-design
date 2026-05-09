@@ -1,7 +1,24 @@
 import type { Express } from 'express';
 
-export function registerChatRoutes(app: Express, ctx: any) {
-  const { design, startChatRun, sendApiError, testProviderConnection, testAgentConnection, getAgentDef, isKnownModel, sanitizeCustomModel, handleCritiqueInterrupt, db, critiqueRunRegistry, validateBaseUrl, createSseResponse } = ctx;
+type AnyRouteDeps = Record<string, any>;
+
+export interface RegisterChatRoutesDeps {
+  db: any;
+  design: any;
+  http: AnyRouteDeps;
+  chat: AnyRouteDeps;
+  agents: AnyRouteDeps;
+  critique: AnyRouteDeps;
+  validation: AnyRouteDeps;
+}
+
+export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
+  const { db, design } = ctx;
+  const { sendApiError, createSseResponse } = ctx.http;
+  const { startChatRun } = ctx.chat;
+  const { testProviderConnection, testAgentConnection, getAgentDef, isKnownModel, sanitizeCustomModel } = ctx.agents;
+  const { handleCritiqueInterrupt, critiqueRunRegistry } = ctx.critique;
+  const { validateBaseUrl } = ctx.validation;
   app.post('/api/runs', (req, res) => {
     const run = design.runs.create(req.body || {});
     /** @type {import('@open-design/contracts').ChatRunCreateResponse} */

@@ -1,7 +1,35 @@
 import type { Express } from 'express';
 
-export function registerMediaRoutes(app: Express, ctx: any) {
-  const { MEDIA_PROVIDERS, IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS_BY_KIND, MEDIA_ASPECTS, VIDEO_LENGTHS_SEC, AUDIO_DURATIONS_SEC, readMaskedConfig, writeConfig, readAppConfig, writeAppConfig, orbitService, generateMedia, getProject, PROJECTS_DIR, writeProjectFile, insertConversation, db, upsertMessage, sendApiError, searchResearch, ResearchError, mediaTasks, requireLocalDaemonRequest, PROJECT_ROOT, RUNTIME_DATA_DIR, isLocalSameOrigin, resolvedPortRef, openNativeFolderDialog, randomUUID, createMediaTask, appendTaskProgress, notifyTaskWaiters } = ctx;
+type AnyRouteDeps = Record<string, any>;
+
+export interface RegisterMediaRoutesDeps {
+  db: any;
+  http: AnyRouteDeps;
+  paths: AnyRouteDeps;
+  ids: AnyRouteDeps;
+  media: AnyRouteDeps;
+  appConfig: AnyRouteDeps;
+  orbit: AnyRouteDeps;
+  nativeDialogs: AnyRouteDeps;
+  projectStore: AnyRouteDeps;
+  projectFiles: AnyRouteDeps;
+  conversations: AnyRouteDeps;
+  research: AnyRouteDeps;
+}
+
+export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) {
+  const { db } = ctx;
+  const { sendApiError, requireLocalDaemonRequest, isLocalSameOrigin, resolvedPortRef } = ctx.http;
+  const { PROJECT_ROOT, PROJECTS_DIR, RUNTIME_DATA_DIR } = ctx.paths;
+  const { randomUUID } = ctx.ids;
+  const { MEDIA_PROVIDERS, IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS_BY_KIND, MEDIA_ASPECTS, VIDEO_LENGTHS_SEC, AUDIO_DURATIONS_SEC, readMaskedConfig, writeConfig, generateMedia, mediaTasks, createMediaTask, appendTaskProgress, notifyTaskWaiters } = ctx.media;
+  const { readAppConfig, writeAppConfig } = ctx.appConfig;
+  const { orbitService } = ctx.orbit;
+  const { openNativeFolderDialog } = ctx.nativeDialogs;
+  const { getProject } = ctx.projectStore;
+  const { writeProjectFile } = ctx.projectFiles;
+  const { insertConversation, upsertMessage } = ctx.conversations;
+  const { searchResearch, ResearchError } = ctx.research;
   const getResolvedPort = () => resolvedPortRef.current;
   app.get('/api/media/models', (_req, res) => {
     res.json({

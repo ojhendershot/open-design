@@ -1,7 +1,23 @@
 import type { Express } from 'express';
 
-export function registerLiveArtifactRoutes(app: Express, ctx: any) {
-  const { sendApiError, sendLiveArtifactRouteError, requireLocalDaemonRequest, PROJECTS_DIR, authorizeToolRequest, requestProjectOverride, requestRunOverride, createLiveArtifact, listLiveArtifacts, updateLiveArtifact, refreshLiveArtifact, emitLiveArtifactEvent, emitLiveArtifactRefreshEvent, readLiveArtifactCode, setLiveArtifactCodeHeaders, ensureLiveArtifactPreview, setLiveArtifactPreviewHeaders, getLiveArtifact, listLiveArtifactRefreshLogEntries, deleteLiveArtifact, updateProject, db } = ctx;
+type AnyRouteDeps = Record<string, any>;
+
+export interface RegisterLiveArtifactRoutesDeps {
+  db: any;
+  http: AnyRouteDeps;
+  paths: AnyRouteDeps;
+  auth: AnyRouteDeps;
+  liveArtifacts: AnyRouteDeps;
+  projectStore: AnyRouteDeps;
+}
+
+export function registerLiveArtifactRoutes(app: Express, ctx: RegisterLiveArtifactRoutesDeps) {
+  const { db } = ctx;
+  const { sendApiError, sendLiveArtifactRouteError, requireLocalDaemonRequest } = ctx.http;
+  const { PROJECTS_DIR } = ctx.paths;
+  const { authorizeToolRequest, requestProjectOverride, requestRunOverride } = ctx.auth;
+  const { createLiveArtifact, listLiveArtifacts, updateLiveArtifact, refreshLiveArtifact, emitLiveArtifactEvent, emitLiveArtifactRefreshEvent, readLiveArtifactCode, setLiveArtifactCodeHeaders, ensureLiveArtifactPreview, setLiveArtifactPreviewHeaders, getLiveArtifact, listLiveArtifactRefreshLogEntries, deleteLiveArtifact } = ctx.liveArtifacts;
+  const { updateProject } = ctx.projectStore;
   app.get('/api/live-artifacts', async (req, res) => {
     try {
       const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : undefined;

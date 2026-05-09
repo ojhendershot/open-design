@@ -1,7 +1,31 @@
 import type { Express } from 'express';
 
-export function registerImportRoutes(app: Express, ctx: any) {
-  const { db, sendApiError, importUpload, fs, randomId, importClaudeDesignZip, projectDir, PROJECTS_DIR, insertProject, insertConversation, setTabs, path, RUNTIME_DATA_DIR_CANONICAL, detectEntryFile } = ctx;
+type AnyRouteDeps = Record<string, any>;
+
+export interface RegisterImportRoutesDeps {
+  db: any;
+  http: AnyRouteDeps;
+  uploads: AnyRouteDeps;
+  node: AnyRouteDeps;
+  ids: AnyRouteDeps;
+  paths: AnyRouteDeps;
+  imports: AnyRouteDeps;
+  projectStore: AnyRouteDeps;
+  conversations: AnyRouteDeps;
+  projectFiles: AnyRouteDeps;
+}
+
+export function registerImportRoutes(app: Express, ctx: RegisterImportRoutesDeps) {
+  const { db } = ctx;
+  const { sendApiError } = ctx.http;
+  const { importUpload } = ctx.uploads;
+  const { fs, path } = ctx.node;
+  const { randomId } = ctx.ids;
+  const { PROJECTS_DIR, RUNTIME_DATA_DIR_CANONICAL } = ctx.paths;
+  const { importClaudeDesignZip, projectDir, detectEntryFile } = ctx.imports;
+  const { insertProject } = ctx.projectStore;
+  const { insertConversation } = ctx.conversations;
+  const { setTabs } = ctx.projectFiles;
   app.post(
     '/api/import/claude-design',
     importUpload.single('file'),
@@ -155,8 +179,20 @@ export function registerImportRoutes(app: Express, ctx: any) {
 
 }
 
-export function registerProjectExportRoutes(app: Express, ctx: any) {
-  const { db, getProject, PROJECTS_DIR, buildProjectArchive, buildBatchArchive, sanitizeArchiveFilename, sendApiError } = ctx;
+export interface RegisterProjectExportRoutesDeps {
+  db: any;
+  http: AnyRouteDeps;
+  paths: AnyRouteDeps;
+  projectStore: AnyRouteDeps;
+  exports: AnyRouteDeps;
+}
+
+export function registerProjectExportRoutes(app: Express, ctx: RegisterProjectExportRoutesDeps) {
+  const { db } = ctx;
+  const { sendApiError } = ctx.http;
+  const { PROJECTS_DIR } = ctx.paths;
+  const { getProject } = ctx.projectStore;
+  const { buildProjectArchive, buildBatchArchive, sanitizeArchiveFilename } = ctx.exports;
   // Streams a ZIP of the project's on-disk tree so the "Download as .zip"
   // share menu can hand the user the actual files they uploaded — e.g. the
   // imported `ui-design/` folder — instead of a one-file snapshot of the
@@ -238,8 +274,22 @@ export function registerProjectExportRoutes(app: Express, ctx: any) {
 
 }
 
-export function registerFinalizeRoutes(app: Express, ctx: any) {
-  const { sendApiError, isSafeId, validateExternalApiBaseUrl, getProject, db, PROJECTS_DIR, DESIGN_SYSTEMS_DIR, finalizeDesignPackage, FinalizePackageLockedError, FinalizeUpstreamError, redactSecrets } = ctx;
+export interface RegisterFinalizeRoutesDeps {
+  db: any;
+  http: AnyRouteDeps;
+  paths: AnyRouteDeps;
+  projectStore: AnyRouteDeps;
+  validation: AnyRouteDeps;
+  finalize: AnyRouteDeps;
+}
+
+export function registerFinalizeRoutes(app: Express, ctx: RegisterFinalizeRoutesDeps) {
+  const { db } = ctx;
+  const { sendApiError } = ctx.http;
+  const { PROJECTS_DIR, DESIGN_SYSTEMS_DIR } = ctx.paths;
+  const { getProject } = ctx.projectStore;
+  const { isSafeId, validateExternalApiBaseUrl } = ctx.validation;
+  const { finalizeDesignPackage, FinalizePackageLockedError, FinalizeUpstreamError, redactSecrets } = ctx.finalize;
   app.post('/api/projects/:id/finalize/anthropic', async (req, res) => {
     const { apiKey, baseUrl, model, maxTokens } = req.body || {};
     try {
