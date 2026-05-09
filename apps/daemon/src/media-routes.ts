@@ -8,7 +8,7 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
   const { sendApiError, requireLocalDaemonRequest, isLocalSameOrigin, resolvedPortRef } = ctx.http;
   const { PROJECT_ROOT, PROJECTS_DIR, RUNTIME_DATA_DIR } = ctx.paths;
   const { randomUUID } = ctx.ids;
-  const { MEDIA_PROVIDERS, IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS_BY_KIND, MEDIA_ASPECTS, VIDEO_LENGTHS_SEC, AUDIO_DURATIONS_SEC, readMaskedConfig, writeConfig, generateMedia, createMediaTask, appendTaskProgress, notifyTaskWaiters, getLiveMediaTask, mediaTaskSnapshot, listMediaTasksByProject } = ctx.media;
+  const { MEDIA_PROVIDERS, IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS_BY_KIND, MEDIA_ASPECTS, VIDEO_LENGTHS_SEC, AUDIO_DURATIONS_SEC, readMaskedConfig, writeConfig, generateMedia, createMediaTask, persistMediaTask, appendTaskProgress, notifyTaskWaiters, getLiveMediaTask, mediaTaskSnapshot, listMediaTasksByProject } = ctx.media;
   const { readAppConfig, writeAppConfig } = ctx.appConfig;
   const { orbitService } = ctx.orbit;
   const { openNativeFolderDialog } = ctx.nativeDialogs;
@@ -148,6 +148,7 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
       );
 
       task.status = 'running';
+      persistMediaTask(task);
       generateMedia({
         projectRoot: PROJECT_ROOT,
         projectsRoot: PROJECTS_DIR,
@@ -174,6 +175,7 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
           task.status = 'done';
           task.file = meta;
           task.endedAt = Date.now();
+          persistMediaTask(task);
           notifyTaskWaiters(task);
           console.error(
             `[task ${taskId.slice(0, 8)}] done size=${meta?.size} mime=${meta?.mime} ` +
@@ -188,6 +190,7 @@ export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) 
             code: err?.code,
           };
           task.endedAt = Date.now();
+          persistMediaTask(task);
           notifyTaskWaiters(task);
           console.error(
             `[task ${taskId.slice(0, 8)}] failed status=${task.error.status} ` +

@@ -2144,6 +2144,7 @@ export async function startServer({
     generateMedia,
     mediaTasks,
     createMediaTask: (taskId, projectId, info) => createMediaTask(db, taskId, projectId, info),
+    persistMediaTask: (task) => persistMediaTask(db, task),
     appendTaskProgress: (task, line) => appendTaskProgress(db, task, line),
     notifyTaskWaiters: (task) => notifyTaskWaiters(db, task),
     getLiveMediaTask: (taskId) => getLiveMediaTask(db, taskId),
