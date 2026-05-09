@@ -42,7 +42,34 @@
 
 import path from 'node:path';
 import { promises as fsp } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import type { OwnershipEntry, RewriteStep } from './rewrite-plan.js';
+
+// Plan §3.Z1 — atomic file write helper.
+//
+// Writes the body to a sibling temp file (`<path>.<random>.tmp`)
+// and renames into place. POSIX rename(2) is atomic when source
+// and destination are on the same filesystem, so a partial write
+// never leaves the consumer staring at a half-truncated file.
+//
+// The temp file is removed on the failure path so a crash mid-
+// write doesn't leak an orphan tmp blob next to every plan step.
+async function atomicWriteFile(target: string, body: string | Buffer): Promise<void> {
+  const dir = path.dirname(target);
+  const base = path.basename(target);
+  const tmp = path.join(dir, `${base}.${randomBytes(6).toString('hex')}.tmp`);
+  await fsp.mkdir(dir, { recursive: true });
+  try {
+    await fsp.writeFile(tmp, body);
+    await fsp.rename(tmp, target);
+  } catch (err) {
+    // Best-effort cleanup of the orphan tmp file. We intentionally
+    // swallow the unlink error; rename failure is what the caller
+    // needs to see.
+    try { await fsp.unlink(tmp); } catch { /* tmp may not exist */ }
+    throw err;
+  }
+}
 
 export type PatchStepStatus = 'pending' | 'completed' | 'skipped' | 'failed';
 
@@ -161,7 +188,7 @@ export async function applyPatchForStep(input: ApplyPatchInput): Promise<ApplyPa
   step.status = 'completed';
   step.completedAt = new Date().toISOString();
   if (input.rationale) step.rationale = input.rationale;
-  await fsp.writeFile(stepsPath, JSON.stringify(steps, null, 2) + '\n', 'utf8');
+  await atomicWriteFile(stepsPath, JSON.stringify(steps, null, 2) + '\n');
   const receiptDir = path.join(cwd, 'plan', 'receipts');
   await fsp.mkdir(receiptDir, { recursive: true });
   const receipt: PatchReceiptEntry = {
@@ -172,10 +199,9 @@ export async function applyPatchForStep(input: ApplyPatchInput): Promise<ApplyPa
     rationale:   input.rationale ?? '',
     completedAt: step.completedAt,
   };
-  await fsp.writeFile(
+  await atomicWriteFile(
     path.join(receiptDir, `step-${step.id}.json`),
     JSON.stringify(receipt, null, 2) + '\n',
-    'utf8',
   );
 
   return { status: 'completed', filesTouched: [...filesTouched], added, removed };
@@ -190,7 +216,7 @@ export async function skipStep(input: SkipStepInput): Promise<void> {
   step.status = 'skipped';
   step.completedAt = new Date().toISOString();
   step.rationale = input.rationale;
-  await fsp.writeFile(stepsPath, JSON.stringify(steps, null, 2) + '\n', 'utf8');
+  await atomicWriteFile(stepsPath, JSON.stringify(steps, null, 2) + '\n');
   const receiptDir = path.join(cwd, 'plan', 'receipts');
   await fsp.mkdir(receiptDir, { recursive: true });
   const receipt: PatchReceiptEntry = {
@@ -201,10 +227,9 @@ export async function skipStep(input: SkipStepInput): Promise<void> {
     rationale:   input.rationale,
     completedAt: step.completedAt,
   };
-  await fsp.writeFile(
+  await atomicWriteFile(
     path.join(receiptDir, `step-${step.id}.json`),
     JSON.stringify(receipt, null, 2) + '\n',
-    'utf8',
   );
 }
 
@@ -321,7 +346,7 @@ async function applyOneFileHunks(cwd: string, bundle: FileHunkBundle): Promise<{
         else if (l === '' || l.startsWith('\\')) { /* trailing newline marker */ }
       }
     }
-    await fsp.writeFile(abs, lines.join('\n') + (lines.length > 0 ? '\n' : ''), 'utf8');
+    await atomicWriteFile(abs, lines.join('\n') + (lines.length > 0 ? '\n' : ''));
     return { added, removed: 0 };
   }
 
@@ -348,7 +373,7 @@ async function applyOneFileHunks(cwd: string, bundle: FileHunkBundle): Promise<{
     working = result.working;
   }
   const final = working.join('\n') + (trailingNL ? '\n' : '');
-  await fsp.writeFile(abs, final, 'utf8');
+  await atomicWriteFile(abs, final);
   return { added, removed };
 }
 
