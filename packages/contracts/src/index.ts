@@ -12,6 +12,7 @@ export * from './api/finalize';
 export * from './api/live-artifacts';
 export * from './api/mcp';
 export * from './api/memory';
+export * from './api/orbit';
 export * from './api/projects';
 export * from './api/proxy';
 export * from './api/registry';
