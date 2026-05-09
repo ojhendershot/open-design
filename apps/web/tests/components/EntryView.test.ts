@@ -86,6 +86,24 @@ describe('connector display sorting', () => {
     expect(connector.tools).toEqual([]);
   });
 
+  it('prefers advertised tool counts over curated preview tool names', () => {
+    const connector = {
+      id: 'github',
+      name: 'GitHub',
+      provider: 'Composio',
+      category: 'Developer',
+      status: 'connected' as const,
+      toolCount: 846,
+      tools: [
+        { name: 'github.github_search_repositories' },
+        { name: 'github.github_get_issue' },
+      ],
+      curatedToolNames: ['github.github_search_repositories', 'github.github_get_issue'],
+    };
+
+    expect(getConnectorDisplayToolCount(connector)).toBe(846);
+  });
+
   it('appends paginated preview tools without duplicating rows', () => {
     const current = {
       id: 'canvas',
