@@ -39,6 +39,7 @@ import {
 } from '../media/models';
 import { Icon } from './Icon';
 import { Skeleton } from './Loading';
+import { PluginsSection } from './PluginsSection';
 
 // Snapshot of a curated prompt template, captured at New Project time and
 // folded into ProjectMetadata.promptTemplate. The user may have edited the
@@ -449,6 +450,27 @@ export function NewProjectPanel({
           placeholder={t('newproj.namePlaceholder')}
           value={name}
           onChange={(e) => setName(e.target.value)}
+        />
+
+        {/*
+          Plan §3.F5 / spec §8 — inline plugin discovery.
+
+          PluginsSection is purely additive: the rail fetches
+          /api/plugins on mount and renders nothing when the daemon has
+          no plugins installed (the most common state today). When a
+          user clicks a card, the section hydrates the project name
+          field with the plugin's brief and surfaces the chip strip +
+          inputs form. The host's existing Send-button rules are not
+          modified — the gating spec lands in Phase 2B alongside the
+          ChatComposer mount.
+        */}
+        <PluginsSection
+          variant="wide"
+          onApplied={(brief) => {
+            if (typeof brief === 'string' && brief.length > 0 && name.trim().length === 0) {
+              setName(brief);
+            }
+          }}
         />
 
         {showDesignSystemPicker ? (
