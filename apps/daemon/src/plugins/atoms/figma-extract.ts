@@ -83,6 +83,15 @@ export interface FigmaExtractOptions {
   // Default true; the daemon flips it off when the run has
   // network capability granted.
   offlineAssets?: boolean;
+  // Asset format for the GET /v1/images call. Default 'svg'; the
+  // Figma REST API also accepts 'png' / 'jpg' / 'pdf'. Spec §10.3.1
+  // recommends 'svg' for fidelity + replay; binary fixtures only
+  // when an asset's source is rasterised in Figma to begin with.
+  assetFormat?: 'svg' | 'png' | 'jpg' | 'pdf';
+  // Per-asset download size cap (bytes). Default 5 MiB. Above the cap
+  // the asset is skipped + listed in meta.unsupportedNodes[] with
+  // reason='asset-too-large' so the human can audit.
+  assetMaxBytes?: number;
 }
 
 const FILE_URL_RE = /^https:\/\/(?:www\.)?figma\.com\/(?:file|design)\/([A-Za-z0-9]+)/;
@@ -133,9 +142,126 @@ export async function runFigmaExtract(opts: FigmaExtractOptions): Promise<FigmaE
   await fsp.mkdir(assetsDir, { recursive: true });
   await fsp.writeFile(path.join(figmaDir, 'tree.json'),   JSON.stringify(tree,   null, 2) + '\n', 'utf8');
   await fsp.writeFile(path.join(figmaDir, 'tokens.json'), JSON.stringify(tokens, null, 2) + '\n', 'utf8');
-  await fsp.writeFile(path.join(figmaDir, 'meta.json'),   JSON.stringify(meta,   null, 2) + '\n', 'utf8');
 
+  // 3. Asset rasterisation pass — GET /v1/images/<key>?ids=<ids>&format=<fmt>.
+  //
+  // Honoured only when offlineAssets !== true. Spec §10.3.1: asset
+  // exports cover every leaf node the file marks for export; v1
+  // lifts every leaf node we have a box for and lets the human
+  // prune from `figma/assets/<id>.<ext>` later.
+  const assetCandidates = pickAssetCandidates(tree);
+  if (opts.offlineAssets !== true && assetCandidates.length > 0) {
+    const assetFormat = opts.assetFormat ?? 'svg';
+    const assetMaxBytes = opts.assetMaxBytes ?? 5 * 1024 * 1024;
+    const assetIssues = await downloadAssets({
+      fileKey,
+      nodeIds: assetCandidates.map((c) => c.id),
+      token: opts.token,
+      fetchFn,
+      assetsDir,
+      assetFormat,
+      assetMaxBytes,
+    });
+    for (const issue of assetIssues) unsupportedNodes.push(issue);
+    meta.unsupportedNodes = unsupportedNodes;
+    // Re-derive atomDigest now that assets/ has settled (the digest
+    // is over the JSON shape, not the binary blobs, so this stays
+    // pure even with the on-disk side effects above).
+    meta.atomDigest = digestObject({ tree, tokens, assetIssues });
+  }
+
+  await fsp.writeFile(path.join(figmaDir, 'meta.json'), JSON.stringify(meta, null, 2) + '\n', 'utf8');
   return { tree, tokens, meta };
+}
+
+interface AssetCandidate { id: string; type: string }
+
+function pickAssetCandidates(tree: FigmaNode[]): AssetCandidate[] {
+  const out: AssetCandidate[] = [];
+  // We pick visible TEXT-less leaf nodes (no children) that have a
+  // bounding box and aren't the document / canvas root. The daemon
+  // already filtered out invisible nodes upstream.
+  for (const n of tree) {
+    if (n.type === 'DOCUMENT' || n.type === 'CANVAS') continue;
+    if (n.children && n.children.length > 0) continue;
+    if (!n.box) continue;
+    if (n.text) continue; // skip pure text nodes; the agent renders text natively
+    out.push({ id: n.id, type: n.type });
+  }
+  return out;
+}
+
+interface FigmaApiImagesResponse {
+  err?:    string | null;
+  images?: Record<string, string | null>;
+}
+
+async function downloadAssets(args: {
+  fileKey: string;
+  nodeIds: string[];
+  token: string;
+  fetchFn: typeof fetch;
+  assetsDir: string;
+  assetFormat: 'svg' | 'png' | 'jpg' | 'pdf';
+  assetMaxBytes: number;
+}): Promise<FigmaExtractReport['meta']['unsupportedNodes']> {
+  const issues: FigmaExtractReport['meta']['unsupportedNodes'] = [];
+  // Figma API caps at ~100 ids per call; chunk for safety.
+  const chunkSize = 50;
+  const chunks: string[][] = [];
+  for (let i = 0; i < args.nodeIds.length; i += chunkSize) {
+    chunks.push(args.nodeIds.slice(i, i + chunkSize));
+  }
+  for (const chunk of chunks) {
+    const url = `https://api.figma.com/v1/images/${encodeURIComponent(args.fileKey)}?ids=${encodeURIComponent(chunk.join(','))}&format=${args.assetFormat}`;
+    let res: Response;
+    try {
+      res = await args.fetchFn(url, { headers: { 'Authorization': `Bearer ${args.token}` } });
+    } catch (err) {
+      for (const id of chunk) {
+        issues.push({ id, type: 'asset', reason: `image fetch error: ${(err as Error).message}` });
+      }
+      continue;
+    }
+    if (!res.ok) {
+      const text = await safeText(res);
+      for (const id of chunk) {
+        issues.push({ id, type: 'asset', reason: `${res.status} ${res.statusText} ${text}`.trim() });
+      }
+      continue;
+    }
+    const body = await res.json() as FigmaApiImagesResponse;
+    if (body.err) {
+      for (const id of chunk) issues.push({ id, type: 'asset', reason: `figma error: ${body.err}` });
+      continue;
+    }
+    const images = body.images ?? {};
+    for (const id of chunk) {
+      const downloadUrl = images[id];
+      if (typeof downloadUrl !== 'string' || !downloadUrl) {
+        issues.push({ id, type: 'asset', reason: 'no download URL returned' });
+        continue;
+      }
+      try {
+        const dl = await args.fetchFn(downloadUrl);
+        if (!dl.ok) {
+          issues.push({ id, type: 'asset', reason: `download ${dl.status} ${dl.statusText}` });
+          continue;
+        }
+        const buf = Buffer.from(await dl.arrayBuffer());
+        if (buf.byteLength > args.assetMaxBytes) {
+          issues.push({ id, type: 'asset', reason: `asset-too-large (${buf.byteLength} bytes)` });
+          continue;
+        }
+        const ext = args.assetFormat === 'jpg' ? 'jpg' : args.assetFormat;
+        const safeId = id.replace(/[^A-Za-z0-9_:-]+/g, '-');
+        await fsp.writeFile(path.join(args.assetsDir, `${safeId}.${ext}`), buf);
+      } catch (err) {
+        issues.push({ id, type: 'asset', reason: `download error: ${(err as Error).message}` });
+      }
+    }
+  }
+  return issues;
 }
 
 function extractFileKey(fileUrl: string | undefined): string | undefined {

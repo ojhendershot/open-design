@@ -1,7 +1,7 @@
 // Phase 6 entry slice — figma-extract atom impl.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { runFigmaExtract } from '../src/plugins/atoms/figma-extract.js';
@@ -146,6 +146,124 @@ describe('runFigmaExtract — happy paths', () => {
       expect.stringContaining('XYZ789'),
       expect.objectContaining({ headers: { Authorization: 'Bearer tok' } }),
     );
+  });
+});
+
+describe('runFigmaExtract — asset rasterisation', () => {
+  // Fixture with two non-text leaf nodes (3:2 + 3:3) so the asset
+  // candidate set is multi-id. The base fixtureFile only has one
+  // (3:2 — a RECTANGLE with a gradient fill).
+  const assetFixture = {
+    document: {
+      id: '0:0', name: 'Document', type: 'DOCUMENT',
+      children: [{
+        id: '1:1', name: 'Page', type: 'CANVAS',
+        children: [{
+          id: '2:1', name: 'Hero', type: 'FRAME',
+          absoluteBoundingBox: { x: 0, y: 0, width: 1280, height: 720 },
+          children: [
+            { id: '3:2', name: 'Card 1', type: 'RECTANGLE',
+              absoluteBoundingBox: { x: 0, y: 0, width: 100, height: 100 },
+              fills: [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }],
+            },
+            { id: '3:3', name: 'Card 2', type: 'RECTANGLE',
+              absoluteBoundingBox: { x: 0, y: 0, width: 100, height: 100 },
+              fills: [{ type: 'SOLID', color: { r: 0, g: 1, b: 0 } }],
+            },
+          ],
+        }],
+      }],
+    },
+  };
+
+  // Multi-call stub: returns a different response per invocation.
+  const sequenceFetch = (responses: Array<{ ok?: boolean; status?: number; statusText?: string; body?: unknown; binary?: Buffer; text?: string }>) => {
+    let idx = 0;
+    return vi.fn(async (_url: string) => {
+      const r = responses[Math.min(idx, responses.length - 1)];
+      idx++;
+      if (!r) throw new Error('test stub: no response queued');
+      return {
+        ok: r.ok ?? true,
+        status: r.status ?? 200,
+        statusText: r.statusText ?? 'OK',
+        headers: { get: () => null },
+        json: async () => r.body ?? {},
+        text: async () => r.text ?? '',
+        arrayBuffer: async () => r.binary ? r.binary.buffer.slice(r.binary.byteOffset, r.binary.byteOffset + r.binary.byteLength) : new ArrayBuffer(0),
+      } as unknown as Response;
+    });
+  };
+
+  it('downloads assets per leaf node when offlineAssets=false', async () => {
+    const fetchFn = sequenceFetch([
+      { body: assetFixture },
+      { body: { images: { '3:2': 'https://cdn/a.svg', '3:3': 'https://cdn/b.svg' } } },
+      { binary: Buffer.from('<svg>a</svg>') },
+      { binary: Buffer.from('<svg>b</svg>') },
+    ]);
+    const report = await runFigmaExtract({
+      cwd: cwd,
+      fileUrl: 'https://figma.com/file/ABC123/x',
+      token: 'tok',
+      fetchFn: fetchFn as unknown as typeof fetch,
+      offlineAssets: false,
+    });
+    const assets = (await readdir(path.join(cwd, 'figma', 'assets'))).sort();
+    expect(assets).toEqual(['3:2.svg', '3:3.svg']);
+    expect(report.meta.unsupportedNodes.find((u) => u.id === '3:2' && u.type === 'asset')).toBeUndefined();
+  });
+
+  it('records per-id download issues without aborting the run', async () => {
+    const fetchFn = sequenceFetch([
+      { body: assetFixture },
+      { body: { images: { '3:2': null, '3:3': 'https://cdn/b.svg' } } },
+      { binary: Buffer.from('<svg>b</svg>') },
+    ]);
+    const report = await runFigmaExtract({
+      cwd: cwd,
+      fileUrl: 'https://figma.com/file/ABC123/x',
+      token: 'tok',
+      fetchFn: fetchFn as unknown as typeof fetch,
+      offlineAssets: false,
+    });
+    const issues = report.meta.unsupportedNodes.filter((u) => u.type === 'asset');
+    expect(issues.find((i) => i.id === '3:2')?.reason).toMatch(/no download URL/);
+    const assets = await readdir(path.join(cwd, 'figma', 'assets'));
+    expect(assets).toEqual(['3:3.svg']);
+  });
+
+  it('skips assets above assetMaxBytes', async () => {
+    const fetchFn = sequenceFetch([
+      { body: assetFixture },
+      { body: { images: { '3:2': 'https://cdn/big.svg', '3:3': 'https://cdn/small.svg' } } },
+      { binary: Buffer.alloc(8 * 1024) },
+      { binary: Buffer.from('<svg>x</svg>') },
+    ]);
+    const report = await runFigmaExtract({
+      cwd: cwd,
+      fileUrl: 'https://figma.com/file/ABC123/x',
+      token: 'tok',
+      fetchFn: fetchFn as unknown as typeof fetch,
+      offlineAssets: false,
+      assetMaxBytes: 1024,
+    });
+    const skipped = report.meta.unsupportedNodes.find((u) => u.id === '3:2' && u.type === 'asset');
+    expect(skipped?.reason).toMatch(/asset-too-large/);
+    const assets = await readdir(path.join(cwd, 'figma', 'assets'));
+    expect(assets).toEqual(['3:3.svg']);
+  });
+
+  it('keeps assets/ empty when offlineAssets=true (default)', async () => {
+    const fetchFn = sequenceFetch([{ body: fixtureFile }]);
+    await runFigmaExtract({
+      cwd: cwd,
+      fileUrl: 'https://figma.com/file/ABC123/x',
+      token: 'tok',
+      fetchFn: fetchFn as unknown as typeof fetch,
+    });
+    const assets = await readdir(path.join(cwd, 'figma', 'assets'));
+    expect(assets).toEqual([]);
   });
 });
 
