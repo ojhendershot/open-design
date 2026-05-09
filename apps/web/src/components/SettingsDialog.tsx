@@ -1118,6 +1118,28 @@ export function SettingsDialog({
             </button>
             <button
               type="button"
+              className={`settings-nav-item${activeSection === 'skills' ? ' active' : ''}`}
+              onClick={() => setActiveSection('skills')}
+            >
+              <Icon name="grid" size={18} />
+              <span>
+                <strong>{t('settings.skills')}</strong>
+                <small>{t('settings.skillsHint')}</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-item${activeSection === 'mcpClient' ? ' active' : ''}`}
+              onClick={() => setActiveSection('mcpClient')}
+            >
+              <Icon name="sparkles" size={18} />
+              <span>
+                <strong>{t('settings.externalMcpTitle')}</strong>
+                <small>{t('settings.externalMcpHint')}</small>
+              </span>
+            </button>
+            <button
+              type="button"
               className={`settings-nav-item${activeSection === 'composio' ? ' active' : ''}`}
               onClick={() => setActiveSection('composio')}
             >
@@ -1147,17 +1169,6 @@ export function SettingsDialog({
               <span>
                 <strong>{t('settings.mcpServerTitle')}</strong>
                 <small>{t('settings.mcpServerHint')}</small>
-              </span>
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-item${activeSection === 'mcpClient' ? ' active' : ''}`}
-              onClick={() => setActiveSection('mcpClient')}
-            >
-              <Icon name="sparkles" size={18} />
-              <span>
-                <strong>{t('settings.externalMcpTitle')}</strong>
-                <small>{t('settings.externalMcpHint')}</small>
               </span>
             </button>
             <button
@@ -1202,17 +1213,6 @@ export function SettingsDialog({
               <span>
                 <strong>{t('pet.navTitle')}</strong>
                 <small>{t('pet.navHint')}</small>
-              </span>
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-item${activeSection === 'skills' ? ' active' : ''}`}
-              onClick={() => setActiveSection('skills')}
-            >
-              <Icon name="grid" size={18} />
-              <span>
-                <strong>{t('settings.skills')}</strong>
-                <small>{t('settings.skillsHint')}</small>
               </span>
             </button>
             <button

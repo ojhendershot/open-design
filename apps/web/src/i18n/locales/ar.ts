@@ -528,9 +528,9 @@ export const ar: Dict = {
   'chat.you': 'أنت',
   'chat.openFile': 'فتح {name}',
   'chat.composerPlaceholder':
-    'صف التصميم الذي تريده - الصق أو اسحب الصور، أو @ لملف...',
+    'صف التصميم الذي تريده - الصق أو اسحب الصور، أو @ لملف أو مهارة...',
   'chat.composerHint':
-    '⌘/Ctrl + Enter للإرسال · الصق الصور · @ للإشارة لملفات',
+    '⌘/Ctrl + Enter للإرسال · الصق الصور · @ للملفات أو المهارات · / للأوامر',
   'chat.cliSettingsTitle': 'إعدادات CLI والنموذج',
   'chat.cliSettingsAria': 'فتح إعدادات CLI والنموذج',
   'chat.attachTitle': 'إرفاق ملفات (أو الصق / اسحب)',

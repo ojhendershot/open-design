@@ -18,15 +18,14 @@ import {
 // Templates tab and are managed under their own daemon registry. See
 // specs/current/skills-and-design-templates.md.
 //
-// The section is laid out as a two-column workspace:
-// - Left:  searchable list of skills + filters + "New" entry point
-// - Right: detail panel that doubles as previewer (read mode), editor
-//          (when the user clicks Edit on a skill), or new-skill draft
-//          (when the user clicks "New skill" in the toolbar).
-// Replacing the previous tab-with-design-systems layout matters because
-// design-systems are now a sibling Settings section; mixing them here
-// produced a long, sub-tab-gated dialog that hid both surfaces from
-// each other.
+// Layout mirrors the External MCP servers panel: a single vertical
+// stack of collapsible rows. Each row is a skill — the header is
+// always visible (enable toggle, name, mode badge, source badge,
+// actions); the body (SKILL.md preview, file tree, inline edit form)
+// is revealed only when the row is expanded. Replaces the previous
+// left-list / right-detail two-column workspace, which felt cramped
+// inside the settings dialog content column and left a wasteful empty
+// detail panel whenever no skill was selected.
 
 interface Props {
   cfg: AppConfig;
@@ -34,16 +33,6 @@ interface Props {
 }
 
 type SourceFilter = 'all' | 'user' | 'built-in';
-
-type DetailMode =
-  // Showing the SKILL.md body for the skill currently selected in the list.
-  | { kind: 'view'; id: string }
-  // Editing an existing skill — pre-fills the form with the current body.
-  | { kind: 'edit'; id: string }
-  // Drafting a brand new skill — empty form, writes to USER_SKILLS_DIR.
-  | { kind: 'create' }
-  // No skill selected and no draft in flight — shows an empty placeholder.
-  | { kind: 'idle' };
 
 interface DraftState {
   name: string;
@@ -82,30 +71,37 @@ export function SkillsSection({ cfg, setCfg }: Props) {
   const [search, setSearch] = useState('');
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [modeFilter, setModeFilter] = useState<string>('all');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [detailMode, setDetailMode] = useState<DetailMode>({ kind: 'idle' });
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
 
-  // Body for the currently-selected skill — fetched lazily so the list
-  // payload stays small. `null` means "not yet fetched"; `''` means
-  // "fetched but empty".
+  // Body for the currently-expanded skill — fetched lazily so the
+  // initial list payload stays small. `undefined` means 'not yet
+  // fetched'; `''` means 'fetched but empty'.
   const [bodyById, setBodyById] = useState<Record<string, string>>({});
   const [bodyLoadingId, setBodyLoadingId] = useState<string | null>(null);
 
-  // File tree for the currently-selected skill. Cached the same way as
-  // bodies so opening / re-opening the same skill is instant after the
-  // first fetch.
+  // File tree, cached the same way as bodies so re-expanding the same
+  // row is instant after the first fetch.
   const [filesById, setFilesById] = useState<Record<string, SkillFileEntry[]>>({});
   const [filesLoadingId, setFilesLoadingId] = useState<string | null>(null);
 
-  // Editing draft + status. The draft is held in local state so the user
-  // can switch away and come back without losing progress (we drop it
-  // only on Save / Cancel).
+  // One row expanded at a time — keeps the section scannable. `null`
+  // means every row is collapsed.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Editing happens inline inside an expanded row. Holds the id of the
+  // skill currently being edited, or `null` when no edit is in flight.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  // Top-of-list create form. Toggled by the header 'New skill' button.
+  const [creating, setCreating] = useState(false);
+
+  // Editing draft + status. The draft is held in local state so the
+  // user can collapse a row and come back without losing progress
+  // (we drop it only on Save / Cancel).
   const [draft, setDraft] = useState<DraftState>(EMPTY_DRAFT);
   const [draftError, setDraftError] = useState<string | null>(null);
   const [draftSaving, setDraftSaving] = useState(false);
 
   // Inline delete confirmation — replaces the old window.confirm() call.
-  // Only one skill can be in the "confirm pending" state at a time; the
+  // Only one skill can be in the 'confirm pending' state at a time; the
   // user clicks once to arm, twice to commit.
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -132,21 +128,34 @@ export function SkillsSection({ cfg, setCfg }: Props) {
     return Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [skills]);
 
+  // Categories are optional per-skill metadata (`od.category` in the
+  // SKILL.md frontmatter). The pill row only renders when at least one
+  // skill in the listing carries one, so a project that ships only the
+  // baseline functional skills doesn't see an empty filter row.
+  const categoryOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of skills) {
+      const cat = s.category;
+      if (typeof cat !== 'string' || !cat) continue;
+      counts.set(cat, (counts.get(cat) ?? 0) + 1);
+    }
+    return Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [skills]);
+
   const filteredSkills = useMemo(() => {
     const q = search.toLowerCase().trim();
     return skills.filter((s) => {
       if (modeFilter !== 'all' && s.mode !== modeFilter) return false;
       if (sourceFilter !== 'all' && s.source !== sourceFilter) return false;
+      if (categoryFilter !== 'all' && s.category !== categoryFilter)
+        return false;
       if (!q) return true;
-      const hay = `${s.name}\n${s.description}\n${(s.triggers ?? []).join(' ')}`;
+      const hay = `${s.name}\n${s.description}\n${(s.triggers ?? []).join(
+        ' ',
+      )}\n${s.category ?? ''}`;
       return hay.toLowerCase().includes(q);
     });
-  }, [skills, modeFilter, sourceFilter, search]);
-
-  const selectedSkill = useMemo(
-    () => skills.find((s) => s.id === selectedId) ?? null,
-    [skills, selectedId],
-  );
+  }, [skills, modeFilter, sourceFilter, categoryFilter, search]);
 
   const ensureBody = useCallback(
     async (id: string) => {
@@ -179,22 +188,26 @@ export function SkillsSection({ cfg, setCfg }: Props) {
     [filesById],
   );
 
-  const selectSkill = useCallback(
+  const toggleExpanded = useCallback(
     (id: string) => {
-      setSelectedId(id);
-      setDetailMode({ kind: 'view', id });
+      setExpandedId((cur) => {
+        if (cur === id) return null;
+        void ensureBody(id);
+        void ensureFiles(id);
+        return id;
+      });
+      // Switching rows aborts any in-flight edit on the previous row.
+      setEditingId((cur) => (cur === id ? cur : null));
       setConfirmDeleteId(null);
-      void ensureBody(id);
-      void ensureFiles(id);
     },
     [ensureBody, ensureFiles],
   );
 
   const startCreate = useCallback(() => {
-    setSelectedId(null);
+    setCreating(true);
     setDraft(EMPTY_DRAFT);
     setDraftError(null);
-    setDetailMode({ kind: 'create' });
+    setEditingId(null);
     setConfirmDeleteId(null);
   }, []);
 
@@ -203,7 +216,9 @@ export function SkillsSection({ cfg, setCfg }: Props) {
       const body = await ensureBody(skill.id);
       setDraft(summaryToDraft(skill, body ?? ''));
       setDraftError(null);
-      setDetailMode({ kind: 'edit', id: skill.id });
+      setEditingId(skill.id);
+      setExpandedId(skill.id);
+      setCreating(false);
       setConfirmDeleteId(null);
     },
     [ensureBody],
@@ -212,12 +227,9 @@ export function SkillsSection({ cfg, setCfg }: Props) {
   const cancelDraft = useCallback(() => {
     setDraft(EMPTY_DRAFT);
     setDraftError(null);
-    if (selectedId) {
-      setDetailMode({ kind: 'view', id: selectedId });
-    } else {
-      setDetailMode({ kind: 'idle' });
-    }
-  }, [selectedId]);
+    setEditingId(null);
+    setCreating(false);
+  }, []);
 
   const submitDraft = useCallback(async () => {
     if (draftSaving) return;
@@ -241,8 +253,8 @@ export function SkillsSection({ cfg, setCfg }: Props) {
     setDraftSaving(true);
     setDraftError(null);
     const result =
-      detailMode.kind === 'edit'
-        ? await updateSkill(detailMode.id, payload)
+      editingId
+        ? await updateSkill(editingId, payload)
         : await importSkill(payload);
     setDraftSaving(false);
     if ('error' in result) {
@@ -252,18 +264,19 @@ export function SkillsSection({ cfg, setCfg }: Props) {
     const updated = result.skill;
     await refresh();
     setBodyById((cur) => ({ ...cur, [updated.id]: body }));
-    // Drop the cached file tree for this id so the next selection
+    // Drop the cached file tree for this id so the next expand
     // re-walks the on-disk folder; SKILL.md may have been the only
-    // file there before, but the user might have meant to add more.
+    // file before, but the user might have meant to add more.
     setFilesById((cur) => {
       const next = { ...cur };
       delete next[updated.id];
       return next;
     });
-    setSelectedId(updated.id);
-    setDetailMode({ kind: 'view', id: updated.id });
+    setExpandedId(updated.id);
+    setEditingId(null);
+    setCreating(false);
     setDraft(EMPTY_DRAFT);
-  }, [detailMode, draft, draftSaving, refresh]);
+  }, [draft, draftSaving, editingId, refresh]);
 
   const armDelete = useCallback((id: string) => {
     setConfirmDeleteId(id);
@@ -299,12 +312,13 @@ export function SkillsSection({ cfg, setCfg }: Props) {
         set.delete(id);
         return { ...c, disabledSkills: [...set] };
       });
-      if (selectedId === id) {
-        setSelectedId(null);
-        setDetailMode({ kind: 'idle' });
+      if (expandedId === id) setExpandedId(null);
+      if (editingId === id) {
+        setEditingId(null);
+        setDraft(EMPTY_DRAFT);
       }
     },
-    [refresh, selectedId, setCfg],
+    [editingId, expandedId, refresh, setCfg],
   );
 
   const toggleEnabled = useCallback(
@@ -319,13 +333,6 @@ export function SkillsSection({ cfg, setCfg }: Props) {
     [setCfg],
   );
 
-  const draftHeading =
-    detailMode.kind === 'edit'
-      ? `Editing ${detailMode.id}`
-      : detailMode.kind === 'create'
-        ? 'New skill'
-        : '';
-
   return (
     <section className="settings-section settings-skills">
       <div className="section-head">
@@ -335,11 +342,11 @@ export function SkillsSection({ cfg, setCfg }: Props) {
         </div>
         <button
           type="button"
-          className="btn primary"
+          className="primary skills-add-btn"
           onClick={startCreate}
           data-testid="skills-new"
         >
-          <Icon name="plus" size={14} />
+          <Icon name="plus" size={13} />
           <span>{t('settings.skillsNew')}</span>
         </button>
       </div>
@@ -391,150 +398,184 @@ export function SkillsSection({ cfg, setCfg }: Props) {
             </button>
           ))}
         </div>
+        {categoryOptions.length > 0 ? (
+          <div className="library-filters" data-testid="skills-category-filters">
+            <button
+              type="button"
+              className={`filter-pill${categoryFilter === 'all' ? ' active' : ''}`}
+              onClick={() => setCategoryFilter('all')}
+            >
+              {t('settings.libraryAll')}
+            </button>
+            {categoryOptions.map(([cat, count]) => (
+              <button
+                key={cat}
+                type="button"
+                className={`filter-pill${categoryFilter === cat ? ' active' : ''}`}
+                onClick={() => setCategoryFilter(cat)}
+              >
+                {humanizeCategory(cat)}
+                <span className="filter-pill-count">{count}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
 
-      <div className="skills-layout">
-        <div className="skills-list" data-testid="skills-list">
-          {filteredSkills.length === 0 ? (
-            <p className="library-empty">{t('settings.libraryNoResults')}</p>
-          ) : (
-            filteredSkills.map((skill) => {
-              const enabled = !disabledSkills.has(skill.id);
-              const isSelected = selectedId === skill.id;
-              return (
-                <div
-                  key={skill.id}
-                  className={`library-card${enabled ? '' : ' disabled'}${
-                    isSelected ? ' is-selected' : ''
-                  }`}
-                  data-testid={`skill-row-${skill.id}`}
-                >
-                  <button
-                    type="button"
-                    className="library-card-info skills-card-button"
-                    onClick={() => selectSkill(skill.id)}
-                  >
-                    <div className="library-card-title-row">
-                      <span className="library-card-name">{skill.name}</span>
-                      <span className="library-card-badge">{skill.mode}</span>
-                      {skill.source === 'user' ? (
-                        <span
-                          className="library-card-badge library-card-badge-user"
-                          title="User-imported skill"
-                        >
-                          user
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="library-card-desc">{skill.description}</div>
-                  </button>
-                  <label
-                    className="toggle-switch"
-                    title={t('settings.libraryToggleLabel')}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={enabled}
-                      onChange={(e) =>
-                        toggleEnabled(skill.id, e.target.checked)
-                      }
-                    />
-                    <span className="toggle-slider" />
-                  </label>
-                </div>
-              );
-            })
-          )}
+      {creating ? (
+        <SkillDraftForm
+          heading={t('settings.skillsNew')}
+          subheading={null}
+          draft={draft}
+          setDraft={setDraft}
+          error={draftError}
+          saving={draftSaving}
+          isEdit={false}
+          onCancel={cancelDraft}
+          onSubmit={() => void submitDraft()}
+        />
+      ) : null}
+
+      {filteredSkills.length === 0 ? (
+        <div className="empty-card">
+          <strong>{t('settings.libraryNoResults')}</strong>
         </div>
-
-        <div className="skills-detail" data-testid="skills-detail">
-          {detailMode.kind === 'idle' ? (
-            <div className="skills-detail-empty">
-              <Icon name="grid" size={28} />
-              <p>{t('settings.skillsEmpty')}</p>
-            </div>
-          ) : null}
-
-          {detailMode.kind === 'view' && selectedSkill ? (
-            <SkillDetailView
-              skill={selectedSkill}
-              body={bodyById[selectedSkill.id]}
-              bodyLoading={bodyLoadingId === selectedSkill.id}
-              files={filesById[selectedSkill.id] ?? null}
-              filesLoading={filesLoadingId === selectedSkill.id}
-              confirmDelete={confirmDeleteId === selectedSkill.id}
-              onEdit={() => void startEdit(selectedSkill)}
-              onArmDelete={() => armDelete(selectedSkill.id)}
-              onCancelDelete={cancelDelete}
-              onCommitDelete={() => void commitDelete(selectedSkill.id)}
-            />
-          ) : null}
-
-          {detailMode.kind === 'create' || detailMode.kind === 'edit' ? (
-            <SkillDraftForm
-              heading={draftHeading}
-              draft={draft}
-              setDraft={setDraft}
-              error={draftError}
-              saving={draftSaving}
-              isEdit={detailMode.kind === 'edit'}
-              onCancel={cancelDraft}
-              onSubmit={() => void submitDraft()}
-            />
-          ) : null}
+      ) : (
+        <div className="skills-rows" data-testid="skills-list">
+          {filteredSkills.map((skill) => {
+            const enabled = !disabledSkills.has(skill.id);
+            const isExpanded = expandedId === skill.id;
+            const isEditing = editingId === skill.id;
+            return (
+              <SkillRow
+                key={skill.id}
+                skill={skill}
+                enabled={enabled}
+                expanded={isExpanded}
+                editing={isEditing}
+                body={bodyById[skill.id]}
+                bodyLoading={bodyLoadingId === skill.id}
+                files={filesById[skill.id] ?? null}
+                filesLoading={filesLoadingId === skill.id}
+                confirmDelete={confirmDeleteId === skill.id}
+                draft={isEditing ? draft : null}
+                draftError={isEditing ? draftError : null}
+                draftSaving={isEditing && draftSaving}
+                setDraft={setDraft}
+                onToggleExpanded={() => toggleExpanded(skill.id)}
+                onToggleEnabled={(e) => toggleEnabled(skill.id, e)}
+                onStartEdit={() => void startEdit(skill)}
+                onArmDelete={() => armDelete(skill.id)}
+                onCancelDelete={cancelDelete}
+                onCommitDelete={() => void commitDelete(skill.id)}
+                onCancelEdit={cancelDraft}
+                onSubmitEdit={() => void submitDraft()}
+              />
+            );
+          })}
         </div>
-      </div>
+      )}
     </section>
   );
 }
 
-interface SkillDetailViewProps {
+interface SkillRowProps {
   skill: SkillSummary;
+  enabled: boolean;
+  expanded: boolean;
+  editing: boolean;
   body: string | undefined;
   bodyLoading: boolean;
   files: SkillFileEntry[] | null;
   filesLoading: boolean;
   confirmDelete: boolean;
-  onEdit: () => void;
+  draft: DraftState | null;
+  draftError: string | null;
+  draftSaving: boolean;
+  setDraft: Dispatch<SetStateAction<DraftState>>;
+  onToggleExpanded: () => void;
+  onToggleEnabled: (enabled: boolean) => void;
+  onStartEdit: () => void;
   onArmDelete: () => void;
   onCancelDelete: () => void;
   onCommitDelete: () => void;
+  onCancelEdit: () => void;
+  onSubmitEdit: () => void;
 }
 
-function SkillDetailView({
+function SkillRow({
   skill,
+  enabled,
+  expanded,
+  editing,
   body,
   bodyLoading,
   files,
   filesLoading,
   confirmDelete,
-  onEdit,
+  draft,
+  draftError,
+  draftSaving,
+  setDraft,
+  onToggleExpanded,
+  onToggleEnabled,
+  onStartEdit,
   onArmDelete,
   onCancelDelete,
   onCommitDelete,
-}: SkillDetailViewProps) {
+  onCancelEdit,
+  onSubmitEdit,
+}: SkillRowProps) {
   const t = useT();
+  const summaryName = skill.name || skill.id;
   return (
-    <div className="skills-detail-view">
-      <header className="skills-detail-head">
-        <div>
-          <h4>{skill.name}</h4>
-          <p className="skills-detail-meta">
-            {skill.mode}
-            {skill.source === 'user' ? ' · user' : ' · built-in'}
-            {skill.description ? ` · ${skill.description}` : ''}
-          </p>
-        </div>
-        <div className="skills-detail-actions">
-          <button
-            type="button"
-            className="btn ghost"
-            onClick={onEdit}
-            data-testid="skills-edit"
-          >
-            <Icon name="edit" size={12} />
-            <span>{t('settings.skillsEdit')}</span>
-          </button>
+    <div
+      className={`skills-row${enabled ? '' : ' skills-row-disabled'}${
+        expanded ? ' skills-row-expanded' : ''
+      }${editing ? ' skills-row-editing' : ''}`}
+      data-testid={`skill-row-${skill.id}`}
+    >
+      <div className="skills-row-head">
+        <button
+          type="button"
+          className="skills-row-summary-btn"
+          onClick={onToggleExpanded}
+          aria-expanded={expanded}
+          title={expanded ? 'Collapse' : 'Expand'}
+        >
+          <span className="skills-row-icon" aria-hidden>
+            <Icon name="grid" size={14} />
+          </span>
+          <span className="skills-row-summary">
+            <span className="skills-row-summary-line">
+              <span className="skills-row-summary-name">{summaryName}</span>
+              <span className="skills-row-summary-mode">{skill.mode}</span>
+              {skill.category ? (
+                <span
+                  className="skills-row-summary-category"
+                  title={`Category: ${humanizeCategory(skill.category)}`}
+                >
+                  {humanizeCategory(skill.category)}
+                </span>
+              ) : null}
+              {skill.source === 'user' ? (
+                <span
+                  className="skills-row-summary-source"
+                  title="User-imported skill"
+                >
+                  user
+                </span>
+              ) : null}
+            </span>
+            {skill.description ? (
+              <span className="skills-row-summary-desc">{skill.description}</span>
+            ) : null}
+          </span>
+          <span className="skills-row-chevron" aria-hidden>
+            <Icon name="chevron-down" size={14} />
+          </span>
+        </button>
+        <div className="skills-row-actions">
           {confirmDelete ? (
             <span className="skills-delete-confirm" role="group">
               <button
@@ -545,69 +586,113 @@ function SkillDetailView({
               >
                 {t('settings.skillsDeleteConfirm')}
               </button>
-              <button type="button" className="btn ghost" onClick={onCancelDelete}>
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={onCancelDelete}
+              >
                 {t('common.cancel')}
               </button>
             </span>
           ) : (
-            <button
-              type="button"
-              className="btn ghost"
-              onClick={onArmDelete}
-              data-testid="skills-delete"
-            >
-              <Icon name="close" size={12} />
-              <span>{t('settings.skillsDelete')}</span>
-            </button>
+            <>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={onStartEdit}
+                title={t('settings.skillsEdit')}
+                data-testid="skills-edit"
+              >
+                <Icon name="edit" size={13} />
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={onArmDelete}
+                title={t('settings.skillsDelete')}
+                data-testid="skills-delete"
+              >
+                <Icon name="close" size={13} />
+              </button>
+            </>
           )}
-        </div>
-      </header>
-
-      <div className="skills-detail-grid">
-        <div className="skills-detail-body">
-          <h5>SKILL.md</h5>
-          {bodyLoading ? (
-            <p className="library-empty">{t('settings.libraryLoading')}</p>
-          ) : (
-            <pre className="library-preview-body">{body ?? ''}</pre>
-          )}
-        </div>
-        <div className="skills-detail-files">
-          <h5>{t('settings.skillsFiles')}</h5>
-          {filesLoading ? (
-            <p className="library-empty">{t('settings.libraryLoading')}</p>
-          ) : !files || files.length === 0 ? (
-            <p className="library-empty">{t('settings.skillsNoFiles')}</p>
-          ) : (
-            <ul className="skills-file-tree">
-              {files.map((entry) => (
-                <li
-                  key={entry.path}
-                  className={`skills-file-entry skills-file-entry-${entry.kind}`}
-                  style={{ paddingLeft: depthIndent(entry.path) }}
-                >
-                  <Icon
-                    name={entry.kind === 'directory' ? 'folder' : 'file'}
-                    size={12}
-                  />
-                  <span>{leafName(entry.path)}</span>
-                  {entry.kind === 'file' && typeof entry.size === 'number' ? (
-                    <span className="skills-file-size">
-                      {formatSize(entry.size)}
-                    </span>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
+          <label
+            className="toggle-switch toggle-switch-sm skills-row-enable"
+            title={t('settings.libraryToggleLabel')}
+          >
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => onToggleEnabled(e.target.checked)}
+              aria-label={t('settings.libraryToggleLabel')}
+            />
+            <span className="toggle-slider" />
+          </label>
         </div>
       </div>
+
+      {expanded && !editing ? (
+        <div className="skills-row-detail">
+          <div className="skills-row-section">
+            <h5>SKILL.md</h5>
+            {bodyLoading ? (
+              <p className="library-empty">{t('settings.libraryLoading')}</p>
+            ) : (
+              <pre className="library-preview-body">{body ?? ''}</pre>
+            )}
+          </div>
+          <div className="skills-row-section">
+            <h5>{t('settings.skillsFiles')}</h5>
+            {filesLoading ? (
+              <p className="library-empty">{t('settings.libraryLoading')}</p>
+            ) : !files || files.length === 0 ? (
+              <p className="library-empty">{t('settings.skillsNoFiles')}</p>
+            ) : (
+              <ul className="skills-file-tree">
+                {files.map((entry) => (
+                  <li
+                    key={entry.path}
+                    className={`skills-file-entry skills-file-entry-${entry.kind}`}
+                    style={{ paddingLeft: depthIndent(entry.path) }}
+                  >
+                    <Icon
+                      name={entry.kind === 'directory' ? 'folder' : 'file'}
+                      size={12}
+                    />
+                    <span>{leafName(entry.path)}</span>
+                    {entry.kind === 'file' && typeof entry.size === 'number' ? (
+                      <span className="skills-file-size">
+                        {formatSize(entry.size)}
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {editing && draft ? (
+        <SkillDraftForm
+          heading={t('settings.skillsEdit')}
+          subheading={skill.id}
+          draft={draft}
+          setDraft={setDraft}
+          error={draftError}
+          saving={draftSaving}
+          isEdit
+          onCancel={onCancelEdit}
+          onSubmit={onSubmitEdit}
+        />
+      ) : null}
     </div>
   );
 }
 
 interface SkillDraftFormProps {
   heading: string;
+  subheading: string | null;
   draft: DraftState;
   setDraft: Dispatch<SetStateAction<DraftState>>;
   error: string | null;
@@ -619,6 +704,7 @@ interface SkillDraftFormProps {
 
 function SkillDraftForm({
   heading,
+  subheading,
   draft,
   setDraft,
   error,
@@ -630,11 +716,14 @@ function SkillDraftForm({
   const t = useT();
   return (
     <div
-      className="skills-detail-draft library-import-form"
+      className="skills-draft library-import-form"
       data-testid={isEdit ? 'skills-edit-form' : 'skills-create-form'}
     >
       <header className="skills-draft-head">
-        <h4>{heading}</h4>
+        <div>
+          <h4>{heading}</h4>
+          {subheading ? <p className="skills-draft-sub">{subheading}</p> : null}
+        </div>
       </header>
       <div className="library-import-row">
         <label>
@@ -729,4 +818,19 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Frontmatter-style category slugs come in as kebab-case
+// ("image-generation"). Render them as Title Case in the filter pill so
+// the row reads as a category list rather than a raw enum dump.
+function humanizeCategory(slug: string): string {
+  if (!slug) return slug;
+  return slug
+    .split('-')
+    .map((word) =>
+      word.length === 0
+        ? word
+        : word.charAt(0).toUpperCase() + word.slice(1),
+    )
+    .join(' ');
 }

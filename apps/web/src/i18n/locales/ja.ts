@@ -415,9 +415,9 @@ export const ja: Dict = {
   'chat.you': 'あなた',
   'chat.openFile': '{name} を開く',
   'chat.composerPlaceholder':
-    '欲しいデザインを説明してください — 画像を貼り付けるかドロップ、または @ でファイルを参照…',
+    '欲しいデザインを説明してください — 画像を貼り付けるかドロップ、または @ でファイルやスキルを参照…',
   'chat.composerHint':
-    '⌘/Ctrl + Enter で送信 · 画像を貼り付け · @ でファイルを参照',
+    '⌘/Ctrl + Enter で送信 · 画像を貼り付け · @ でファイル/スキルを参照 · / でコマンド',
   'chat.cliSettingsTitle': 'CLI とモデルの設定',
   'chat.cliSettingsAria': 'CLI とモデルの設定を開く',
   'chat.attachTitle': 'ファイルを添付（または貼り付け / ドロップ）',

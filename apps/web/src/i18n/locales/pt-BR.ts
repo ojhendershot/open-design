@@ -538,9 +538,9 @@ export const ptBR: Dict = {
   'chat.you': 'Você',
   'chat.openFile': 'Abrir {name}',
   'chat.composerPlaceholder':
-    'Descreva o design que você quer — cole ou arraste imagens, ou use @ para referenciar um arquivo…',
+    'Descreva o design que você quer — cole ou arraste imagens, ou use @ para referenciar um arquivo ou skill…',
   'chat.composerHint':
-    '⌘/Ctrl + Enter para enviar · cole imagens · @ para referenciar arquivos',
+    '⌘/Ctrl + Enter para enviar · cole imagens · @ para arquivos ou skills · / para comandos',
   'chat.cliSettingsTitle': 'Configurações de CLI e modelo',
   'chat.cliSettingsAria': 'Abrir configurações de CLI e modelo',
   'chat.attachTitle': 'Anexar arquivos (ou colar / arrastar)',

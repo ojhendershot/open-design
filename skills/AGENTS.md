@@ -29,3 +29,26 @@ full split.
    skill preamble.
 3. The daemon's lazy scanner picks the entry up on the next
    `/api/skills` request — no rebuild required during local dev.
+
+## Curated design / creative catalogue
+
+This directory also ships a curated catalogue of design and creative
+skills hand-picked from `VoltAgent/awesome-agent-skills` and
+`ComposioHQ/awesome-claude-skills`. Each entry is a lightweight stub —
+frontmatter + a short body that points at the upstream repo — so the
+Settings → Skills tab surfaces a rich, filterable list out of the box
+without vendoring every upstream workflow.
+
+- `od.category` on these stubs powers the new category filter row in
+  Settings → Skills (e.g. `image-generation`, `video-generation`,
+  `audio-music`, `slides`, `documents`, `design-systems`, `figma`,
+  `animation-motion`, `3d-shaders`, `diagrams`, `creative-direction`,
+  `marketing-creative`, `screenshots`, `web-artifacts`).
+- The seed script lives at `scripts/seed-curated-design-skills.ts` and
+  is **idempotent**: running it again only creates folders that don't
+  already exist, so a hand-edited stub is never overwritten. Delete the
+  folder under `skills/` and re-run the script to refresh an entry.
+- Stubs intentionally do not vendor upstream assets. To run an upstream
+  workflow with its original scripts and references, copy the upstream
+  folder into your active agent's skills directory (Claude Code, Codex,
+  Cursor, etc.) — the body of each stub explains how.

@@ -416,9 +416,9 @@ export const de: Dict = {
   'chat.you': 'Sie',
   'chat.openFile': '{name} öffnen',
   'chat.composerPlaceholder':
-    'Beschreiben Sie das gewünschte Design — Bilder einfügen/ablegen oder mit @ eine Datei referenzieren…',
+    'Beschreiben Sie das gewünschte Design — Bilder einfügen/ablegen oder mit @ eine Datei oder einen Skill referenzieren…',
   'chat.composerHint':
-    '⌘/Ctrl + Enter zum Senden · Bilder einfügen · @ für Dateireferenzen',
+    '⌘/Ctrl + Enter zum Senden · Bilder einfügen · @ für Dateien oder Skills · / für Befehle',
   'chat.cliSettingsTitle': 'CLI- & Modelleinstellungen',
   'chat.cliSettingsAria': 'CLI- und Modelleinstellungen öffnen',
   'chat.attachTitle': 'Dateien anhängen (oder einfügen / ablegen)',

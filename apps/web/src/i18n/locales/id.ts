@@ -630,8 +630,10 @@ export const id: Dict = {
   'chat.scrollToLatest': 'Scroll ke terbaru',
   'chat.you': 'Kamu',
   'chat.openFile': 'Buka {name}',
-  'chat.composerPlaceholder': 'Jelaskan desain, perubahan, atau artifact yang kamu inginkan...',
-  'chat.composerHint': 'Tekan Enter untuk kirim, Shift+Enter untuk baris baru.',
+  'chat.composerPlaceholder':
+    'Jelaskan desain yang kamu inginkan — tempel atau jatuhkan gambar, atau @ file atau skill…',
+  'chat.composerHint':
+    '⌘/Ctrl + Enter untuk kirim · tempel gambar · @ untuk file atau skill · / untuk perintah',
   'chat.cliSettingsTitle': 'Pengaturan CLI',
   'chat.cliSettingsAria': 'Buka pengaturan CLI',
   'chat.attachTitle': 'Lampirkan',

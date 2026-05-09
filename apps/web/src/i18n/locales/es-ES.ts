@@ -417,9 +417,9 @@ export const esES: Dict = {
   'chat.you': 'Tú',
   'chat.openFile': 'Abrir {name}',
   'chat.composerPlaceholder':
-    'Describe el diseño que quieres: pega o suelta imágenes, o usa @ para referenciar un archivo…',
+    'Describe el diseño que quieres: pega o suelta imágenes, o usa @ para referenciar un archivo o skill…',
   'chat.composerHint':
-    '⌘/Ctrl + Intro para enviar · pega imágenes · @ para referenciar archivos',
+    '⌘/Ctrl + Intro para enviar · pega imágenes · @ para archivos o skills · / para comandos',
   'chat.cliSettingsTitle': 'Ajustes de CLI y modelo',
   'chat.cliSettingsAria': 'Abrir ajustes de CLI y modelo',
   'chat.attachTitle': 'Adjuntar archivos (o pegar / soltar)',

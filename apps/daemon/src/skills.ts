@@ -34,7 +34,12 @@ interface SkillFrontmatter extends JsonRecord {
   name?: unknown;
   description?: unknown;
   triggers?: unknown;
-  od?: JsonRecord & { craft?: JsonRecord; preview?: JsonRecord; design_system?: JsonRecord };
+  od?: JsonRecord & {
+    craft?: JsonRecord;
+    preview?: JsonRecord;
+    design_system?: JsonRecord;
+    category?: unknown;
+  };
 }
 
 // Indicates whether a skill came from a user-writable root (the first root
@@ -54,6 +59,12 @@ export interface SkillInfo {
   craftRequires: string[];
   platform: SkillPlatform;
   scenario: string;
+  // Optional human-readable category (e.g. "image-generation", "video",
+  // "design-systems"). Surfaced as a filter pill in Settings → Skills so a
+  // large pre-loaded catalogue (e.g. curated design/creative skills from the
+  // upstream awesome-* lists) stays scannable. Not part of system-prompt
+  // composition; purely a UI hint.
+  category: string | null;
   previewType: string;
   designSystemRequired: boolean;
   defaultFor: string[];
@@ -158,6 +169,7 @@ export async function listSkills(
           body,
           data.description,
         );
+        const category = normalizeCategory(data.od?.category);
         const designSystemRequired =
           typeof data.od?.design_system?.requires === "boolean"
             ? data.od.design_system.requires
@@ -192,6 +204,7 @@ export async function listSkills(
           craftRequires: normalizeCraftRequires(data.od?.craft?.requires),
           platform,
           scenario,
+          category,
           previewType,
           designSystemRequired,
           defaultFor: normalizeDefaultFor(data.od?.default_for),
@@ -234,6 +247,7 @@ export async function listSkills(
             craftRequires: [],
             platform,
             scenario,
+            category,
             previewType,
             designSystemRequired,
             defaultFor: [],
@@ -557,6 +571,21 @@ const KNOWN_SCENARIOS = new Set([
   "education",
   "personal",
 ]);
+// Normalise a free-form category tag. Limits the set of accepted characters
+// to lowercase letters, digits, and dashes so the value can flow straight
+// into the UI as a filter pill class without escaping. Empty / non-string
+// values become null so the filter row hides instead of rendering an empty
+// pill. We intentionally do not lock down a fixed vocabulary here — the
+// curated catalogue under skills/ owns the canonical category set, and
+// user-imported skills are free to introduce their own.
+function normalizeCategory(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const slug = value.trim().toLowerCase();
+  if (!slug) return null;
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) return null;
+  return slug.slice(0, 64);
+}
+
 function normalizeScenario(value: unknown, body: unknown, description: unknown): string {
   if (typeof value === "string") {
     const v = value.trim().toLowerCase();

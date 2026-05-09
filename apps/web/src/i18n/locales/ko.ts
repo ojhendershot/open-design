@@ -528,9 +528,9 @@ export const ko: Dict = {
   'chat.you': '나',
   'chat.openFile': '{name} 열기',
   'chat.composerPlaceholder':
-    '원하는 디자인을 설명하세요 — 이미지 붙여넣기/끌어놓기 가능, @로 파일 참조…',
+    '원하는 디자인을 설명하세요 — 이미지 붙여넣기/끌어놓기 가능, @로 파일이나 스킬 참조…',
   'chat.composerHint':
-    '⌘/Ctrl + Enter 로 전송 · 이미지 붙여넣기 · @로 파일 참조',
+    '⌘/Ctrl + Enter 로 전송 · 이미지 붙여넣기 · @로 파일/스킬 참조 · /로 명령어',
   'chat.cliSettingsTitle': 'CLI 및 모델 설정',
   'chat.cliSettingsAria': 'CLI 및 모델 설정 열기',
   'chat.attachTitle': '파일 첨부 (또는 붙여넣기 / 끌어놓기)',

@@ -521,9 +521,9 @@ export const tr: Dict = {
   'chat.you': 'Sen',
   'chat.openFile': '{name}’ı aç',
   'chat.composerPlaceholder':
-    'İstediğiniz tasarımı açıklayın — görsel yapıştırın veya sürükleyin, veya bir dosyayı @’leyin…',
+    'İstediğiniz tasarımı açıklayın — görsel yapıştırın veya sürükleyin, veya @ ile bir dosya ya da skill seçin…',
   'chat.composerHint':
-    'Görselleri göndermek · yapıştırmak için ⌘/Ctrl + Enter · dosyaları referans almak için @',
+    'Göndermek için ⌘/Ctrl + Enter · görsel yapıştır · @ ile dosya veya skill · / ile komut',
   'chat.cliSettingsTitle': 'CLI & model ayarları',
   'chat.cliSettingsAria': 'CLI ve model ayarlarını aç',
   'chat.attachTitle': 'Dosyaları iliştirin (veya yapıştırın / sürükleyin)',

@@ -528,9 +528,9 @@ export const fr: Dict = {
   'chat.you': 'Vous',
   'chat.openFile': 'Ouvrir {name}',
   'chat.composerPlaceholder':
-    'Décrivez le design souhaité — collez ou déposez des images, ou @ un fichier…',
+    'Décrivez le design souhaité — collez ou déposez des images, ou @ un fichier ou un skill…',
   'chat.composerHint':
-    '⌘/Ctrl + Entrée pour envoyer · coller des images · @ pour référencer des fichiers',
+    '⌘/Ctrl + Entrée pour envoyer · coller des images · @ pour fichiers ou skills · / pour les commandes',
   'chat.cliSettingsTitle': 'Paramètres CLI et modèle',
   'chat.cliSettingsAria': 'Ouvrir les paramètres CLI et modèle',
   'chat.attachTitle': 'Attacher des fichiers (ou coller / déposer)',

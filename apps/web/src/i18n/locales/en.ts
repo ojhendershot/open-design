@@ -539,9 +539,9 @@ export const en: Dict = {
   'chat.you': 'You',
   'chat.openFile': 'Open {name}',
   'chat.composerPlaceholder':
-    'Describe the design you want — paste or drop images, or @ a file…',
+    'Describe the design you want — paste or drop images, or @ a file or skill…',
   'chat.composerHint':
-    '⌘/Ctrl + Enter to send · paste images · @ to reference files',
+    '⌘/Ctrl + Enter to send · paste images · @ files or skills · / for commands',
   'chat.cliSettingsTitle': 'CLI & model settings',
   'chat.cliSettingsAria': 'Open CLI and model settings',
   'chat.attachTitle': 'Attach files (or paste / drop)',

@@ -528,9 +528,9 @@ export const hu: Dict = {
   'chat.you': 'Te',
   'chat.openFile': '{name} megnyitása',
   'chat.composerPlaceholder':
-    'Írd le a kívánt designt — illessz be vagy húzz képeket, vagy @-tel hivatkozz fájlra…',
+    'Írd le a kívánt designt — illessz be vagy húzz képeket, vagy @-tel hivatkozz fájlra vagy skillre…',
   'chat.composerHint':
-    '⌘/Ctrl + Enter: küldés · képek beillesztése · @ fájlra hivatkozás',
+    '⌘/Ctrl + Enter: küldés · képek beillesztése · @ fájl vagy skill · / parancsok',
   'chat.cliSettingsTitle': 'CLI- és modellbeállítások',
   'chat.cliSettingsAria': 'CLI- és modellbeállítások megnyitása',
   'chat.attachTitle': 'Fájlok csatolása (vagy beillesztés / húzás)',

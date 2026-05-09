@@ -36,6 +36,11 @@ export interface SkillSummary {
   surface?: 'web' | 'image' | 'video' | 'audio';
   platform?: 'desktop' | 'mobile' | null;
   scenario?: string | null;
+  // Optional human-readable category (e.g. "image-generation", "video",
+  // "design-systems"). Surfaced as a filter pill in Settings → Skills so a
+  // large pre-loaded catalogue stays scannable. Free-form lowercase slug;
+  // not part of system-prompt composition.
+  category?: string | null;
   // Origin of the skill: 'built-in' lives under the repo's `skills/`
   // directory and cannot be deleted from the UI; 'user' lives under
   // `<runtimeData>/user-skills/` and is fully owned by the user (delete
