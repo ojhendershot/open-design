@@ -171,6 +171,7 @@ import {
 import { LiveArtifactRefreshUnavailableError, refreshLiveArtifact } from './live-artifacts/refresh-service.js';
 import { LiveArtifactRefreshAbortError } from './live-artifacts/refresh.js';
 import { registerConnectorRoutes } from './connectors/routes.js';
+import { registerActiveContextRoutes } from './active-context-routes.js';
 import { registerMcpRoutes } from './mcp-routes.js';
 import { registerLiveArtifactRoutes } from './live-artifact-routes.js';
 import { registerDeployRoutes, registerDeploymentCheckRoutes } from './deploy-routes.js';
@@ -179,9 +180,9 @@ import { registerProjectRoutes, registerProjectArtifactRoutes, registerProjectFi
 import { registerFinalizeRoutes, registerImportRoutes, registerProjectExportRoutes } from './import-export-routes.js';
 import { registerChatRoutes } from './chat-routes.js';
 import { registerStaticResourceRoutes } from './static-resource-routes.js';
-import { configureConnectorCredentialStore, ConnectorServiceError, deleteConnectorCredentialsByProvider, FileConnectorCredentialStore } from './connectors/service.js';
+import { configureConnectorCredentialStore, ConnectorServiceError, FileConnectorCredentialStore } from './connectors/service.js';
 import { composioConnectorProvider } from './connectors/composio.js';
-import { configureComposioConfigStore, readComposioConfig, readPublicComposioConfig, writeComposioConfig } from './connectors/composio-config.js';
+import { configureComposioConfigStore } from './connectors/composio-config.js';
 import { CHAT_TOOL_ENDPOINTS, CHAT_TOOL_OPERATIONS, toolTokenRegistry } from './tool-tokens.js';
 import {
   aggregateCloudflarePagesStatus,
@@ -1845,94 +1846,15 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     res.json({ version });
   });
 
-  registerConnectorRoutes(app, { sendApiError, authorizeToolRequest, projectsRoot: PROJECTS_DIR, requireLocalDaemonRequest });
-
-  app.get('/api/connectors/composio/config', (_req, res) => {
-    try {
-      res.json(readPublicComposioConfig());
-    } catch (err) {
-      res.status(500).json({ error: String(err && err.message ? err.message : err) });
-    }
-  });
-
-  app.put('/api/connectors/composio/config', requireLocalDaemonRequest, (req, res) => {
-    try {
-      const before = readComposioConfig();
-      const cfg = writeComposioConfig(req.body);
-      const after = readComposioConfig();
-      composioConnectorProvider.clearDiscoveryCache();
-      if (!cfg.configured || (before.apiKey && before.apiKey !== after.apiKey)) {
-        deleteConnectorCredentialsByProvider('composio');
-      }
-      res.json(cfg);
-    } catch (err) {
-      res.status(400).json({ error: String(err && err.message ? err.message : err) });
-    }
+  registerConnectorRoutes(app, {
+    sendApiError,
+    authorizeToolRequest,
+    projectsRoot: PROJECTS_DIR,
+    requireLocalDaemonRequest,
+    composio: composioConnectorProvider,
   });
 
   // ---- Projects (DB-backed) -------------------------------------------------
-
-  // Soft "what is the user looking at right now in Open Design?" channel. The
-  // web UI POSTs the current project + file on every route change;
-  // the MCP surface reads it so a coding agent in another repo can
-  // resolve "the design I have open" without the user typing the
-  // project id. In-memory only - daemon restart clears it.
-  /** @type {{ projectId: string; fileName: string | null; ts: number } | null} */
-  let activeContext = null;
-  const ACTIVE_CONTEXT_TTL_MS = 5 * 60 * 1000;
-
-  // Active context is private to the local machine. The daemon binds
-  // 0.0.0.0 by default, so without an origin check a peer on the LAN
-  // could read what the user is currently looking at (GET) or spoof
-  // it to redirect MCP fallbacks (POST). The web proxies same-origin
-  // and the MCP runs in-process via 127.0.0.1, so both legitimate
-  // callers pass the check.
-  app.post('/api/active', (req, res) => {
-    if (!isLocalSameOrigin(req, resolvedPort)) {
-      return res.status(403).json({ error: 'cross-origin request rejected' });
-    }
-    try {
-      const body = req.body || {};
-      if (body.active === false) {
-        activeContext = null;
-        res.json({ active: false });
-        return;
-      }
-      const projectId = typeof body.projectId === 'string' ? body.projectId : '';
-      if (!projectId) {
-        sendApiError(res, 400, 'BAD_REQUEST', 'projectId is required');
-        return;
-      }
-      const fileName =
-        typeof body.fileName === 'string' && body.fileName.length > 0
-          ? body.fileName
-          : null;
-      activeContext = { projectId, fileName, ts: Date.now() };
-      res.json({ active: true, ...activeContext });
-    } catch (err) {
-      sendApiError(res, 400, 'BAD_REQUEST', String(err));
-    }
-  });
-
-  app.get('/api/active', (req, res) => {
-    if (!isLocalSameOrigin(req, resolvedPort)) {
-      return res.status(403).json({ error: 'cross-origin request rejected' });
-    }
-    if (!activeContext || Date.now() - activeContext.ts > ACTIVE_CONTEXT_TTL_MS) {
-      activeContext = null;
-      res.json({ active: false });
-      return;
-    }
-    const project = getProject(db, activeContext.projectId);
-    res.json({
-      active: true,
-      projectId: activeContext.projectId,
-      projectName: project?.name ?? null,
-      fileName: activeContext.fileName,
-      ts: activeContext.ts,
-      ageMs: Date.now() - activeContext.ts,
-    });
-  });
 
   const design = {
     runs: createChatRunService({ createSseResponse, createSseErrorPayload }),
@@ -2115,6 +2037,11 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     mcp: { pendingAuth: mcpPendingAuth, daemonUrlRef },
   });
   // Project workspace
+  registerActiveContextRoutes(app, {
+    db,
+    http: httpDeps,
+    projectStore: projectStoreDeps,
+  });
   registerProjectRoutes(app, {
     db,
     design,
