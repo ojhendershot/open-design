@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Plugin & marketplace system — Phase 2A → entry slice of Phase 2B/2C/3.** Spec: [`docs/plugins-spec.md`](docs/plugins-spec.md). Living plan: [`docs/plans/plugins-implementation.md`](docs/plans/plugins-implementation.md).
+  - Snapshot resolver wires `applyPlugin()` into `POST /api/projects` and `POST /api/runs`. Capability gate failures map to HTTP 409 / exit 66; missing inputs map to HTTP 422 / exit 67. The in-memory run object carries `appliedPluginSnapshotId` so connector / replay paths read a frozen view.
+  - Trust mutation: new `POST /api/plugins/:id/trust` endpoint plus matching `od plugin trust <id> --capabilities …` CLI. Validates the spec §5.3 capability vocabulary (rejects unknown / malformed strings); preserves the implicit `prompt:inject` floor on revoke.
+  - Connector tool-token gate: tokens minted for plugin runs carry `pluginSnapshotId` / `pluginTrust` / `pluginCapabilitiesGranted`. `/api/tools/connectors/execute` re-validates the §5.3 `connector:<id>` rule per call (CONNECTOR_NOT_GRANTED 403 on miss). Trusted plugins implicitly carry `connector:*`; restricted plugins must list each id explicitly.
+  - API-fallback rejection: every `/api/proxy/*` entry returns 409 PLUGIN_REQUIRES_DAEMON when a body smuggles `pluginId` / `appliedPluginSnapshotId`.
+  - Snapshot GC worker enforces the PB2 `expires_at` TTL (`OD_SNAPSHOT_UNREFERENCED_TTL_DAYS` / `OD_SNAPSHOT_GC_INTERVAL_MS`) at boot + on a periodic interval. Operator escape hatch: `od plugin snapshots prune --before <ts>`.
+  - Installer accepts `github:owner/repo[@ref][/subpath]` (codeload tarball) and `https://*.tar.gz` archives in addition to local folders. Hard guards: symlink / hard-link rejection, path-traversal segments, 50 MiB size cap.
+  - Pipeline runner emits `pipeline_stage_*` events per stage and persists every iteration into `run_devloop_iterations`. Pre-stage GenUI surfaces auto-derived for not-yet-connected required connectors hit the cross-conversation cache (e2e-5: a second conversation in the same project never re-broadcasts an already-resolved `oauth-prompt`).
+  - Marketplace registry minimum verbs: `od marketplace add/list/info/refresh/remove/trust` plus the matching HTTP routes. Default trust tier is `restricted` per spec §9; the Phase 3 follow-up wires `od plugin install <name>` resolution + the trust UI.
+  - Web composer surface: `applyPlugin()` state helper, `InlinePluginsRail`, `ContextChipStrip`, `PluginInputsForm`, `GenUISurfaceRenderer` (confirmation + oauth-prompt first-class; form / choice fall back to a JSON Schema preview until Phase 2A.5), `GenUIInbox` drawer.
+  - `od plugin run` apply→start shorthand. CLI structured error helper maps recoverable HTTP 4xx envelopes to the §12.4 exit codes (64–73) so code agents get a stable retry contract.
+  - Plan §8 e2es covered at the daemon level: e2e-2 (pure apply across runs), e2e-4 (replay invariance after plugin upgrade via `renderPluginBlock(snapshot)`), e2e-5 (GenUI cross-conversation cache), e2e-6 (connector trust gate; re-validated independently in the token-issuance + execute routes), e2e-7 (API-fallback rejection at every proxy entry), e2e-8 (apply purity regression: 100 applies → 0 FS mutation, +100 snapshot rows). e2e-3 (headless run) stays scheduled for Phase 1.5.
 - **`ib-pitch-book` skill** — investment-banking strategic-alternatives pitch book (Anthropic financial-services Pitch Agent workflow); ships `example.html` and IB layout references.
 
 ## [0.5.0] - 2026-05-07

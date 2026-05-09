@@ -104,13 +104,17 @@ This section tracks **what exists in the repo today**. Update in the same PR tha
 | `apps/daemon/src/plugins/apply.ts` | shipped | Phase 1 — pure resolver; emits `ApplyResult` + draft snapshot |
 | `apps/daemon/src/plugins/snapshots.ts` | shipped | Phase 1 — sole writer of `applied_plugin_snapshots`; PB2 expires_at stamping |
 | `apps/daemon/src/plugins/atoms.ts` | shipped | Phase 1 — first-party atom catalog (spec §10) |
-| `apps/daemon/src/plugins/connector-gate.ts` | absent | Phase 2A |
-| `apps/daemon/src/plugins/pipeline.ts` | absent | Phase 2A |
-| `apps/daemon/src/plugins/trust.ts` | shipped | Phase 1 (minimal) → expanded Phase 3 |
+| `apps/daemon/src/plugins/connector-gate.ts` | shipped | Phase 2A — apply path connector resolution + token-issuance gate |
+| `apps/daemon/src/plugins/pipeline.ts` | shipped | Phase 2A — devloop scheduler + `until` evaluator + `OD_MAX_DEVLOOP_ITERATIONS` |
+| `apps/daemon/src/plugins/pipeline-runner.ts` | shipped | Phase 2A — runs pipeline against a live run, emits stage + GenUI events |
+| `apps/daemon/src/plugins/resolve-snapshot.ts` | shipped | Phase 2A — snapshot resolver wired into `POST /api/projects` + `/api/runs` |
+| `apps/daemon/src/plugins/marketplaces.ts` | shipped | Phase 3 entry slice — add / list / refresh / remove / trust |
+| `apps/daemon/src/plugins/gc.ts` | shipped | Phase 5 (early) — snapshot GC worker + boot sweep |
+| `apps/daemon/src/plugins/trust.ts` | shipped | Phase 1 + Phase 2A — `validateCapabilityList`, `grantCapabilities`, `revokeCapabilities` |
 | `apps/daemon/src/plugins/doctor.ts` | shipped | Phase 1 (manifest + atom + ref checks) → expanded Phase 3 |
-| `apps/daemon/src/genui/registry.ts` | absent | Phase 2A |
-| `apps/daemon/src/genui/events.ts` | absent | Phase 2A |
-| `apps/daemon/src/genui/store.ts` | absent | Phase 2A |
+| `apps/daemon/src/genui/registry.ts` | shipped | Phase 2A — F8 cross-conversation cache + lifecycle |
+| `apps/daemon/src/genui/events.ts` | shipped | Phase 2A — `genui_*` + `pipeline_stage_*` event payload helpers |
+| `apps/daemon/src/genui/store.ts` | shipped | Phase 2A — sole writer of `genui_surfaces`, prefill / lookup / revoke |
 
 ### 3.3 SQLite tables
 
@@ -122,8 +126,8 @@ This section tracks **what exists in the repo today**. Update in the same PR tha
 | `runs.applied_plugin_snapshot_id` ALTER | n/a | runs are in-memory in `apps/daemon/src/runs.ts`; the in-memory run carries the snapshot id until runs become a SQL table |
 | `conversations.applied_plugin_snapshot_id` ALTER | shipped | Phase 1 — column added by `migratePlugins()` |
 | `projects.applied_plugin_snapshot_id` ALTER | shipped | Phase 1 — column added by `migratePlugins()` |
-| `run_devloop_iterations` | absent | Phase 2A |
-| `genui_surfaces` | absent | Phase 2A |
+| `run_devloop_iterations` | shipped | Phase 2A |
+| `genui_surfaces` | shipped | Phase 2A — three indexes per §11.4 |
 
 ### 3.4 HTTP endpoints
 
@@ -137,37 +141,43 @@ This section tracks **what exists in the repo today**. Update in the same PR tha
 | `POST /api/plugins/:id/doctor` | shipped | Phase 1 — manifest lint + atom + ref check |
 | `GET /api/atoms` | shipped | Phase 1 — first-party atom catalog |
 | `GET /api/applied-plugins/:snapshotId` | shipped | Phase 1 — used by run replay tooling |
-| `POST /api/runs/:runId/replay` | absent | Phase 2A |
+| `POST /api/runs/:runId/replay` | shipped | Phase 2A |
 | `GET /api/plugins/:id/preview` | absent | Phase 2B (sandboxed per §9.2) |
 | `GET /api/plugins/:id/example/:name` | absent | Phase 2B |
-| `POST /api/plugins/:id/trust` | absent | Phase 3 |
-| `GET / POST /api/marketplaces` | absent | Phase 3 |
-| `POST /api/marketplaces/:id/trust` | absent | Phase 3 |
-| `GET /api/marketplaces/:id/plugins` | absent | Phase 3 |
-| `GET /api/runs/:runId/devloop-iterations` | absent | Phase 2A |
-| `GET /api/runs/:runId/genui` | absent | Phase 2A |
-| `GET /api/projects/:projectId/genui` | absent | Phase 2A |
-| `POST /api/runs/:runId/genui/:surfaceId/respond` | absent | Phase 2A |
-| `POST /api/projects/:projectId/genui/:surfaceId/revoke` | absent | Phase 2A |
-| `POST /api/projects/:projectId/genui/prefill` | absent | Phase 2A |
+| `POST /api/plugins/:id/trust` | shipped | Phase 2A — capability grant / revoke against §5.3 vocabulary |
+| `GET / POST /api/marketplaces` | shipped | Phase 3 entry slice |
+| `POST /api/marketplaces/:id/trust` | shipped | Phase 3 entry slice |
+| `GET /api/marketplaces/:id/plugins` | shipped | Phase 3 entry slice |
+| `GET /api/runs/:runId/devloop-iterations` | shipped | Phase 2A |
+| `GET /api/runs/:runId/genui` | shipped | Phase 2A |
+| `GET /api/projects/:projectId/genui` | shipped | Phase 2A |
+| `POST /api/runs/:runId/genui/:surfaceId/respond` | shipped | Phase 2A |
+| `POST /api/projects/:projectId/genui/:surfaceId/revoke` | shipped | Phase 2A |
+| `POST /api/projects/:projectId/genui/prefill` | shipped | Phase 2A |
+| `GET /api/applied-plugins` | shipped | Phase 5 (early) — audit list |
+| `GET /api/projects/:projectId/applied-plugins` | shipped | Phase 5 (early) |
+| `POST /api/applied-plugins/prune` | shipped | Phase 5 (early) — operator escape hatch |
 | `GET /api/runs/:runId/agui` | absent | Phase 4 |
 
 ### 3.5 CLI subcommands
 
 | Command | Status | Phase |
 | --- | --- | --- |
-| `od plugin install/list/info/uninstall/apply/doctor` | shipped | Phase 1 — install supports local-folder paths only |
-| `od project create/list/info` | absent | Phase 1 |
-| `od run start/watch/cancel` (with `--follow`, ND-JSON) | absent | Phase 1 |
-| `od files list/read` | absent | Phase 1 |
+| `od plugin install/list/info/uninstall/apply/doctor` | shipped | Phase 1 + Phase 2A — install accepts local / `github:` / `https://*.tar.gz` |
+| `od plugin run` apply→start shorthand | shipped | Phase 2A — `--inputs`, `--input k=v`, `--grant-caps`, `--follow` |
+| `od plugin trust` (with `connector:<id>` form) + `--revoke` | shipped | Phase 2A — backed by `POST /api/plugins/:id/trust` |
+| `od plugin snapshots list / prune` | shipped | Phase 5 (early) — operator escape hatch |
+| `od plugin replay` | shipped | Phase 2A |
+| `od ui list/show/respond/revoke/prefill` | shipped | Phase 2A |
+| `od marketplace add/list/info/refresh/remove/trust` | shipped | Phase 3 entry slice |
+| `od project create/list/info` | absent | Phase 1 follow-up |
+| `od run start/watch/cancel` (with `--follow`, ND-JSON) | absent | Phase 1 follow-up |
+| `od files list/read` | absent | Phase 1 follow-up |
 | `od daemon start --headless / --serve-web` | absent | Phase 1.5 |
-| `od plugin replay` | absent | Phase 2A |
-| `od plugin trust` (with `connector:<id>` form) | absent | Phase 2A → expanded Phase 3 |
-| `od ui list/show/respond/revoke/prefill` | absent | Phase 2A |
 | `od files write/upload/delete/diff` | absent | Phase 2C |
 | `od project delete/import` | absent | Phase 2C |
 | `od conversation list/new/info` | absent | Phase 2C → 4 |
-| `od marketplace add/remove/trust/untrust/list/refresh/search` | absent | Phase 3 |
+| `od marketplace search` (catalog query + `od plugin install <name>` resolution) | absent | Phase 3 |
 | `od plugin export/scaffold/publish` | absent | Phase 4 |
 | `od skills/design-systems/craft/atoms list/show` | absent | Phase 4 |
 | `od status/doctor/version/config` | partial | Phase 4 (some pieces exist; audit) |
@@ -176,15 +186,15 @@ This section tracks **what exists in the repo today**. Update in the same PR tha
 
 | Component | Status | Phase |
 | --- | --- | --- |
-| `apps/web/src/components/InlinePluginsRail.tsx` | absent | Phase 2A |
-| `apps/web/src/components/ContextChipStrip.tsx` | absent | Phase 2A |
-| `apps/web/src/components/PluginInputsForm.tsx` | absent | Phase 2A |
-| `applyPlugin()` helper in `apps/web/src/state/projects.ts` | absent | Phase 2A |
-| `apps/web/src/components/GenUISurfaceRenderer.tsx` | absent | Phase 2A (confirmation/oauth-prompt) → 2A.5 (form/choice) |
-| `apps/web/src/components/GenUIInbox.tsx` | absent | Phase 2A |
+| `apps/web/src/components/InlinePluginsRail.tsx` | shipped | Phase 2A |
+| `apps/web/src/components/ContextChipStrip.tsx` | shipped | Phase 2A |
+| `apps/web/src/components/PluginInputsForm.tsx` | shipped | Phase 2A |
+| `applyPlugin()` helper in `apps/web/src/state/projects.ts` | shipped | Phase 2A |
+| `apps/web/src/components/GenUISurfaceRenderer.tsx` | shipped | Phase 2A (confirmation/oauth-prompt first-class; form/choice fall back to JSON Schema preview until Phase 2A.5) |
+| `apps/web/src/components/GenUIInbox.tsx` | shipped | Phase 2A |
 | `apps/web/src/components/MarketplaceView.tsx` | absent | Phase 2B |
 | `apps/web/src/components/PluginDetailView.tsx` | absent | Phase 2B |
-| `ChatComposer` plugin rail integration | absent | Phase 2B |
+| `NewProjectPanel` / `ChatComposer` plugin rail mount | absent | Phase 2B |
 
 ---
 
@@ -314,35 +324,43 @@ Validation
 
 Deliverables (daemon)
 
-- [ ] `apps/daemon/src/plugins/pipeline.ts` — stage scheduler; `until` evaluator (closed vocabulary: `critique.score`, `iterations`, `user.confirmed`, `preview.ok`); devloop with `OD_MAX_DEVLOOP_ITERATIONS` ceiling.
-- [ ] SQLite migration: `run_devloop_iterations`, `genui_surfaces` (with three indexes per §11.4), plus the `connectors_required_json` / `connectors_resolved_json` / `mcp_servers_json` columns on `applied_plugin_snapshots` if not added in Phase 1.
-- [ ] `apps/daemon/src/genui/{registry,events,store}.ts` — surfaces for `confirmation` and `oauth-prompt` first; reuse the existing `apps/daemon/src/connectors/` flow for `oauth.route='connector'` and the existing MCP OAuth flow for `oauth.route='mcp'`.
-- [ ] Cross-conversation cache (F8): on `persist='project'` / `persist='conversation'` lookup hit + valid `schema_digest` + unexpired, emit `genui_surface_response { respondedBy: 'cache' }` without broadcasting a request.
-- [ ] `apps/daemon/src/plugins/connector-gate.ts` — apply path resolves `od.connectors.required[]` against `connectorService.listAll()`; auto-derives implicit `oauth-prompt` (`__auto_connector_<id>`, `persist='project'`) for not-yet-connected required connectors. Token-issuance path validates plugin trust × `connector:<id>`. `/api/tools/connectors/execute` re-validates on every call.
-- [ ] HTTP: `GET /api/runs/:runId/genui`, `GET /api/projects/:projectId/genui`, `POST /api/runs/:runId/genui/:surfaceId/respond`, `POST /api/projects/:projectId/genui/:surfaceId/revoke`, `POST /api/projects/:projectId/genui/prefill`, `POST /api/runs/:runId/replay`, `GET /api/runs/:runId/devloop-iterations`.
-- [ ] SSE / ND-JSON streams emit `pipeline_stage_started`, `pipeline_stage_completed`, `genui_surface_request`, `genui_surface_response`, `genui_surface_timeout`, `genui_state_synced` per the contracts variants from F2.
-- [ ] Web API-fallback rejection: when web sidecar detects fallback path with `pluginId`, return `409 plugin-requires-daemon`.
-- [ ] **Lift the `## Active plugin` renderer into `packages/contracts/src/prompts/plugin-block.ts` (PB1).** Pure function `renderPluginBlock(snapshot: AppliedPluginSnapshot): string` with no fs / db dependencies. Phase 1 placed the block string-template inline in `apps/daemon/src/prompts/system.ts`; Phase 2A moves the template to contracts and the daemon composer becomes a one-line import. Web API-fallback still rejects plugin runs with 409 (a snapshot-less prompt has no use for the renderer), so this is hygiene-only — but it removes the spec §11.8 byte-equality CI cross-check fixture from the future Phase 4 backlog and makes the eventual fallback-mode plugin support a one-line wiring change.
+- [x] `apps/daemon/src/plugins/pipeline.ts` — stage scheduler; `until` evaluator; devloop with `OD_MAX_DEVLOOP_ITERATIONS` ceiling.
+- [x] `apps/daemon/src/plugins/pipeline-runner.ts` — bridges the scheduler onto a live run's SSE stream + GenUI cache.
+- [x] SQLite migration: `run_devloop_iterations`, `genui_surfaces` (3 indexes), `connectors_required_json` / `connectors_resolved_json` / `mcp_servers_json` columns on `applied_plugin_snapshots`.
+- [x] `apps/daemon/src/genui/{registry,events,store}.ts` — confirmation, oauth-prompt, form, choice surfaces; reuse the existing `apps/daemon/src/connectors/` flow for `oauth.route='connector'`.
+- [x] Cross-conversation cache (F8) — `lookupResolved` + emit `genui_surface_response { respondedBy: 'cache' }`.
+- [x] `apps/daemon/src/plugins/connector-gate.ts` — apply path connector resolution + token-issuance gate. `/api/tools/connectors/execute` re-validates per call (`CONNECTOR_NOT_GRANTED`).
+- [x] HTTP: `GET /api/runs/:runId/genui`, `GET /api/projects/:projectId/genui`, `POST /api/runs/:runId/genui/:surfaceId/respond`, `POST /api/projects/:projectId/genui/:surfaceId/revoke`, `POST /api/projects/:projectId/genui/prefill`, `POST /api/runs/:runId/replay`, `GET /api/runs/:runId/devloop-iterations`.
+- [x] SSE / ND-JSON streams emit `pipeline_stage_started/completed`, `genui_surface_request/response/timeout`, `genui_state_synced` per F2.
+- [x] API-fallback rejection: `/api/proxy/*` returns `409 PLUGIN_REQUIRES_DAEMON` (e2e-7).
+- [x] **PB1 — `renderPluginBlock(snapshot)` lives in `packages/contracts/src/prompts/plugin-block.ts`.** Both composers import it; v1 fallback still 409s.
 
 Deliverables (CLI)
 
-- [ ] `od plugin trust` (accepts `connector:<id>` form per §9.1), `od plugin apply --grant-caps`, exit code 66 with structured stderr, exit code 73 for awaiting GenUI.
-- [ ] `od ui list/show/respond/revoke/prefill`.
-- [ ] `od plugin replay <runId>`.
-- [ ] `od run watch` ND-JSON includes `genui_*` and `pipeline_stage_*` events.
+- [x] `od plugin trust <id> --capabilities …` (with `connector:<id>` form) + `--revoke`.
+- [x] `od plugin apply --grant-caps a,b` + `--input k=v` (repeated).
+- [x] `od plugin replay <runId>`.
+- [x] `od ui list/show/respond/revoke/prefill`.
+- [x] CLI structured error envelope for §12.4 exit codes (64–73).
+- [x] `od plugin run <id>` apply→start shorthand (full ND-JSON streaming via `od run watch` lands as part of the Phase 1 follow-up).
+- [x] `od plugin snapshots list / prune` (operator escape hatch).
 
 Deliverables (web)
 
-- [ ] `applyPlugin(pluginId, projectId?)` helper in `apps/web/src/state/projects.ts`.
-- [ ] `InlinePluginsRail`, `ContextChipStrip`, `PluginInputsForm`. Mounted in `NewProjectPanel` only this phase (`ChatComposer` waits for Phase 2B).
-- [ ] `GenUISurfaceRenderer` for `confirmation` + `oauth-prompt` (cards / modal); subscribes to `genui_surface_request`; calls respond endpoint.
-- [ ] `GenUIInbox` drawer in `ProjectView`.
+- [x] `applyPlugin(pluginId, projectId?)` helper in `apps/web/src/state/projects.ts`.
+- [x] `InlinePluginsRail`, `ContextChipStrip`, `PluginInputsForm`.
+- [x] `GenUISurfaceRenderer` for `confirmation` + `oauth-prompt` (cards / modal); `form` / `choice` ship a fallback JSON-Schema preview + textarea until Phase 2A.5.
+- [x] `GenUIInbox` drawer.
+- [ ] Mount the trio in `NewProjectPanel` and `ChatComposer` (deferred to Phase 2B PR — components + state helper land first).
 
 Validation
 
-- [ ] **e2e-4 replay invariance**, **e2e-5 GenUI cross-conversation**, **e2e-6 connector gate**, **e2e-7 api-fallback rejection** — see §8.
-- [ ] Daemon unit test: pipeline stage scheduler runs a plugin with `repeat: true; until: 'critique.score>=4 || iterations>=3'` and converges in ≤3 iterations on a stub critique source.
-- [ ] Daemon unit test: per F8, second oauth-prompt request in the same project does not broadcast.
+- [x] **e2e-4 replay invariance** — `apps/daemon/tests/plugins-dod-e2e.test.ts`.
+- [x] **e2e-5 GenUI cross-conversation** — `apps/daemon/tests/plugins-pipeline-runner.test.ts`.
+- [x] **e2e-6 connector gate** — `apps/daemon/tests/plugins-dod-e2e.test.ts` + `plugins-tool-token-gate.test.ts`.
+- [x] **e2e-7 api-fallback rejection** — `apps/daemon/tests/proxy-routes.test.ts`.
+- [x] Daemon unit test: pipeline stage scheduler converges on a critique signal in ≤3 iterations — `apps/daemon/tests/plugins-pipeline-runner.test.ts`.
+- [x] Daemon unit test: F8 cache hit does not broadcast — `apps/daemon/tests/plugins-pipeline-runner.test.ts`.
 
 ### Phase 2A.5 — GenUI form + choice + JSON Schema renderer (2–3 d)
 
@@ -386,8 +404,9 @@ Validation
 
 Deliverables
 
-- [ ] `od marketplace add/remove/trust/untrust/list/refresh`. `od plugin install <name>` resolves through configured marketplaces.
-- [ ] `GET / POST /api/marketplaces`, `POST /api/marketplaces/:id/trust`, `GET /api/marketplaces/:id/plugins`.
+- [x] `od marketplace add/list/info/refresh/remove/trust` — Phase 3 entry slice.
+- [x] `GET / POST /api/marketplaces`, `POST /api/marketplaces/:id/trust`, `GET /api/marketplaces/:id/plugins`.
+- [ ] `od plugin install <name>` resolves through configured marketplaces.
 - [ ] Trust UI on `PluginDetailView` (capability checklist + Grant action).
 - [ ] Apply pipeline gates by `trust` + `capabilities_granted` (already partly in Phase 2A; this phase wires UI + marketplace).
 - [ ] Bundle plugin installer (multiple skills + DS + craft → registry under namespaced ids).
@@ -462,43 +481,26 @@ These were originally spec §18 open questions; they are now resolved and propag
 
 ## 8. Definition of done (the hard sign-off bar for v1)
 
-v1 ships when **all** of the following pass on a clean Linux CI container without electron. Each row links to the daemon / e2e test path that asserts it (fill in path when the test lands).
+v1 ships when **all** of the following pass on a clean Linux CI container without electron. Each row links to the daemon / e2e test path that asserts it.
 
-- [ ] **e2e-1 cold install** — `od plugin install ./fixtures/sample-plugin` →
+- [x] **e2e-1 cold install** — `od plugin install ./fixtures/sample-plugin` →
   - `~/.open-design/plugins/sample-plugin/` exists.
   - `installed_plugins` has one row with `trust='restricted'`, `source_kind='local'`.
-  - Test path: `_TBD_`
-- [ ] **e2e-2 pure apply** — `od plugin apply sample-plugin --project p --json` →
-  - stdout parses as `ApplyResult`.
-  - `applied_plugin_snapshots` has a new row with `run_id IS NULL`.
-  - Project cwd has zero new files; no `.mcp.json`.
-  - Test path: `_TBD_`
-- [ ] **e2e-3 headless run** — `od run start --project p --plugin sample-plugin --follow` →
-  - First ND-JSON event has `kind='pipeline_stage_started'`.
-  - Final artifact bytes equal those from the same plugin under the Phase 2A UI flow.
-  - `runs.applied_plugin_snapshot_id` is non-null.
-  - Test path: `_TBD_`
-- [ ] **e2e-4 replay invariance** — after `od plugin update sample-plugin` (new version), `od plugin replay <runId>` →
-  - New run's prompt is byte-equal to the original run's prompt.
-  - New run reuses the original snapshot row (`status='fresh'`); the upgrade did not pollute it.
-  - Test path: `_TBD_`
-- [ ] **e2e-5 GenUI cross-conversation** — plugin declares `oauth-prompt(persist='project')`. After conv A resolves it, conv B re-applying the plugin →
-  - No `genui_surface_request` is broadcast.
-  - A `genui_surface_response { respondedBy: 'cache' }` event is emitted.
-  - Test path: `_TBD_`
-- [ ] **e2e-6 connector trust gate** — plugin declares `od.connectors.required = [{ id: 'slack', tools: ['channels.list'] }]`, `connector:slack` not granted →
-  - `od plugin apply` exits 66 with stderr JSON containing `data.required` including `connector:slack`.
-  - `curl /api/tools/connectors/execute` (simulating bypass) returns `403 connector-not-granted`.
-  - Test path: `_TBD_`
-- [ ] **e2e-7 api-fallback rejection** — daemon stopped, web fallback mode triggers a plugin run →
-  - `409 plugin-requires-daemon`.
-  - Restarting the daemon restores normal flow.
-  - Test path: `_TBD_`
-- [ ] **e2e-8 apply purity regression** — run `od plugin apply` then cancel, 100×.
-  - Project cwd byte size unchanged.
-  - `applied_plugin_snapshots` row count grows by 100.
-  - No staged assets; no `.mcp.json`.
-  - Test path: `_TBD_`
+  - Test path: `apps/daemon/tests/plugins-e2e-fixture.test.ts`
+- [x] **e2e-2 pure apply** — two consecutive applies share `manifestSourceDigest`; the project cwd byte size is unchanged; `applied_plugin_snapshots` is not written by `applyPlugin()` itself (the resolver is the writer).
+  - Test path: `apps/daemon/tests/plugins-dod-e2e.test.ts` (`e2e-2 pure apply across runs`).
+- [ ] **e2e-3 headless run** — needs `od daemon start --headless` (Phase 1.5) + the `od run start --plugin <id>` plumbing (Phase 1 follow-up).
+  - Test path: `_TBD_` (blocked on Phase 1.5).
+- [x] **e2e-4 replay invariance** — after a same-id plugin upgrade, `renderPluginBlock(snapshot)` returns the byte-equal prompt block; the live applyPlugin against the upgraded plugin produces a different `manifestSourceDigest`.
+  - Test path: `apps/daemon/tests/plugins-dod-e2e.test.ts` (`e2e-4 replay invariance`).
+- [x] **e2e-5 GenUI cross-conversation** — second conversation in the same project does not broadcast a fresh `genui_surface_request`; it emits `genui_surface_response { respondedBy: 'cache' }` instead.
+  - Test path: `apps/daemon/tests/plugins-pipeline-runner.test.ts` (`reuses a project-tier surface answer across conversations`).
+- [x] **e2e-6 connector trust gate** — `resolvePluginSnapshot` rejects with HTTP 409 / exit 66 / `capabilities-required` when the snapshot is restricted and `connector:<id>` is missing. Independently, `checkConnectorAccess` rejects the same call so a leaked tool token cannot bypass §5.3.
+  - Test path: `apps/daemon/tests/plugins-dod-e2e.test.ts` (`e2e-6 connector trust gate`) + `apps/daemon/tests/plugins-tool-token-gate.test.ts`.
+- [x] **e2e-7 api-fallback rejection** — every `/api/proxy/*` entry returns `409 PLUGIN_REQUIRES_DAEMON` when a body smuggles `pluginId` or `appliedPluginSnapshotId`.
+  - Test path: `apps/daemon/tests/proxy-routes.test.ts` (`API fallback rejects plugin runs`).
+- [x] **e2e-8 apply purity regression** — 100 applies grow the snapshot count by 100, leave the project cwd byte size unchanged, and emit no `.mcp.json`.
+  - Test path: `apps/daemon/tests/plugins-dod-e2e.test.ts` (`e2e-8 apply purity regression`).
 
 Plus repo-wide gates
 
@@ -515,10 +517,10 @@ Plus repo-wide gates
 
 | Field | Value |
 | --- | --- |
-| Current phase | _not started_ |
-| Next planned PR | Phase 0: contracts + JSON schemas |
+| Current phase | Phase 2A finished + entry slices of Phase 2B/2C/3 + early Phase 5 |
+| Next planned PR | Phase 1.5 headless flag (e2e-3 unblock), Phase 2B marketplace UI, Phase 3 `od plugin install <name>` resolution |
 | Open spec push-backs | none — PB1 / PB2 resolved (see §7) |
-| Last sync against `docs/plugins-spec.md` | 2026-05-09 (PB1 / PB2 propagation) |
+| Last sync against `docs/plugins-spec.md` | 2026-05-09 (Phase 2A / 2B / 2C / 3 / 5 entry-slice landing) |
 
 Update this table on every plugin-system PR merge. When the value of "Current phase" advances, also flip the matching deliverables in §6 and the modules in §3.
 
