@@ -52,6 +52,7 @@ import {
   pluginPromptBlock,
   pruneExpiredSnapshots,
   resolvePluginSnapshot,
+  runPipelineForRun,
   startSnapshotGc,
   uninstallPlugin,
 } from './plugins/index.js';
@@ -139,7 +140,7 @@ import {
   readAllTokens,
   setToken,
 } from './mcp-tokens.js';
-import { agentCliEnvForAgent, readAppConfig, writeAppConfig } from './app-config.js';
+import { agentCliEnvForAgent, readAppConfig, readPluginEnvKnobs, writeAppConfig } from './app-config.js';
 import { OrbitService, formatLocalProjectTimestamp, renderOrbitTemplateSystemPrompt } from './orbit.js';
 import { buildMcpInstallPayload } from './mcp-install-info.js';
 import {
@@ -5602,6 +5603,55 @@ export async function startServer({
     return { prompt, activeSkillDir, critiqueShouldRun };
   };
 
+  // Plan §3.I1 / spec §10.1: fire the pipeline schedule on a run's
+  // SSE stream. Synchronous first emit (the first
+  // pipeline_stage_started event lands before the agent process
+  // starts) + async tail. Stub stage runner converges any non-loop
+  // stage in one iteration; loop stages stop at the
+  // OD_MAX_DEVLOOP_ITERATIONS ceiling. Errors are swallowed (logged)
+  // so a bad pipeline never blocks the agent run.
+  const firePipelineForRun = (args) => {
+    const { run, snapshot, runs, db: dbHandle } = args;
+    if (!snapshot?.pipeline?.stages?.length) return;
+    const env = { maxIterations: readPluginEnvKnobs().maxDevloopIterations };
+    const emitPipeline = (evt) => {
+      try { runs.emit(run, evt.kind, evt); } catch {/* ignore */}
+    };
+    const emitGenui = (evt) => {
+      try { runs.emit(run, evt.kind, evt); } catch {/* ignore */}
+    };
+    // Stub stage runner: synchronously returns a converged signal so
+    // the scheduler advances immediately. Phase 4's atom migration
+    // swaps this for a real per-stage worker that drives the agent.
+    const runStage = ({ iteration }) => ({
+      signals: {
+        'critique.score':  iteration >= 0 ? 4 : 0,
+        'preview.ok':      true,
+        'user.confirmed':  true,
+      },
+    });
+    void runPipelineForRun({
+      db: dbHandle,
+      runId:           run.id,
+      projectId:       run.projectId ?? snapshot.resolvedContext?.items?.[0]?.id ?? 'project-unknown',
+      conversationId:  run.conversationId ?? null,
+      snapshot,
+      pipeline:        snapshot.pipeline,
+      env,
+      runStage,
+      emitPipeline,
+      emitGenui,
+    }).catch((err) => {
+      try {
+        runs.emit(run, 'pipeline_stage_failed', {
+          runId:      run.id,
+          snapshotId: snapshot.snapshotId,
+          message:    String(err?.message ?? err),
+        });
+      } catch { /* ignore */ }
+    });
+  };
+
   const startChatRun = async (chatBody, run) => {
     /** @type {Partial<ChatRequest> & { imagePaths?: string[] }} */
     chatBody = chatBody || {};
@@ -6797,6 +6847,23 @@ export async function startServer({
     /** @type {import('@open-design/contracts').ChatRunCreateResponse} */
     const body = { runId: run.id };
     res.status(202).json(body);
+    // Plan §3.I1 / spec §10.1 — fire the pipeline schedule on the run's
+    // SSE stream BEFORE the agent process is started. The first
+    // pipeline_stage_started event is emitted synchronously (before
+    // the first await inside runPipelineForRun), so any SSE consumer
+    // that subscribes between create() and start() sees a stage event
+    // ahead of the agent's message_chunk stream — exactly what §8 e2e-3
+    // expects. The stub stage runner returns immediately so a
+    // non-loop pipeline walks through every stage in O(stages) time;
+    // the audit row in `run_devloop_iterations` records the timeline.
+    if (resolvedSnapshot?.ok && resolvedSnapshot.snapshot.pipeline) {
+      firePipelineForRun({
+        run,
+        snapshot: resolvedSnapshot.snapshot,
+        runs: design.runs,
+        db,
+      });
+    }
     design.runs.start(run, () => startChatRun(req.body || {}, run));
   });
 

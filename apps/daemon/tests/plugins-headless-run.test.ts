@@ -145,4 +145,144 @@ describe('Plan §8 e2e-3 (entry slice) — headless install → project → run'
     // Cancel the run so the test cleans up the in-memory child path.
     await fetch(`${baseUrl}/api/runs/${encodeURIComponent(runBody.runId)}/cancel`, { method: 'POST' });
   });
+
+  // Full §8 e2e-3 contract — once the pipeline runner fires on a run
+  // with a declared pipeline, the first ND-JSON event should be
+  // `pipeline_stage_started`. Plan §3.I1 wires firePipelineForRun into
+  // POST /api/runs so any plugin run with `od.pipeline.stages[*]`
+  // emits the stage timeline before the agent's message_chunk stream.
+  it('first SSE event on a plugin run with od.pipeline is pipeline_stage_started', async () => {
+    // Install a fixture plugin with a 2-stage pipeline. We use a
+    // disposable manifest rather than the on-disk fixture so the
+    // pipeline shape is locked here.
+    const fs = await import('node:fs/promises');
+    const os = await import('node:os');
+    const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'od-headless-pipeline-'));
+    const fixture = path.join(tmpRoot, 'pipeline-plugin');
+    await fs.mkdir(fixture, { recursive: true });
+    await fs.writeFile(
+      path.join(fixture, 'open-design.json'),
+      JSON.stringify({
+        $schema: 'https://open-design.ai/schemas/plugin.v1.json',
+        name: 'pipeline-plugin',
+        title: 'Pipeline Plugin',
+        version: '1.0.0',
+        description: 'fixture with a declared pipeline',
+        license: 'MIT',
+        od: {
+          kind: 'skill',
+          taskKind: 'new-generation',
+          useCase: { query: 'Make a {{topic}} brief.' },
+          inputs: [{ name: 'topic', type: 'string', required: true, label: 'Topic' }],
+          pipeline: {
+            stages: [
+              { id: 'discovery', atoms: ['discovery-question-form'] },
+              { id: 'plan',      atoms: ['todo-write'] },
+            ],
+          },
+          capabilities: ['prompt:inject'],
+        },
+      }, null, 2),
+    );
+    await fs.writeFile(
+      path.join(fixture, 'SKILL.md'),
+      '---\nname: pipeline-plugin\ndescription: fixture with pipeline\n---\n# Pipeline\n',
+    );
+
+    const installResp = await fetch(`${baseUrl}/api/plugins/install`, {
+      method:  'POST',
+      headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+      body:    JSON.stringify({ source: fixture }),
+    });
+    await readSseUntilSuccess(installResp);
+
+    const projectId = `pipeline-${Date.now()}`;
+    // The fixture declares od.pipeline.stages and is installed under
+    // sourceKind='local' (default trust='restricted'). The required
+    // capabilities therefore include pipeline:*; the test grants it
+    // ephemerally via the resolver so the snapshot is created without
+    // re-asking the user.
+    const createResp = await fetch(`${baseUrl}/api/projects`, {
+      method:  'POST',
+      headers: { 'content-type': 'application/json' },
+      body:    JSON.stringify({
+        id:           projectId,
+        name:         'Pipeline e2e-3',
+        pluginId:     'pipeline-plugin',
+        pluginInputs: { topic: 'agentic design' },
+        grantCaps:    ['pipeline:*'],
+      }),
+    });
+    expect(createResp.status).toBe(200);
+    const createBody = (await createResp.json()) as {
+      project: { id: string };
+      conversationId: string;
+      appliedPluginSnapshotId?: string;
+    };
+    expect(createBody.appliedPluginSnapshotId).toBeTruthy();
+
+    const runResp = await fetch(`${baseUrl}/api/runs`, {
+      method:  'POST',
+      headers: { 'content-type': 'application/json' },
+      body:    JSON.stringify({
+        projectId,
+        pluginId:                'pipeline-plugin',
+        appliedPluginSnapshotId: createBody.appliedPluginSnapshotId,
+        grantCaps:               ['pipeline:*'],
+      }),
+    });
+    expect(runResp.status).toBe(202);
+    const runBody = (await runResp.json()) as { runId: string };
+
+    // The pipeline emits its first event synchronously inside POST
+    // /api/runs (firePipelineForRun runs before design.runs.start
+    // schedules the agent), so by the time we GET /api/runs/:id/events
+    // the run buffer already contains pipeline_stage_started.
+    // Wait briefly for the async tail (devloop iteration log) to settle.
+    await new Promise((r) => setTimeout(r, 30));
+
+    const statusResp = await fetch(`${baseUrl}/api/runs/${encodeURIComponent(runBody.runId)}`);
+    const statusBody = (await statusResp.json()) as { id: string };
+    expect(statusBody.id).toBe(runBody.runId);
+
+    // Read the run's event buffer through the SSE stream — the
+    // server pipes every record through res.write, so reading the
+    // body until 'end' or pipeline_stage_completed surfaces the
+    // first events. We don't actually wait for end (the run is
+    // long-running); we just look for the stage-start anchor.
+    const eventsResp = await fetch(`${baseUrl}/api/runs/${encodeURIComponent(runBody.runId)}/events`, {
+      headers: { accept: 'text/event-stream' },
+    });
+    expect(eventsResp.body).toBeTruthy();
+    const reader = eventsResp.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let firstStageEvent: string | null = null;
+    let messageChunkSeen = false;
+    const start = Date.now();
+    while (Date.now() - start < 1500) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split('\n\n');
+      buffer = blocks.pop() ?? '';
+      for (const block of blocks) {
+        const eventLine = block.split('\n').find((l) => l.startsWith('event: '));
+        if (!eventLine) continue;
+        const event = eventLine.slice('event: '.length);
+        if (event === 'pipeline_stage_started' && !firstStageEvent && !messageChunkSeen) {
+          firstStageEvent = event;
+        }
+        if (event === 'message_chunk') messageChunkSeen = true;
+        if (firstStageEvent || event === 'end') break;
+      }
+      if (firstStageEvent) break;
+    }
+    void reader.cancel().catch(() => undefined);
+
+    expect(firstStageEvent).toBe('pipeline_stage_started');
+
+    await fetch(`${baseUrl}/api/runs/${encodeURIComponent(runBody.runId)}/cancel`, { method: 'POST' });
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
 });
