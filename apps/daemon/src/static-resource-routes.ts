@@ -10,14 +10,9 @@ import { renderDesignSystemPreview } from './design-system-preview.js';
 import { renderDesignSystemShowcase } from './design-system-showcase.js';
 import { listPromptTemplates, readPromptTemplate } from './prompt-templates.js';
 import { readAppConfig } from './app-config.js';
+import type { RouteDeps } from './server-context.js';
 
-type AnyRouteDeps = Record<string, any>;
-
-export interface RegisterStaticResourceRoutesDeps {
-  http: AnyRouteDeps;
-  paths: AnyRouteDeps;
-  resources: AnyRouteDeps;
-}
+export interface RegisterStaticResourceRoutesDeps extends RouteDeps<'http' | 'paths' | 'resources'> {}
 
 export function registerStaticResourceRoutes(app: Express, ctx: RegisterStaticResourceRoutesDeps) {
   const { sendApiError } = ctx.http;

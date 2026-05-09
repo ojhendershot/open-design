@@ -1,12 +1,8 @@
 import type { Express } from 'express';
+import { ACTIVE_CONTEXT_TTL_MS } from './constants.js';
+import type { RouteDeps } from './server-context.js';
 
-type AnyRouteDeps = Record<string, any>;
-
-export interface RegisterActiveContextRoutesDeps {
-  db: any;
-  http: AnyRouteDeps;
-  projectStore: AnyRouteDeps;
-}
+export interface RegisterActiveContextRoutesDeps extends RouteDeps<'db' | 'http' | 'projectStore'> {}
 
 export function registerActiveContextRoutes(app: Express, ctx: RegisterActiveContextRoutesDeps) {
   const { db } = ctx;
@@ -20,7 +16,6 @@ export function registerActiveContextRoutes(app: Express, ctx: RegisterActiveCon
   // I have open" without the user typing the project id. In-memory only -
   // daemon restart clears it.
   let activeContext: { projectId: string; fileName: string | null; ts: number } | null = null;
-  const ACTIVE_CONTEXT_TTL_MS = 5 * 60 * 1000;
 
   // Active context is private to the local machine. The daemon may bind beyond
   // loopback, so without an origin check a peer on the LAN could read what the

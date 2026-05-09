@@ -5,14 +5,9 @@ import { buildMcpInstallPayload } from './mcp-install-info.js';
 import { MCP_TEMPLATES, buildAcpMcpServers, buildClaudeMcpJson, isManagedProjectCwd, readMcpConfig, writeMcpConfig } from './mcp-config.js';
 import { beginAuth, exchangeCodeForToken, refreshAccessToken } from './mcp-oauth.js';
 import { clearToken, getToken, isTokenExpired, readAllTokens, setToken } from './mcp-tokens.js';
+import type { RouteDeps } from './server-context.js';
 
-type AnyRouteDeps = Record<string, any>;
-
-export interface RegisterMcpRoutesDeps {
-  http: AnyRouteDeps;
-  paths: AnyRouteDeps;
-  mcp: AnyRouteDeps;
-}
+export interface RegisterMcpRoutesDeps extends RouteDeps<'http' | 'paths' | 'mcp'> {}
 
 export function registerMcpRoutes(app: Express, ctx: RegisterMcpRoutesDeps) {
   const { isLocalSameOrigin, resolvedPortRef, sendApiError } = ctx.http;

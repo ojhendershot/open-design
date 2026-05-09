@@ -1,15 +1,7 @@
 import type { Express } from 'express';
+import type { RouteDeps } from './server-context.js';
 
-type AnyRouteDeps = Record<string, any>;
-
-export interface RegisterDeployRoutesDeps {
-  db: any;
-  http: AnyRouteDeps;
-  paths: AnyRouteDeps;
-  ids: AnyRouteDeps;
-  deploy: AnyRouteDeps;
-  projectStore: AnyRouteDeps;
-}
+export interface RegisterDeployRoutesDeps extends RouteDeps<'db' | 'http' | 'paths' | 'ids' | 'deploy' | 'projectStore'> {}
 
 export function registerDeployRoutes(app: Express, ctx: RegisterDeployRoutesDeps) {
   const { db } = ctx;
@@ -202,11 +194,7 @@ export function registerDeployRoutes(app: Express, ctx: RegisterDeployRoutesDeps
 
 }
 
-export interface RegisterDeploymentCheckRoutesDeps {
-  db: any;
-  http: AnyRouteDeps;
-  deploy: AnyRouteDeps;
-}
+export interface RegisterDeploymentCheckRoutesDeps extends RouteDeps<'db' | 'http' | 'deploy'> {}
 
 export function registerDeploymentCheckRoutes(app: Express, ctx: RegisterDeploymentCheckRoutesDeps) {
   const { db } = ctx;

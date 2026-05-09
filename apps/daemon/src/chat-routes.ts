@@ -1,19 +1,7 @@
 import type { Express } from 'express';
+import type { RouteDeps } from './server-context.js';
 
-type AnyRouteDeps = Record<string, any>;
-
-export interface RegisterChatRoutesDeps {
-  db: any;
-  design: any;
-  http: AnyRouteDeps;
-  chat: AnyRouteDeps;
-  agents: AnyRouteDeps;
-  critique: AnyRouteDeps;
-  validation: AnyRouteDeps;
-  lifecycle?: {
-    isDaemonShuttingDown: () => boolean;
-  };
-}
+export interface RegisterChatRoutesDeps extends RouteDeps<'db' | 'design' | 'http' | 'chat' | 'agents' | 'critique' | 'validation' | 'lifecycle'> {}
 
 export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
   const { db, design } = ctx;

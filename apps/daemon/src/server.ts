@@ -192,6 +192,7 @@ import { registerProjectRoutes, registerProjectArtifactRoutes, registerProjectFi
 import { registerFinalizeRoutes, registerImportRoutes, registerProjectExportRoutes } from './import-export-routes.js';
 import { registerChatRoutes } from './chat-routes.js';
 import { registerStaticResourceRoutes } from './static-resource-routes.js';
+import { assertServerContextSatisfiesRoutes } from './route-context-contract.js';
 import { configureConnectorCredentialStore, ConnectorServiceError, FileConnectorCredentialStore } from './connectors/service.js';
 import { composioConnectorProvider } from './connectors/composio.js';
 import { configureComposioConfigStore } from './connectors/composio-config.js';
@@ -3587,6 +3588,42 @@ export async function startServer({
       body: skill.body,
       designSystemRequired: skill.designSystemRequired !== false,
     };
+  });
+
+  assertServerContextSatisfiesRoutes({
+    db,
+    design,
+    http: httpDeps,
+    paths: pathDeps,
+    ids: idDeps,
+    uploads: uploadDeps,
+    node: nodeDeps,
+    projectStore: projectStoreDeps,
+    projectFiles: projectFileDeps,
+    conversations: conversationDeps,
+    templates: templateDeps,
+    status: projectStatusDeps,
+    events: projectEventDeps,
+    imports: importDeps,
+    exports: projectExportDeps,
+    artifacts: artifactDeps,
+    documents: { buildDocumentPreview },
+    auth: authDeps,
+    liveArtifacts: liveArtifactDeps,
+    deploy: deployDeps,
+    media: mediaDeps,
+    appConfig: appConfigDeps,
+    orbit: orbitDeps,
+    nativeDialogs: nativeDialogDeps,
+    research: researchDeps,
+    mcp: { pendingAuth: mcpPendingAuth, daemonUrlRef },
+    resources: { mimeFor },
+    validation: validationDeps,
+    finalize: finalizeDeps,
+    chat: { startChatRun },
+    agents: agentDeps,
+    critique: critiqueDeps,
+    lifecycle: { isDaemonShuttingDown: () => daemonShuttingDown },
   });
 
   registerChatRoutes(app, {

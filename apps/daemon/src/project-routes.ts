@@ -1,20 +1,7 @@
 import type { Express } from 'express';
+import type { RouteDeps } from './server-context.js';
 
-type AnyRouteDeps = Record<string, any>;
-
-export interface RegisterProjectRoutesDeps {
-  db: any;
-  design: any;
-  http: AnyRouteDeps;
-  paths: AnyRouteDeps;
-  projectStore: AnyRouteDeps;
-  projectFiles: AnyRouteDeps;
-  conversations: AnyRouteDeps;
-  templates: AnyRouteDeps;
-  status: AnyRouteDeps;
-  events: AnyRouteDeps;
-  ids: AnyRouteDeps;
-}
+export interface RegisterProjectRoutesDeps extends RouteDeps<'db' | 'design' | 'http' | 'paths' | 'projectStore' | 'projectFiles' | 'conversations' | 'templates' | 'status' | 'events' | 'ids'> {}
 
 export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDeps) {
   const { db, design } = ctx;
@@ -546,13 +533,7 @@ export function registerProjectRoutes(app: Express, ctx: RegisterProjectRoutesDe
 
 }
 
-export interface RegisterProjectArtifactRoutesDeps {
-  http: AnyRouteDeps;
-  uploads: AnyRouteDeps;
-  paths: AnyRouteDeps;
-  node: AnyRouteDeps;
-  artifacts: AnyRouteDeps;
-}
+export interface RegisterProjectArtifactRoutesDeps extends RouteDeps<'http' | 'uploads' | 'paths' | 'node' | 'artifacts'> {}
 
 export function registerProjectArtifactRoutes(app: Express, ctx: RegisterProjectArtifactRoutesDeps) {
   const { upload } = ctx.uploads;
@@ -617,17 +598,7 @@ export function registerProjectArtifactRoutes(app: Express, ctx: RegisterProject
 
 }
 
-export interface RegisterProjectFileRoutesDeps {
-  db: any;
-  http: AnyRouteDeps;
-  paths: AnyRouteDeps;
-  uploads: AnyRouteDeps;
-  node: AnyRouteDeps;
-  projectStore: AnyRouteDeps;
-  projectFiles: AnyRouteDeps;
-  documents: AnyRouteDeps;
-  artifacts: AnyRouteDeps;
-}
+export interface RegisterProjectFileRoutesDeps extends RouteDeps<'db' | 'http' | 'paths' | 'uploads' | 'node' | 'projectStore' | 'projectFiles' | 'documents' | 'artifacts'> {}
 
 export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFileRoutesDeps) {
   const { db } = ctx;
@@ -881,11 +852,7 @@ export function registerProjectFileRoutes(app: Express, ctx: RegisterProjectFile
 
 }
 
-export interface RegisterProjectUploadRoutesDeps {
-  http: AnyRouteDeps;
-  uploads: AnyRouteDeps;
-  node: AnyRouteDeps;
-}
+export interface RegisterProjectUploadRoutesDeps extends RouteDeps<'http' | 'uploads' | 'node'> {}
 
 export function registerProjectUploadRoutes(app: Express, ctx: RegisterProjectUploadRoutesDeps) {
   const { sendApiError } = ctx.http;

@@ -1,19 +1,7 @@
 import type { Express } from 'express';
+import type { RouteDeps } from './server-context.js';
 
-type AnyRouteDeps = Record<string, any>;
-
-export interface RegisterImportRoutesDeps {
-  db: any;
-  http: AnyRouteDeps;
-  uploads: AnyRouteDeps;
-  node: AnyRouteDeps;
-  ids: AnyRouteDeps;
-  paths: AnyRouteDeps;
-  imports: AnyRouteDeps;
-  projectStore: AnyRouteDeps;
-  conversations: AnyRouteDeps;
-  projectFiles: AnyRouteDeps;
-}
+export interface RegisterImportRoutesDeps extends RouteDeps<'db' | 'http' | 'uploads' | 'node' | 'ids' | 'paths' | 'imports' | 'projectStore' | 'conversations' | 'projectFiles'> {}
 
 export function registerImportRoutes(app: Express, ctx: RegisterImportRoutesDeps) {
   const { db } = ctx;
@@ -179,13 +167,7 @@ export function registerImportRoutes(app: Express, ctx: RegisterImportRoutesDeps
 
 }
 
-export interface RegisterProjectExportRoutesDeps {
-  db: any;
-  http: AnyRouteDeps;
-  paths: AnyRouteDeps;
-  projectStore: AnyRouteDeps;
-  exports: AnyRouteDeps;
-}
+export interface RegisterProjectExportRoutesDeps extends RouteDeps<'db' | 'http' | 'paths' | 'projectStore' | 'exports'> {}
 
 export function registerProjectExportRoutes(app: Express, ctx: RegisterProjectExportRoutesDeps) {
   const { db } = ctx;
@@ -316,14 +298,7 @@ export function registerProjectExportRoutes(app: Express, ctx: RegisterProjectEx
 
 }
 
-export interface RegisterFinalizeRoutesDeps {
-  db: any;
-  http: AnyRouteDeps;
-  paths: AnyRouteDeps;
-  projectStore: AnyRouteDeps;
-  validation: AnyRouteDeps;
-  finalize: AnyRouteDeps;
-}
+export interface RegisterFinalizeRoutesDeps extends RouteDeps<'db' | 'http' | 'paths' | 'projectStore' | 'validation' | 'finalize'> {}
 
 export function registerFinalizeRoutes(app: Express, ctx: RegisterFinalizeRoutesDeps) {
   const { db } = ctx;

@@ -1,21 +1,7 @@
 import type { Express } from 'express';
+import type { RouteDeps } from './server-context.js';
 
-type AnyRouteDeps = Record<string, any>;
-
-export interface RegisterMediaRoutesDeps {
-  db: any;
-  http: AnyRouteDeps;
-  paths: AnyRouteDeps;
-  ids: AnyRouteDeps;
-  media: AnyRouteDeps;
-  appConfig: AnyRouteDeps;
-  orbit: AnyRouteDeps;
-  nativeDialogs: AnyRouteDeps;
-  projectStore: AnyRouteDeps;
-  projectFiles: AnyRouteDeps;
-  conversations: AnyRouteDeps;
-  research: AnyRouteDeps;
-}
+export interface RegisterMediaRoutesDeps extends RouteDeps<'db' | 'http' | 'paths' | 'ids' | 'media' | 'appConfig' | 'orbit' | 'nativeDialogs' | 'projectStore' | 'projectFiles' | 'conversations' | 'research'> {}
 
 export function registerMediaRoutes(app: Express, ctx: RegisterMediaRoutesDeps) {
   const { db } = ctx;

@@ -1,15 +1,7 @@
 import type { Express } from 'express';
+import type { RouteDeps } from './server-context.js';
 
-type AnyRouteDeps = Record<string, any>;
-
-export interface RegisterLiveArtifactRoutesDeps {
-  db: any;
-  http: AnyRouteDeps;
-  paths: AnyRouteDeps;
-  auth: AnyRouteDeps;
-  liveArtifacts: AnyRouteDeps;
-  projectStore: AnyRouteDeps;
-}
+export interface RegisterLiveArtifactRoutesDeps extends RouteDeps<'db' | 'http' | 'paths' | 'auth' | 'liveArtifacts' | 'projectStore'> {}
 
 export function registerLiveArtifactRoutes(app: Express, ctx: RegisterLiveArtifactRoutesDeps) {
   const { db } = ctx;
