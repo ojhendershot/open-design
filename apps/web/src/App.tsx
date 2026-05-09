@@ -733,6 +733,18 @@ export function App() {
       ),
     [allSkillSummaries, config.disabledSkills],
   );
+  // Functional-skills-only enabled subset — what ProjectView's chat
+  // composer @-picker should see. Without this, a skill the user has
+  // disabled in Settings still appears in an existing project's @-mention
+  // popover and can ride along to the daemon via skillIds, breaking the
+  // Library toggle for projects opened on the post-split branch.
+  const enabledFunctionalSkills = useMemo(
+    () =>
+      skills.filter(
+        (s) => !(config.disabledSkills ?? []).includes(s.id),
+      ),
+    [skills, config.disabledSkills],
+  );
   // Templates-only enabled subset — what the EntryView Templates gallery
   // actually renders. Filtering in App keeps the EntryView prop surface
   // narrow ("here are the templates the user has not disabled").
@@ -760,7 +772,7 @@ export function App() {
           routeFileName={route.kind === 'project' ? route.fileName : null}
           config={config}
           agents={agents}
-          skills={skills}
+          skills={enabledFunctionalSkills}
           designSystems={designSystems}
           daemonLive={daemonLive}
           onModeChange={handleModeChange}
