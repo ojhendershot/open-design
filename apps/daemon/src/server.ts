@@ -1865,8 +1865,57 @@ export async function startServer({
   let resolvedPort = port;
   let daemonShuttingDown = false;
   const extraAllowedOrigins = configuredAllowedOrigins();
+
+  // Plan §3.K1 / spec §15.7 — bound-API-token guard.
+  //
+  // The daemon refuses to bind to a public interface unless an
+  // OD_API_TOKEN is set. This is the spec §16 Phase 5 safety floor:
+  // a hosted operator can no longer accidentally publish an unsecured
+  // daemon by setting OD_BIND_HOST=0.0.0.0 without a token.
+  //
+  // Loopback hosts (127.0.0.1 / ::1 / localhost) are always allowed —
+  // the desktop / dev flow remains unchanged. Setting OD_API_TOKEN is
+  // purely additive: when present, every /api/* request must carry a
+  // matching `Authorization: Bearer <token>` header (loopback origins
+  // are exempted so the desktop UI keeps working).
+  const apiToken = (process.env.OD_API_TOKEN ?? '').trim();
+  if (!isLoopbackHostname(host) && apiToken.length === 0) {
+    throw new Error(
+      `OD_BIND_HOST=${host} requires OD_API_TOKEN to be set. ` +
+      `Generate one with \`openssl rand -hex 32\` and re-launch. ` +
+      `(Loopback hosts 127.0.0.1 / ::1 / localhost do not need a token.)`,
+    );
+  }
+
   const app = express();
   app.use(express.json({ limit: '4mb' }));
+
+  // Plan §3.K1 — bearer-token middleware.
+  //
+  // Active only when OD_API_TOKEN is set. Loopback origins skip the
+  // check (the desktop UI / local CLI never carry a bearer); every
+  // other request must present `Authorization: Bearer <token>` with a
+  // value matching `OD_API_TOKEN`. Health / version / status remain
+  // open so monitoring probes don't need the token.
+  if (apiToken.length > 0) {
+    const openProbePaths = new Set(['/api/health', '/api/version', '/api/daemon/status']);
+    app.use('/api', (req, res, next) => {
+      if (openProbePaths.has(req.path)) return next();
+      // Loopback short-circuit. We ignore the proxied X-Forwarded-For
+      // header here because a reverse proxy MUST always forward the
+      // bearer; the loopback bypass exists for the localhost desktop
+      // UI which has no proxy in the path.
+      if (isLoopbackPeerAddress(req.socket?.remoteAddress)) return next();
+      const auth = req.get('authorization') ?? '';
+      const match = /^Bearer\s+(\S+)\s*$/i.exec(auth);
+      if (!match || match[1] !== apiToken) {
+        return res.status(401).json({
+          error: { code: 'API_TOKEN_REQUIRED', message: 'Authorization: Bearer <OD_API_TOKEN> required' },
+        });
+      }
+      return next();
+    });
+  }
 
   // Chrome may strip the port from the Origin header on same-origin GET
   // requests. Only use this as a fallback for safe, idempotent GET requests;
