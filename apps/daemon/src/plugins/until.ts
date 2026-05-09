@@ -21,6 +21,12 @@ export interface UntilSignals {
   'iterations'?:     number | undefined;
   'user.confirmed'?: boolean | undefined;
   'preview.ok'?:     boolean | undefined;
+  // Plan §3.N1 / spec §22.4 — promoted by the build-test atom
+  // (Phase 7 entry slice). Lets a plan write
+  // `until: 'build.passing && tests.passing'` directly instead of
+  // collapsing pass/fail into critique.score.
+  'build.passing'?:  boolean | undefined;
+  'tests.passing'?:  boolean | undefined;
 }
 
 const SIGNAL_KINDS: Record<keyof UntilSignals, SignalKind> = {
@@ -28,6 +34,8 @@ const SIGNAL_KINDS: Record<keyof UntilSignals, SignalKind> = {
   'iterations':     'number',
   'user.confirmed': 'boolean',
   'preview.ok':     'boolean',
+  'build.passing':  'boolean',
+  'tests.passing':  'boolean',
 };
 
 export type UntilOp = '==' | '!=' | '>=' | '<=' | '>' | '<';
