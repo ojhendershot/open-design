@@ -194,7 +194,8 @@ flowchart TD
   - [ ] Substep 3.2 Implement: 添加硬编码 UI color 检查，并显式 allowlist brand/user-content/canvas 场景。
   - [ ] Substep 3.3 Implement: 需要抽取 helper 时，在 `apps/web/tests/` 下添加聚焦测试。
   - [ ] Substep 3.4 Verify: 运行 `pnpm guard`。
-  - [ ] Substep 3.5 Verify: 运行 `pnpm --filter @open-design/web test`。
+  - [ ] Substep 3.5 Verify: 故意在一个 TSX 文件中临时写入默认 Tailwind 原生颜色 class（例如 `text-red-500`），确认 `pnpm guard` 能检出并失败，然后移除临时代码。
+  - [ ] Substep 3.6 Verify: 运行 `pnpm --filter @open-design/web test`。
 - [ ] Step 4: 盘点并分类现有全局 class
   - [ ] Substep 4.1 Implement: 生成 `apps/web/src/**/*.tsx` 中引用的全局 CSS class 清单，并映射到 `apps/web/src/index.css` 中的定义。
   - [ ] Substep 4.2 Implement: 将 class 分为组件级可迁移样式、全局基础样式、loading shell、keyframes/animation、内容级/第三方边界样式和需保留例外。
