@@ -232,6 +232,90 @@ async function readDiffReviewDecision(cwd: string): Promise<'accept' | 'reject' 
   }
 }
 
+// Plan §3.T1 — `<cwd>/handoff/manifest.json` round-trip.
+//
+// runAndPersistHandoff() is the on-disk shell around runHandoffAtom():
+//
+//   1. Read `<cwd>/handoff/manifest.json` (or fall back to
+//      `manifestSeed`, or finally a minimal default) so promotions
+//      stay monotonic across re-runs.
+//   2. Call runHandoffAtom() with the chosen seed + the caller's
+//      explicit export/deploy targets.
+//   3. Write the updated manifest back to
+//      `<cwd>/handoff/manifest.json`.
+//   4. Return the report shape the caller can forward to SSE / CLI
+//      audit logs.
+//
+// The bridge fires from the diff-review GenUI flow and from any
+// pipeline runner that wants the manifest computed declaratively.
+
+export interface RunAndPersistHandoffInput {
+  cwd: string;
+  // When the manifest file is missing AND no exportTargets are
+  // declared, fall back to this seed. Useful for the first pipeline
+  // run: the agent hasn't produced a manifest yet but we still want
+  // to record the promotion ladder progress.
+  manifestSeed?: ArtifactManifest;
+  exportTarget?: ArtifactExportTarget;
+  exportTargets?: ArtifactExportTarget[];
+  deployTarget?: ArtifactDeployTarget;
+  deployTargets?: ArtifactDeployTarget[];
+}
+
+export interface RunAndPersistHandoffResult extends RunHandoffAtomResult {
+  manifestPath: string;
+  // 'created' = no on-disk manifest existed; 'updated' = round-tripped;
+  // 'skipped' = nothing changed (re-run was a no-op).
+  persistMode: 'created' | 'updated' | 'skipped';
+}
+
+const DEFAULT_MANIFEST_SEED: ArtifactManifest = {
+  version:  1,
+  kind:     'react-component',
+  title:    'Pipeline output',
+  entry:    '',
+  renderer: 'react-component',
+  exports:  [],
+};
+
+export async function runAndPersistHandoff(
+  input: RunAndPersistHandoffInput,
+): Promise<RunAndPersistHandoffResult> {
+  const cwd = path.resolve(input.cwd);
+  const manifestPath = path.join(cwd, 'handoff', 'manifest.json');
+  const existing = await readManifestFile(manifestPath);
+  const seed: ArtifactManifest = existing ?? input.manifestSeed ?? DEFAULT_MANIFEST_SEED;
+
+  const handoffInput: RunHandoffAtomInput = { cwd, manifest: seed };
+  if (input.exportTarget)  handoffInput.exportTarget  = input.exportTarget;
+  if (input.exportTargets) handoffInput.exportTargets = input.exportTargets;
+  if (input.deployTarget)  handoffInput.deployTarget  = input.deployTarget;
+  if (input.deployTargets) handoffInput.deployTargets = input.deployTargets;
+  const report = await runHandoffAtom(handoffInput);
+
+  let persistMode: RunAndPersistHandoffResult['persistMode'];
+  if (!existing) {
+    await fsp.mkdir(path.dirname(manifestPath), { recursive: true });
+    await fsp.writeFile(manifestPath, JSON.stringify(report.manifest, null, 2) + '\n', 'utf8');
+    persistMode = 'created';
+  } else if (report.changed.length > 0) {
+    await fsp.writeFile(manifestPath, JSON.stringify(report.manifest, null, 2) + '\n', 'utf8');
+    persistMode = 'updated';
+  } else {
+    persistMode = 'skipped';
+  }
+  return { ...report, manifestPath, persistMode };
+}
+
+async function readManifestFile(p: string): Promise<ArtifactManifest | undefined> {
+  try {
+    const raw = await fsp.readFile(p, 'utf8');
+    return JSON.parse(raw) as ArtifactManifest;
+  } catch {
+    return undefined;
+  }
+}
+
 async function readBuildTestSignals(cwd: string): Promise<{ buildPassing: boolean; testsPassing: boolean } | undefined> {
   const p = path.join(cwd, 'critique', 'build-test.json');
   try {

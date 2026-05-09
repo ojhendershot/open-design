@@ -26,6 +26,7 @@
 // downstream review/decision.json + receipts.
 
 import { runDiffReview, type DiffReviewer, type DiffReviewReport } from './diff-review.js';
+import { runAndPersistHandoff, type RunAndPersistHandoffResult } from './handoff.js';
 
 const DIFF_REVIEW_SURFACE_PREFIX = '__auto_diff_review_';
 
@@ -69,6 +70,13 @@ export interface ApplyDiffReviewDecisionInput {
 export interface ApplyDiffReviewDecisionResult {
   ok: true;
   report: DiffReviewReport;
+  // Plan §3.T1 — when the diff-review write succeeds, we also run the
+  // handoff atom against the project cwd so `<cwd>/handoff/manifest.json`
+  // tracks the promotion ladder live. Best-effort: a failure here
+  // doesn't fail the overall bridge call (the diff-review write
+  // already succeeded).
+  handoff?: RunAndPersistHandoffResult;
+  handoffError?: string;
 }
 export interface ApplyDiffReviewDecisionFailure {
   ok: false;
@@ -89,7 +97,15 @@ export async function applyDiffReviewDecisionToCwd(
     if (parsed.rejected_files) decision.rejected_files = parsed.rejected_files;
     if (parsed.reason)         decision.reason = parsed.reason;
     const report = await runDiffReview({ cwd: input.cwd, decision });
-    return { ok: true, report };
+    // Auto-promote `<cwd>/handoff/manifest.json` from the new
+    // decision + any prior build-test signals. Best-effort.
+    const result: ApplyDiffReviewDecisionResult = { ok: true, report };
+    try {
+      result.handoff = await runAndPersistHandoff({ cwd: input.cwd });
+    } catch (err) {
+      result.handoffError = (err as Error).message;
+    }
+    return result;
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
