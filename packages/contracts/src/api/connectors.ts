@@ -56,10 +56,11 @@ export interface ConnectorDetail {
   /**
    * Hand-curated catalog subset. Stable across hydration: never
    * extended by provider discovery, only the static catalog names.
-   * This is used for featured/curated preview ordering and does not
-   * represent the advertised provider inventory. UI summary badges
-   * should use `toolCount` when present, while the drawer's rendered
-   * tool rows still come from `tools` directly.
+   * This preserves the static catalog baseline for consumers that
+   * need that curated subset, but it does not represent the
+   * advertised provider inventory. UI summary badges should use
+   * `toolCount` when present, while the drawer's rendered tool rows
+   * still come from `tools` directly.
    *
    * Optional in the type only for fixture brevity, see `allowedToolNames`.
    */
