@@ -751,6 +751,52 @@ must be running locally for tool calls to succeed.`);
 // Subcommand: od plugin …
 // ---------------------------------------------------------------------------
 
+// Plan §3.B1 / spec §12.4: CLI structured error helper. Maps a daemon
+// HTTP error envelope (or a synthetic local error) to a stable exit
+// code + a JSON envelope on stderr. Code agents read these to decide
+// whether the failure is recoverable (re-grant capabilities, prompt
+// the user, retry with --grant-caps, etc.).
+const RECOVERABLE_EXIT_CODES = {
+  'daemon-not-running':       64,
+  'plugin-not-found':         65,
+  'snapshot-not-found':       65,
+  'capabilities-required':    66,
+  'missing-input':            67,
+  'project-not-found':        68,
+  'run-not-found':            69,
+  'provider-not-configured':  70,
+  'plugin-requires-daemon':   71,
+  'snapshot-stale':           72,
+  'genui-surface-awaiting':   73,
+};
+
+function exitWithStructuredError({ code, message, data }) {
+  const exit = RECOVERABLE_EXIT_CODES[code] ?? 1;
+  const envelope = { error: { code, message, data: data ?? {} } };
+  process.stderr.write(JSON.stringify(envelope) + '\n');
+  process.exit(exit);
+}
+
+// Map a daemon HTTP response into the exit-code envelope. Returns the
+// parsed body (so the caller can keep going if it doesn't want to exit).
+async function structuredHttpFailure(resp, fallbackCode = 'daemon-not-running') {
+  let parsed;
+  try { parsed = await resp.json(); } catch { parsed = {}; }
+  const errCode = parsed?.error?.code;
+  if (errCode && errCode in RECOVERABLE_EXIT_CODES) {
+    exitWithStructuredError({
+      code:    errCode,
+      message: parsed.error.message ?? `HTTP ${resp.status}`,
+      data:    parsed.error.data,
+    });
+  }
+  exitWithStructuredError({
+    code:    fallbackCode,
+    message: parsed?.error?.message ?? `HTTP ${resp.status}: ${await resp.text().catch(() => '')}`,
+    data:    parsed?.error?.data,
+  });
+}
+
 async function runPlugin(args) {
   if (args.length === 0 || args[0] === 'help' || args.includes('--help') || args.includes('-h')) {
     printPluginHelp();
@@ -1011,11 +1057,19 @@ async function runPluginUninstall(rest) {
 
 async function runPluginApply(rest) {
   const flags = parseFlags(rest, { string: PLUGIN_STRING_FLAGS, boolean: PLUGIN_BOOLEAN_FLAGS });
-  const id = rest.find((a) => !a.startsWith('-') && a !== flags['daemon-url'] && a !== flags.source && a !== flags.inputs && a !== flags.project);
+  const id = rest.find((a) => !a.startsWith('-')
+    && a !== flags['daemon-url']
+    && a !== flags.source
+    && a !== flags.inputs
+    && a !== flags.project
+    && a !== flags['grant-caps']);
   if (!id) {
-    console.error('Usage: od plugin apply <id> [--inputs <json>] [--project <id>]');
+    console.error('Usage: od plugin apply <id> [--inputs <json>] [--input k=v ...] [--project <id>] [--grant-caps a,b]');
     process.exit(2);
   }
+  // Plan §3.B2: support both --inputs <json> and repeated --input k=v
+  // forms so a code agent can build the inputs map without a JSON
+  // shell-escape dance.
   let inputs = {};
   if (typeof flags.inputs === 'string' && flags.inputs.trim().length > 0) {
     try { inputs = JSON.parse(flags.inputs); } catch (err) {
@@ -1023,20 +1077,45 @@ async function runPluginApply(rest) {
       process.exit(2);
     }
   }
+  for (let i = 0; i < rest.length; i++) {
+    if (rest[i] === '--input' && typeof rest[i + 1] === 'string') {
+      const kv = rest[i + 1];
+      const eq = kv.indexOf('=');
+      if (eq > 0) {
+        const k = kv.slice(0, eq);
+        const v = kv.slice(eq + 1);
+        inputs[k] = coerceCliValue(v);
+      }
+      i += 1;
+    }
+  }
+  const grantCaps = typeof flags['grant-caps'] === 'string' && flags['grant-caps'].length > 0
+    ? flags['grant-caps'].split(',').map((c) => c.trim()).filter(Boolean)
+    : [];
   const url = `${pluginDaemonUrl(flags).replace(/\/$/, '')}/api/plugins/${encodeURIComponent(id)}/apply`;
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ inputs, projectId: flags.project }),
-  });
+  let resp;
+  try {
+    resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ inputs, projectId: flags.project, grantCaps }),
+    });
+  } catch (err) {
+    return exitWithStructuredError({
+      code: 'daemon-not-running',
+      message: `Cannot reach daemon at ${pluginDaemonUrl(flags)}: ${err?.message ?? err}`,
+    });
+  }
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
-    if (resp.status === 422 && data?.fields) {
-      console.error(`[apply] missing inputs: ${data.fields.join(', ')}`);
-    } else {
-      console.error(`POST /api/plugins/${id}/apply failed: ${resp.status} ${JSON.stringify(data)}`);
+    if (resp.status === 422 && Array.isArray(data?.fields)) {
+      return exitWithStructuredError({
+        code: 'missing-input',
+        message: `Plugin "${id}" is missing required inputs: ${data.fields.join(', ')}`,
+        data: { pluginId: id, missing: data.fields },
+      });
     }
-    process.exit(1);
+    return structuredHttpFailure(resp);
   }
   if (flags.json) {
     process.stdout.write(JSON.stringify(data, null, 2) + '\n');
@@ -1052,6 +1131,13 @@ async function runPluginApply(rest) {
   } else {
     console.log(JSON.stringify(data));
   }
+}
+
+function coerceCliValue(raw) {
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  if (/^-?\d+(\.\d+)?$/.test(raw)) return Number(raw);
+  return raw;
 }
 
 async function runPluginDoctor(rest) {

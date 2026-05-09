@@ -177,7 +177,8 @@ async function* installFromArchiveUrl(
           cwd: tmpRoot,
           strip: 1,
           filter: (filePath, entry) => {
-            if (entry.type === 'SymbolicLink' || entry.type === 'Link') {
+            const entryType = (entry as { type?: string }).type;
+            if (entryType === 'SymbolicLink' || entryType === 'Link') {
               symlinkSeen = true;
               return false;
             }

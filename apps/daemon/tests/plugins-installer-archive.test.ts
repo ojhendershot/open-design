@@ -52,7 +52,7 @@ async function buildFixtureTarball(args: {
   const stream = tarCreate(
     { cwd: tmp, gzip: true },
     [args.rootPrefix],
-  ) as NodeJS.ReadableStream;
+  ) as unknown as NodeJS.ReadableStream;
   const chunks: Buffer[] = [];
   for await (const chunk of stream) chunks.push(Buffer.from(chunk as Buffer));
   await rm(tmp, { recursive: true, force: true });
