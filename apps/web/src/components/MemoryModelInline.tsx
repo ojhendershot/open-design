@@ -251,17 +251,26 @@ export function MemoryModelInline({
   );
 
   const persist = useCallback(
-    async (next: MemoryExtractionConfigShape | null) => {
+    async (
+      next: MemoryExtractionConfigShape | null,
+      options?: { silent?: boolean },
+    ) => {
       setBusy(true);
       try {
         const result = await saveMemoryExtraction(next);
         if (result !== undefined) {
           setConfig(result);
-          setFlash(
-            next === null
-              ? t('settings.memoryModelInlineFlashCleared')
-              : t('settings.memoryModelInlineFlashSaved'),
-          );
+          // Skip the "Saved!" flash on background re-syncs (provider
+          // tab swap, base-URL keystroke autosave, key rotation). The
+          // user didn't click anything here; flashing every keystroke
+          // would feel like the picker is "fighting" them.
+          if (!options?.silent) {
+            setFlash(
+              next === null
+                ? t('settings.memoryModelInlineFlashCleared')
+                : t('settings.memoryModelInlineFlashSaved'),
+            );
+          }
         }
       } finally {
         setBusy(false);
@@ -269,6 +278,53 @@ export function MemoryModelInline({
     },
     [t],
   );
+
+  // Re-sync the saved memory override when the surrounding BYOK chat
+  // config drifts. The picker initially captures provider / key /
+  // baseUrl / apiVersion at click time, but if the user later swaps the
+  // protocol tab, rotates the API key, or edits the base URL, the
+  // background memory extractor would otherwise keep calling the *old*
+  // vendor / credential — directly contradicting the picker's "borrows
+  // the surrounding chat picker's protocol, key, base URL, and
+  // api-version automatically" promise.
+  //
+  // We compare the persisted (masked) shape against the live chat
+  // props field by field; the masked config exposes the last 4 chars
+  // of the saved key as `apiKeyTail`, which is enough to detect a
+  // rotation without ever round-tripping the secret back to the
+  // browser. A 300 ms debounce coalesces the keystroke-granularity
+  // prop updates that a parent autosave dialog typically streams in,
+  // so we don't spam PATCH /api/memory/config on every character.
+  useEffect(() => {
+    if (mode !== 'api') return;
+    if (busy) return;
+    if (customEditing) return;
+    if (!config || !config.model) return;
+    const trimmedBaseUrl = chatBaseUrl.trim();
+    const newTail = (chatApiKey || '').slice(-4);
+    const azureVersion = apiProtocol === 'azure' ? chatApiVersion.trim() : '';
+    const drift =
+      config.provider !== apiProtocol
+      || config.baseUrl !== trimmedBaseUrl
+      || config.apiVersion !== azureVersion
+      || config.apiKeyTail !== newTail;
+    if (!drift) return;
+    const handle = setTimeout(() => {
+      void persist(buildOverride(config.model), { silent: true });
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [
+    mode,
+    apiProtocol,
+    chatApiKey,
+    chatBaseUrl,
+    chatApiVersion,
+    config,
+    busy,
+    customEditing,
+    buildOverride,
+    persist,
+  ]);
 
   const onSelectChange = useCallback(
     async (value: string) => {
