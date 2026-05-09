@@ -14,7 +14,7 @@ Follow the root `AGENTS.md` first. This file only records module-level boundarie
 - `apps/daemon/src/` contains only daemon app source.
 - `apps/daemon/tests/` contains daemon tests.
 - `apps/daemon/sidecar/` contains the daemon sidecar entry.
-- CLI/agent argument changes or stdout parser changes belong in `apps/daemon/src/agents.ts` and the matching parser tests.
+- CLI/agent argument definition changes belong in `apps/daemon/src/runtimes/defs/`; stdout parser changes belong with the matching runtime helpers and parser tests.
 
 ## Test layout
 
