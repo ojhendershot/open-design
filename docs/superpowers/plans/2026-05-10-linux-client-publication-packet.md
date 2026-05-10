@@ -47,6 +47,7 @@ Body:
 - Linux stable release remains gated by `vars.ENABLE_STABLE_LINUX == 'true'`.
 - PR validation uses the display-independent headless Linux smoke; AppImage smoke runs in release lanes where artifact correctness is required.
 - PR-side Linux headless smoke now uploads `open-design-pr-linux-headless-e2e-report` with build JSON/logs, manifest, and vitest output.
+- Linux release smoke stages manifest/build evidence before installing Xvfb, so `always()` report uploads still preserve build context if the apt dependency step fails.
 - Release Linux build evidence now validates `linux-tools-pack-build.json` after capture so non-JSON stdout fails before evidence upload.
 
 Closes #709.
@@ -118,3 +119,8 @@ These follow-ups were completed locally after the initial publication packet:
 - Linux uninstall assertions now include an explicit `skipped-process-running` lifecycle diagnostic.
 - PR-side Linux headless smoke now uploads a report artifact with build JSON/logs, manifest, and vitest output.
 - `tools-pack` unit coverage now proves non-headless Linux inspect still permits eval and screenshot options.
+
+## Final Audit Remediation Completed
+
+- CI packaged smoke detection now includes `e2e/specs/linux-helpers.ts`, so helper-only Linux e2e changes trigger the Linux packaged smoke gate.
+- Beta/stable Linux release smoke stages manifest/build evidence before `apt-get update` / `apt-get install`, and tees apt output into the uploaded report directory.

@@ -22,6 +22,7 @@ describe("packaged smoke workflow", () => {
   it("runs a linux headless packaged smoke job when packaged changes require smoke", async () => {
     const workflow = await readFile(ciWorkflowPath, "utf8");
     expect(workflow).toContain("packaged_smoke_linux_headless:");
+    expect(workflow).toContain("e2e/specs/linux-helpers.ts");
     expect(workflow).toContain("Build PR linux headless artifacts");
     expect(workflow).toContain('OD_PACKAGED_E2E_LINUX_HEADLESS: "1"');
     expect(workflow).toContain("pnpm test specs/linux.spec.ts");
@@ -46,6 +47,7 @@ describe("packaged smoke workflow", () => {
     expect(workflow).toContain("Upload linux e2e spec report");
     expect(workflow).toContain("open-design-beta-linux-e2e-report");
     expect(workflow).toContain("Download linux e2e spec report");
+    expectReleaseLinuxSmokePreservesEvidenceBeforeApt(workflow, "Smoke beta linux AppImage runtime");
   });
 
   it("preserves stable linux AppImage smoke reports for release publication", async () => {
@@ -63,5 +65,23 @@ describe("packaged smoke workflow", () => {
     expect(workflow).toContain("Upload linux e2e spec report");
     expect(workflow).toContain("open-design-release-linux-e2e-report");
     expect(workflow).toContain("Download linux e2e spec report");
+    expectReleaseLinuxSmokePreservesEvidenceBeforeApt(workflow, "Smoke release linux AppImage runtime");
   });
 });
+
+function expectReleaseLinuxSmokePreservesEvidenceBeforeApt(workflow: string, stepName: string): void {
+  const step = workflow.match(new RegExp(`- name: ${stepName}\\n(?:.+\\n)+?(?=\\n      - name: Upload linux e2e spec report)`, "m"))?.[0];
+  expect(step).toBeDefined();
+  const aptIndex = step?.indexOf("sudo apt-get update") ?? -1;
+  const reportDirIndex = step?.indexOf('report_dir="$RUNNER_TEMP/release-report/linux"') ?? -1;
+  const copyJsonIndex = step?.indexOf('cp "$RUNNER_TEMP/linux-tools-pack-build.json" "$report_dir/tools-pack.json"') ?? -1;
+  const copyLogIndex = step?.indexOf('cp "$RUNNER_TEMP/linux-tools-pack-build.log" "$report_dir/tools-pack.log"') ?? -1;
+
+  expect(aptIndex).toBeGreaterThan(-1);
+  expect(reportDirIndex).toBeGreaterThan(-1);
+  expect(copyJsonIndex).toBeGreaterThan(-1);
+  expect(copyLogIndex).toBeGreaterThan(-1);
+  expect(reportDirIndex).toBeLessThan(aptIndex);
+  expect(copyJsonIndex).toBeLessThan(aptIndex);
+  expect(copyLogIndex).toBeLessThan(aptIndex);
+}

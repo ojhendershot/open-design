@@ -1066,4 +1066,9 @@ Additional local hardening completed after the publication packet:
 - PR-side Linux headless smoke preserves a report artifact with build JSON/logs, manifest, and vitest output.
 - Non-headless Linux inspect eval/screenshot behavior is now covered by a focused unit regression test.
 
+Final audit remediation completed:
+
+- CI packaged smoke detection includes `e2e/specs/linux-helpers.ts`, so helper-only Linux e2e changes trigger the packaged smoke gate.
+- Beta/stable Linux release smoke creates the report directory and copies build evidence before `apt-get`; apt output is tee'd into the uploaded Linux report.
+
 Next agent should verify live branch state before publishing or opening a PR. Do not push or create a PR unless the user explicitly authorizes publication.

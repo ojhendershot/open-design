@@ -577,8 +577,6 @@ jobs:
           OD_PACKAGED_E2E_TOOLS_PACK_DIR: ${{ runner.temp }}/tools-pack
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y xvfb
           report_dir="$RUNNER_TEMP/release-report/linux"
           mkdir -p "$report_dir/screenshots"
           cat > "$report_dir/manifest.json" <<EOF
@@ -596,6 +594,8 @@ jobs:
           EOF
           cp "$RUNNER_TEMP/linux-tools-pack-build.json" "$report_dir/tools-pack.json"
           cp "$RUNNER_TEMP/linux-tools-pack-build.log" "$report_dir/tools-pack.log"
+          sudo apt-get update 2>&1 | tee "$report_dir/apt-get-update.log"
+          sudo apt-get install -y xvfb 2>&1 | tee "$report_dir/apt-get-install-xvfb.log"
           xvfb-run -a pnpm test specs/linux.spec.ts 2>&1 | tee "$report_dir/vitest.log"
 
       - name: Upload linux e2e spec report
