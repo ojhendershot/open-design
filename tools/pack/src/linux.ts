@@ -1013,6 +1013,10 @@ export async function inspectPackedLinuxApp(
   config: ToolPackConfig,
   options: { expr?: string; headless?: boolean; path?: string },
 ): Promise<LinuxInspectResult> {
+  if (options.headless === true && shouldRejectLinuxHeadlessInspectOptions(options)) {
+    throw new Error("linux inspect --headless supports status only; omit --expr and --path");
+  }
+
   const stamp = linuxDesktopStamp(config);
   const status = await requestJsonIpc<DesktopStatusSnapshot>(
     stamp.ipc,
@@ -1021,9 +1025,6 @@ export async function inspectPackedLinuxApp(
   ).catch(() => null);
 
   if (options.headless === true) {
-    if (shouldRejectLinuxHeadlessInspectOptions(options)) {
-      throw new Error("linux inspect --headless supports status only; omit --expr and --path");
-    }
     return { status };
   }
 

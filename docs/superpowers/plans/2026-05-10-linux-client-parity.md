@@ -22,14 +22,14 @@
 
 ### Current Verified State
 
-- Checkout: `main` at `32fa0c23`, clean, tracking `origin/main`.
+- Checkout: branch `codex/linux-client-issue-709`, based on `main`/`origin/main` at `32fa0c23`.
 - Root package manager contract: `package.json` pins `pnpm@10.33.2`.
-- Local bare `pnpm` was not on `PATH`; `corepack pnpm --version` resolves `10.33.2` after Corepack cache access.
-- Local tests cannot run until dependencies are installed: `corepack pnpm --filter @open-design/tools-pack test -- linux.test.ts` fails with `vitest: not found` because `node_modules` is absent.
-- `tools-pack linux` has build/install/start/stop/logs/uninstall/cleanup plus `--headless` on install/start/stop only.
-- `e2e/specs` has `mac.spec.ts` and `win.spec.ts`; there is no Linux packaged e2e spec.
-- CI packaged smoke jobs exist for macOS and Windows only.
-- Beta Linux release build is optional and defaults off; stable Linux release build is gated by `vars.ENABLE_STABLE_LINUX == 'true'`.
+- Dependencies are installed locally with `corepack pnpm install --frozen-lockfile`. Local bare `pnpm` was still absent from `PATH` during manual packaged smoke, so the local headless smoke used a temporary Corepack-backed `pnpm` shim for child processes.
+- `tools-pack linux` now has build/install/start/stop/logs/uninstall/cleanup/inspect. `--headless` now routes install/start/stop/uninstall/cleanup to the no-Electron entry, and `inspect --headless` is status-only.
+- `e2e/specs/linux.spec.ts` covers Linux headless packaged smoke for PR CI and Linux AppImage runtime smoke for release jobs.
+- CI packaged smoke jobs now include Linux headless smoke on Ubuntu when packaged changes require smoke.
+- Beta/stable Linux release jobs run AppImage smoke behind their existing Linux gates and preserve Linux e2e report artifacts for release publication.
+- Beta Linux release build remains optional and defaults off; stable Linux release build remains gated by `vars.ENABLE_STABLE_LINUX == 'true'`.
 
 ### In Scope
 
@@ -96,7 +96,7 @@
 - Modify: `tools/pack/src/index.ts`
 - Test: `tools/pack/tests/linux.test.ts`
 
-- [ ] **Step 1: Add failing tests for Linux lifecycle mode routing**
+- [x] **Step 1: Add failing tests for Linux lifecycle mode routing**
 
 Add this import to `tools/pack/tests/linux.test.ts`:
 
@@ -133,7 +133,7 @@ describe("resolveLinuxLifecycleMode", () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify it fails**
+- [x] **Step 2: Run the focused test and verify it fails**
 
 Run:
 
@@ -148,7 +148,7 @@ FAIL tools/pack/tests/linux.test.ts
 Error: Module "../src/linux.js" has no exported member "resolveLinuxLifecycleMode"
 ```
 
-- [ ] **Step 3: Add lifecycle mode helper and headless uninstall**
+- [x] **Step 3: Add lifecycle mode helper and headless uninstall**
 
 In `tools/pack/src/linux.ts`, add the helper after `sanitizeNamespace()`:
 
@@ -198,7 +198,7 @@ export async function uninstallPackedLinuxHeadless(
 }
 ```
 
-- [ ] **Step 4: Make cleanup headless-aware**
+- [x] **Step 4: Make cleanup headless-aware**
 
 Change `cleanupPackedLinuxNamespace` in `tools/pack/src/linux.ts` to accept an options argument and choose the right stop function:
 
@@ -244,7 +244,7 @@ export async function cleanupPackedLinuxNamespace(
 }
 ```
 
-- [ ] **Step 5: Route headless uninstall and cleanup in the CLI**
+- [x] **Step 5: Route headless uninstall and cleanup in the CLI**
 
 In `tools/pack/src/index.ts`, add `uninstallPackedLinuxHeadless` to the Linux import list:
 
@@ -265,7 +265,7 @@ Change the Linux `uninstall` and `cleanup` cases:
         return;
 ```
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run:
 
@@ -279,7 +279,7 @@ Expected after implementation:
 PASS tools/pack/tests/linux.test.ts
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add tools/pack/src/linux.ts tools/pack/src/index.ts tools/pack/tests/linux.test.ts
@@ -295,7 +295,7 @@ git commit -m "fix: complete linux headless lifecycle routing"
 - Modify: `tools/pack/src/index.ts`
 - Test: `tools/pack/tests/linux.test.ts`
 
-- [ ] **Step 1: Add failing inspect option tests**
+- [x] **Step 1: Add failing inspect option tests**
 
 Add this test block to `tools/pack/tests/linux.test.ts`:
 
@@ -318,7 +318,7 @@ describe("shouldRejectLinuxHeadlessInspectOptions", () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify it fails**
+- [x] **Step 2: Run the focused test and verify it fails**
 
 Run:
 
@@ -333,7 +333,7 @@ FAIL tools/pack/tests/linux.test.ts
 Error: Module "../src/linux.js" has no exported member "shouldRejectLinuxHeadlessInspectOptions"
 ```
 
-- [ ] **Step 3: Add Linux inspect types and option helper**
+- [x] **Step 3: Add Linux inspect types and option helper**
 
 In `tools/pack/src/linux.ts`, extend the sidecar-proto import:
 
@@ -360,7 +360,7 @@ export function shouldRejectLinuxHeadlessInspectOptions(options: {
 }
 ```
 
-- [ ] **Step 4: Implement AppImage and headless inspect**
+- [x] **Step 4: Implement AppImage and headless inspect**
 
 Add this function after `readPackedLinuxLogs()` in `tools/pack/src/linux.ts`:
 
@@ -407,7 +407,7 @@ export async function inspectPackedLinuxApp(
 }
 ```
 
-- [ ] **Step 5: Wire `linux inspect` in the CLI**
+- [x] **Step 5: Wire `linux inspect` in the CLI**
 
 In `tools/pack/src/index.ts`, add `inspectPackedLinuxApp` to the Linux import list.
 
@@ -429,7 +429,7 @@ Add this switch case:
         return;
 ```
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run:
 
@@ -446,7 +446,7 @@ PASS tools/pack/tests/linux.test.ts
 
 Typecheck should complete without TypeScript errors.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add tools/pack/src/linux.ts tools/pack/src/index.ts tools/pack/tests/linux.test.ts
@@ -461,7 +461,7 @@ git commit -m "feat: add linux packaged inspect command"
 - Create: `e2e/specs/linux.spec.ts`
 - Test: `e2e/specs/linux.spec.ts`
 
-- [ ] **Step 1: Write the failing Linux headless spec**
+- [x] **Step 1: Write the failing Linux headless spec**
 
 Create `e2e/specs/linux.spec.ts` with this structure:
 
@@ -632,7 +632,7 @@ async function fileSizeBytes(path: string): Promise<number> {
 }
 ```
 
-- [ ] **Step 2: Run the spec and verify it fails before the new build exists**
+- [x] **Step 2: Run the spec and verify it fails before the new build exists**
 
 Run:
 
@@ -649,7 +649,7 @@ Expected before build:
 headless entry not found ... run `tools-pack linux build` first
 ```
 
-- [ ] **Step 3: Build the Linux headless fixture and rerun**
+- [x] **Step 3: Build the Linux headless fixture and rerun**
 
 Run:
 
@@ -667,7 +667,7 @@ Expected:
 PASS specs/linux.spec.ts
 ```
 
-- [ ] **Step 4: Typecheck e2e**
+- [x] **Step 4: Typecheck e2e**
 
 Run:
 
@@ -677,7 +677,7 @@ corepack pnpm --filter @open-design/e2e typecheck
 
 Expected: no TypeScript errors.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add e2e/specs/linux.spec.ts
@@ -692,7 +692,7 @@ git commit -m "test: add linux headless packaged smoke"
 - Modify: `.github/workflows/ci.yml`
 - Test: `e2e/tests/packaged-smoke-workflow.test.ts`
 
-- [ ] **Step 1: Add failing workflow guard test**
+- [x] **Step 1: Add failing workflow guard test**
 
 Extend `e2e/tests/packaged-smoke-workflow.test.ts`:
 
@@ -706,7 +706,7 @@ it("runs a linux headless packaged smoke job when packaged changes require smoke
 });
 ```
 
-- [ ] **Step 2: Run the guard test and verify it fails**
+- [x] **Step 2: Run the guard test and verify it fails**
 
 Run:
 
@@ -721,7 +721,7 @@ FAIL e2e/tests/packaged-smoke-workflow.test.ts
 expected workflow to contain packaged_smoke_linux_headless
 ```
 
-- [ ] **Step 3: Update packaged smoke detection**
+- [x] **Step 3: Update packaged smoke detection**
 
 In `.github/workflows/ci.yml`, update the single-file condition near the mac/win spec check to include Linux:
 
@@ -731,7 +731,7 @@ if [[ "$file" == "e2e/specs/mac.spec.ts" || "$file" == "e2e/specs/win.spec.ts" |
 fi
 ```
 
-- [ ] **Step 4: Add Linux headless smoke job**
+- [x] **Step 4: Add Linux headless smoke job**
 
 Add this job after `packaged_smoke_win`:
 
@@ -779,7 +779,7 @@ Add this job after `packaged_smoke_win`:
         run: pnpm test specs/linux.spec.ts
 ```
 
-- [ ] **Step 5: Run workflow guard tests**
+- [x] **Step 5: Run workflow guard tests**
 
 Run:
 
@@ -793,7 +793,7 @@ Expected:
 PASS e2e/tests/packaged-smoke-workflow.test.ts
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add .github/workflows/ci.yml e2e/tests/packaged-smoke-workflow.test.ts
@@ -809,7 +809,7 @@ git commit -m "ci: add linux headless packaged smoke"
 - Modify: `.github/workflows/release-beta.yml`
 - Modify: `.github/workflows/release-stable.yml`
 
-- [ ] **Step 1: Add AppImage mode to Linux e2e spec**
+- [x] **Step 1: Add AppImage mode to Linux e2e spec**
 
 Extend `e2e/specs/linux.spec.ts` with an AppImage describe block gated by `OD_PACKAGED_E2E_LINUX_APPIMAGE=1`. Use `tools-pack linux install`, `start`, `inspect --expr`, `inspect --path`, `logs`, `stop`, and `uninstall`.
 
@@ -833,7 +833,7 @@ expect(stop.remainingPids).toEqual([]);
 expect(uninstall.removed.appImage).toMatch(/^(ok|already-removed)$/);
 ```
 
-- [ ] **Step 2: Add release beta smoke before Linux asset preparation**
+- [x] **Step 2: Add release beta smoke before Linux asset preparation**
 
 In `.github/workflows/release-beta.yml`, insert after `Build beta linux artifacts` and before `Prepare linux beta assets`:
 
@@ -854,11 +854,11 @@ In `.github/workflows/release-beta.yml`, insert after `Build beta linux artifact
           xvfb-run -a pnpm test specs/linux.spec.ts 2>&1 | tee "$report_dir/vitest.log"
 ```
 
-- [ ] **Step 3: Add release stable smoke before Linux asset preparation**
+- [x] **Step 3: Add release stable smoke before Linux asset preparation**
 
 In `.github/workflows/release-stable.yml`, insert the same smoke step after `Build release linux artifacts`, using `release-stable-linux` for the namespace and `open-design-release-linux-e2e-report` for any uploaded artifact name added later.
 
-- [ ] **Step 4: Run local e2e typecheck**
+- [x] **Step 4: Run local e2e typecheck**
 
 Run:
 
@@ -868,7 +868,7 @@ corepack pnpm --filter @open-design/e2e typecheck
 
 Expected: no TypeScript errors.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add e2e/specs/linux.spec.ts .github/workflows/release-beta.yml .github/workflows/release-stable.yml
@@ -883,7 +883,7 @@ git commit -m "ci: smoke linux AppImage release artifacts"
 - Modify: `tools/pack/README.md`
 - Modify: `README.md`
 
-- [ ] **Step 1: Update `tools/pack/README.md` Linux command list**
+- [x] **Step 1: Update `tools/pack/README.md` Linux command list**
 
 Add these lines to the Linux lifecycle command list:
 
@@ -894,7 +894,7 @@ Add these lines to the Linux lifecycle command list:
 - `tools-pack linux cleanup --headless`
 ```
 
-- [ ] **Step 2: Replace the CI status bullet**
+- [x] **Step 2: Replace the CI status bullet**
 
 Replace:
 
@@ -908,7 +908,7 @@ with:
 - Full Linux AppImage PR smoke remains release-lane only; PR validation runs the Linux headless packaged smoke because it does not require a display server.
 ```
 
-- [ ] **Step 3: Keep README public release claim conservative**
+- [x] **Step 3: Keep README public release claim conservative**
 
 If Linux stable remains gated after Task 5, keep `README.md` line 68 limited to macOS and Windows downloads. Add a sentence in the desktop section instead:
 
@@ -918,7 +918,7 @@ Linux AppImage packaging is available through the optional release lane and is c
 
 If release maintainers enable stable Linux in the same PR, update the deployable row to include `Linux (x64 AppImage)` only after the release workflow succeeds with Linux enabled.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tools/pack/README.md README.md
@@ -932,7 +932,7 @@ git commit -m "docs: document linux packaged client status"
 **Files:**
 - Verify all changed files.
 
-- [ ] **Step 1: Install dependencies if needed**
+- [x] **Step 1: Install dependencies if needed**
 
 Run:
 
@@ -942,7 +942,7 @@ corepack pnpm install --frozen-lockfile
 
 Expected: dependencies install without lockfile changes.
 
-- [ ] **Step 2: Run focused package checks**
+- [x] **Step 2: Run focused package checks**
 
 Run:
 
@@ -955,7 +955,7 @@ corepack pnpm --filter @open-design/e2e typecheck
 
 Expected: all pass.
 
-- [ ] **Step 3: Run headless smoke locally**
+- [x] **Step 3: Run headless smoke locally**
 
 Run:
 
@@ -969,7 +969,7 @@ corepack pnpm -C e2e test specs/linux.spec.ts
 
 Expected: headless smoke passes.
 
-- [ ] **Step 4: Run repo-level checks**
+- [x] **Step 4: Run repo-level checks**
 
 Run:
 
@@ -980,7 +980,7 @@ corepack pnpm typecheck
 
 Expected: both pass.
 
-- [ ] **Step 5: Inspect final diff**
+- [x] **Step 5: Inspect final diff**
 
 Run:
 
@@ -997,7 +997,7 @@ git diff --check
 # no output
 ```
 
-- [ ] **Step 6: Commit final verification/doc fixups if needed**
+- [x] **Step 6: Commit final verification/doc fixups if needed**
 
 Only commit if the verification pass required small fixups:
 
@@ -1028,9 +1028,33 @@ git commit -m "chore: finalize linux client parity checks"
 - Placeholder scan: No unresolved placeholder markers are present.
 - Type consistency: The plan uses `LinuxLifecycleMode`, `LinuxInspectResult`, `LinuxHeadlessUninstallResult`, and existing `LinuxStopResult` consistently across tasks.
 
-## Execution Handoff
+## Execution Status
 
-Plan complete and saved to `docs/superpowers/plans/2026-05-10-linux-client-parity.md`. Two execution options:
+Implementation completed on branch `codex/linux-client-issue-709` for issue 709. The branch adds Linux headless lifecycle parity, Linux inspect support, Linux packaged e2e smoke coverage, Linux PR headless CI smoke, Linux AppImage release smoke, and conservative documentation.
 
-1. **Subagent-Driven (recommended)** - dispatch a fresh subagent per task, review between tasks, fast iteration.
-2. **Inline Execution** - execute tasks in this session using `superpowers:executing-plans`, batch execution with checkpoints.
+Post-audit remediation completed in the same branch:
+
+- Linux release AppImage smoke now writes manifest/build/test evidence into `release-report/linux`, uploads it as a workflow artifact, and downloads it in the publish job.
+- Workflow guard tests now cover the Linux release e2e report artifact path for beta and stable release workflows.
+- Linux release build evidence now validates `linux-tools-pack-build.json` with Node after capture, so non-JSON stdout fails the release build before the evidence is uploaded.
+- `linux inspect --headless --expr/--path` now rejects before attempting IPC.
+- This plan document was refreshed from pre-work plan state to executed branch state.
+
+Post-audit remediation verification:
+
+- Red checks first failed for the intended gaps:
+  - `corepack pnpm --filter @open-design/e2e test -- tests/packaged-smoke-workflow.test.ts`
+  - `corepack pnpm --filter @open-design/tools-pack test -- linux.test.ts`
+- Green focused checks passed after remediation:
+  - `corepack pnpm --filter @open-design/e2e test -- tests/packaged-smoke-workflow.test.ts`
+  - `corepack pnpm --filter @open-design/tools-pack test -- linux.test.ts`
+  - `corepack pnpm --filter @open-design/tools-pack typecheck`
+  - `corepack pnpm --filter @open-design/e2e typecheck`
+- Repo checks passed:
+  - `corepack pnpm guard` with sandbox escalation for the `tsx` IPC socket under `/tmp`.
+  - `ASTRO_TELEMETRY_DISABLED=1 corepack pnpm -r --workspace-concurrency=1 --if-present run typecheck && ASTRO_TELEMETRY_DISABLED=1 corepack pnpm exec tsc -p scripts/tsconfig.json --noEmit` with `/tmp/open-design-pnpm-shim/pnpm` pointing at the Corepack-managed `pnpm@10.33.2` entrypoint.
+- Static checks passed:
+  - `.github/workflows/release-beta.yml`, `.github/workflows/release-stable.yml`, and `.github/workflows/ci.yml` parsed with the local `yaml@2.8.4` package.
+  - `git diff --check` produced no output.
+
+Next agent should verify live branch state before publishing or opening a PR.

@@ -3,11 +3,23 @@ import { dirname, join } from "node:path";
 import { posix } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { requestJsonIpc } from "@open-design/sidecar";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@open-design/sidecar", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@open-design/sidecar")>();
+  return {
+    ...actual,
+    requestJsonIpc: vi.fn(async () => {
+      throw new Error("requestJsonIpc should not be called for invalid headless inspect options");
+    }),
+  };
+});
 
 import type { ToolPackConfig } from "../src/config.js";
 import {
   buildDockerArgs,
+  inspectPackedLinuxApp,
   matchesAppImageProcess,
   renderDesktopTemplate,
   resolveLinuxLifecycleMode,
@@ -255,6 +267,21 @@ describe("shouldRejectLinuxHeadlessInspectOptions", () => {
         path: "/tmp/open-design-linux.png",
       }),
     ).toBe(true);
+  });
+});
+
+describe("inspectPackedLinuxApp", () => {
+  it("rejects unsupported headless inspect options before opening IPC", async () => {
+    const requestJsonIpcMock = vi.mocked(requestJsonIpc);
+    requestJsonIpcMock.mockClear();
+
+    await expect(
+      inspectPackedLinuxApp(makeConfig(), {
+        expr: "document.title",
+        headless: true,
+      }),
+    ).rejects.toThrow("linux inspect --headless supports status only; omit --expr and --path");
+    expect(requestJsonIpcMock).not.toHaveBeenCalled();
   });
 });
 
