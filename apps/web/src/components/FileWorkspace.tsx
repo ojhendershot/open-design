@@ -14,6 +14,7 @@ import {
 } from '../providers/registry';
 import {
   type ChatCommentAttachment,
+  type DesignSystemSummary,
   liveArtifactSummaryToWorkspaceEntry,
   type LiveArtifactSummary,
   type LiveArtifactEventItem,
@@ -22,12 +23,19 @@ import {
   type PreviewComment,
   type PreviewCommentTarget,
   type ProjectFile,
+  type PromptTemplateSummary,
+  type SkillSummary,
 } from '../types';
 import { DesignFilesPanel } from './DesignFilesPanel';
+import { DesignSystemPreviewModal } from './DesignSystemPreviewModal';
+import { DesignSystemsTab } from './DesignSystemsTab';
+import { ExamplesTab } from './ExamplesTab';
 import { FileViewer, LiveArtifactViewer } from './FileViewer';
 import { Icon } from './Icon';
 import { LiveArtifactBadges } from './LiveArtifactBadges';
 import { PasteTextDialog } from './PasteTextDialog';
+import { PromptTemplatePreviewModal } from './PromptTemplatePreviewModal';
+import { PromptTemplatesTab } from './PromptTemplatesTab';
 import { QuickSwitcher } from './QuickSwitcher';
 import { SketchEditor, type SketchDocument, type SketchItem } from './SketchEditor';
 
@@ -52,6 +60,12 @@ interface Props {
   focusMode?: boolean;
   onFocusModeChange?: (next: boolean) => void;
   onAttachFilesToChat?: (names: string[]) => void;
+  skills?: SkillSummary[];
+  designSystems?: DesignSystemSummary[];
+  promptTemplates?: PromptTemplateSummary[];
+  selectedDesignSystemId?: string | null;
+  onSelectDesignSystem?: (id: string) => void;
+  onUseExamplePrompt?: (skill: SkillSummary) => void;
 }
 
 interface SketchState {
@@ -65,6 +79,13 @@ interface SketchState {
 const DESIGN_FILES_TAB = '__design_files__';
 const WEB_TAB_PREFIX = '__web:';
 const GOOGLE_EMBED_URL = 'https://www.google.com/webhp?igu=1';
+const WORKSPACE_LIBRARY_TABS = [
+  ['__library:examples', 'entry.tabExamples'],
+  ['__library:design-systems', 'entry.tabDesignSystems'],
+  ['__library:image-templates', 'entry.tabImageTemplates'],
+  ['__library:video-templates', 'entry.tabVideoTemplates'],
+] as const;
+type WorkspaceLibraryTab = typeof WORKSPACE_LIBRARY_TABS[number][0];
 type TabDropEdge = 'before' | 'after';
 
 interface WebTab {
@@ -92,6 +113,12 @@ export function FileWorkspace({
   focusMode = false,
   onFocusModeChange,
   onAttachFilesToChat,
+  skills = [],
+  designSystems = [],
+  promptTemplates = [],
+  selectedDesignSystemId = null,
+  onSelectDesignSystem,
+  onUseExamplePrompt,
 }: Props) {
   const t = useT();
   // Persisted tabs come from the parent. Active tab can transiently point
@@ -104,9 +131,12 @@ export function FileWorkspace({
   const [showPasteDialog, setShowPasteDialog] = useState(false);
   const [webTabs, setWebTabs] = useState<WebTab[]>([]);
   const activeWebTab = webTabs.find((tab) => tab.id === activeTab) ?? null;
+  const activeLibraryTab = isWorkspaceLibraryTab(activeTab) ? activeTab : null;
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [sketches, setSketches] = useState<Record<string, SketchState>>({});
   const [quickSwitcherOpen, setQuickSwitcherOpen] = useState(false);
+  const [previewDesignSystem, setPreviewDesignSystem] = useState<DesignSystemSummary | null>(null);
+  const [previewPromptTemplate, setPreviewPromptTemplate] = useState<PromptTemplateSummary | null>(null);
   const [draggedTabName, setDraggedTabName] = useState<string | null>(null);
   const [dragOverTab, setDragOverTab] = useState<{
     name: string;
@@ -157,6 +187,7 @@ export function FileWorkspace({
   useEffect(() => {
     if (activeTab === DESIGN_FILES_TAB) return;
     if (activeTab.startsWith(WEB_TAB_PREFIX)) return;
+    if (isWorkspaceLibraryTab(activeTab)) return;
     if (sketches[activeTab] && !sketches[activeTab]!.persisted) return;
     if (pendingOpenTabRef.current === activeTab) return;
     if (!persistedTabs.includes(activeTab)) {
@@ -565,6 +596,19 @@ export function FileWorkspace({
             </span>
             <span className="ws-tab-label">{t('workspace.designFiles')}</span>
           </button>
+          {WORKSPACE_LIBRARY_TABS.map(([id, labelKey]) => (
+            <button
+              key={id}
+              type="button"
+              className={`ws-tab workspace-library-tab ${activeTab === id ? 'active' : ''}`}
+              role="tab"
+              aria-selected={activeTab === id}
+              onClick={() => setActiveTab(id)}
+              title={t(labelKey)}
+            >
+              <span className="ws-tab-label">{t(labelKey)}</span>
+            </button>
+          ))}
           {webTabs.map((webTab) => (
             <button
               key={webTab.id}
@@ -717,7 +761,38 @@ export function FileWorkspace({
             </button>
           </div>
         ) : null}
-        {activeWebTab ? (
+        {activeLibraryTab ? (
+          <div className="workspace-library-panel">
+            {activeLibraryTab === '__library:examples' ? (
+              <ExamplesTab
+                skills={skills}
+                onUsePrompt={(skill) => onUseExamplePrompt?.(skill)}
+              />
+            ) : activeLibraryTab === '__library:design-systems' ? (
+              <DesignSystemsTab
+                systems={designSystems}
+                selectedId={selectedDesignSystemId}
+                onSelect={(id) => onSelectDesignSystem?.(id)}
+                onPreview={(id) => {
+                  const system = designSystems.find((candidate) => candidate.id === id);
+                  if (system) setPreviewDesignSystem(system);
+                }}
+              />
+            ) : activeLibraryTab === '__library:image-templates' ? (
+              <PromptTemplatesTab
+                surface="image"
+                templates={promptTemplates}
+                onPreview={setPreviewPromptTemplate}
+              />
+            ) : (
+              <PromptTemplatesTab
+                surface="video"
+                templates={promptTemplates}
+                onPreview={setPreviewPromptTemplate}
+              />
+            )}
+          </div>
+        ) : activeWebTab ? (
           <iframe
             key={activeWebTab.id}
             className="ws-google-iframe"
@@ -826,8 +901,24 @@ export function FileWorkspace({
           onClose={() => setQuickSwitcherOpen(false)}
         />
       ) : null}
+      {previewDesignSystem ? (
+        <DesignSystemPreviewModal
+          system={previewDesignSystem}
+          onClose={() => setPreviewDesignSystem(null)}
+        />
+      ) : null}
+      {previewPromptTemplate ? (
+        <PromptTemplatePreviewModal
+          summary={previewPromptTemplate}
+          onClose={() => setPreviewPromptTemplate(null)}
+        />
+      ) : null}
     </div>
   );
+}
+
+function isWorkspaceLibraryTab(value: string): value is WorkspaceLibraryTab {
+  return WORKSPACE_LIBRARY_TABS.some(([id]) => id === value);
 }
 
 function Tab({

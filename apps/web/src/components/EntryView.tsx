@@ -593,25 +593,6 @@ export function EntryView({
               onClick={setTopTab}
             />
             <TopTabButton current={topTab} value="designs" label={t('entry.tabDesigns')} onClick={setTopTab} />
-            <TopTabButton current={topTab} value="examples" label={t('entry.tabExamples')} onClick={setTopTab} />
-            <TopTabButton
-              current={topTab}
-              value="design-systems"
-              label={t('entry.tabDesignSystems')}
-              onClick={setTopTab}
-            />
-            <TopTabButton
-              current={topTab}
-              value="image-templates"
-              label={t('entry.tabImageTemplates')}
-              onClick={setTopTab}
-            />
-            <TopTabButton
-              current={topTab}
-              value="video-templates"
-              label={t('entry.tabVideoTemplates')}
-              onClick={setTopTab}
-            />
           </div>
         </div>
         <div className="entry-tab-content">
@@ -637,6 +618,8 @@ export function EntryView({
                 onOpen={onOpenProject}
                 onOpenLiveArtifact={onOpenLiveArtifact}
                 onDelete={onDeleteProject}
+                activeTopTab={topTab}
+                onTopTabChange={(tab) => setTopTab(tab as TopTab)}
               />
             )
           ) : null}

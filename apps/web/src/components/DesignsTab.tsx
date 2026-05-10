@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import { deleteLiveArtifact, fetchLiveArtifacts } from "../providers/registry";
 import type {
@@ -25,6 +25,7 @@ type DesignListItem =
 	  };
 
 const DESIGNS_VIEW_STORAGE_KEY = "od:designs:view";
+const DESIGNS_HOME_VIEW_STORAGE_KEY = "od:designs:home-view";
 
 export const STATUS_ORDER = [
 	"not_started",
@@ -60,6 +61,12 @@ interface Props {
 	// — the home is a "recent first" surface by intent. Default false
 	// preserves the workspace behavior in EntryView.
 	hideSubTabs?: boolean;
+	// Top-level tab navigation — rendered in toolbar before search so
+	// 示例/设计体系/图片模板/视频模板 don't need to live in entry-tabs.
+	activeTopTab?: string;
+	onTopTabChange?: (tab: string) => void;
+	homeEmbedded?: boolean;
+	renderTopTabContent?: (tab: string) => ReactNode;
 }
 
 export function DesignsTab({
@@ -70,6 +77,10 @@ export function DesignsTab({
 	onOpenLiveArtifact,
 	onDelete,
 	hideSubTabs = false,
+	activeTopTab,
+	onTopTabChange,
+	homeEmbedded = false,
+	renderTopTabContent,
 }: Props) {
 	const t = useT();
 	const [filter, setFilter] = useState("");
@@ -80,7 +91,9 @@ export function DesignsTab({
 	const [view, setView] = useState<ViewMode>(() => {
 		if (typeof window === "undefined") return "grid";
 		try {
-			const storedView = window.localStorage.getItem(DESIGNS_VIEW_STORAGE_KEY);
+			const storedView = window.localStorage.getItem(
+				homeEmbedded ? DESIGNS_HOME_VIEW_STORAGE_KEY : DESIGNS_VIEW_STORAGE_KEY,
+			);
 			return storedView === "grid" || storedView === "kanban"
 				? storedView
 				: "grid";
@@ -114,9 +127,12 @@ export function DesignsTab({
 
 	useEffect(() => {
 		try {
-			window.localStorage.setItem(DESIGNS_VIEW_STORAGE_KEY, view);
+			window.localStorage.setItem(
+				homeEmbedded ? DESIGNS_HOME_VIEW_STORAGE_KEY : DESIGNS_VIEW_STORAGE_KEY,
+				view,
+			);
 		} catch {}
-	}, [view]);
+	}, [homeEmbedded, view]);
 
 	const filtered = useMemo(() => {
 		const q = filter.trim().toLowerCase();
@@ -192,10 +208,37 @@ export function DesignsTab({
 			),
 		}));
 	};
+	const customTopTabContent = activeTopTab
+		? renderTopTabContent?.(activeTopTab)
+		: null;
+	const viewToggle = (
+		<>
+			<button
+				type="button"
+				aria-pressed={view === "grid"}
+				className={view === "grid" ? "active" : ""}
+				onClick={() => setView("grid")}
+				title={t("designs.viewGrid")}
+				data-testid="designs-view-grid"
+			>
+				<Icon name="grid" size={14} />
+			</button>
+			<button
+				type="button"
+				aria-pressed={view === "kanban"}
+				className={view === "kanban" ? "active" : ""}
+				onClick={() => setView("kanban")}
+				title={t("designs.viewKanban")}
+				data-testid="designs-view-kanban"
+			>
+				<Icon name="kanban" size={14} />
+			</button>
+		</>
+	);
 
 	return (
 		<div
-			className={`tab-panel${view === "kanban" ? " design-kanban-view" : ""}`}
+			className={`tab-panel${view === "kanban" ? " design-kanban-view" : ""}${homeEmbedded ? " designs-home-module" : ""}`}
 		>
 			<div className="tab-panel-toolbar">
 				<div className="toolbar-left">
@@ -223,6 +266,47 @@ export function DesignsTab({
 					)}
 				</div>
 				<div className="toolbar-right">
+					{onTopTabChange && (
+						<div
+							className={`subtab-pill home-library-tabs${activeTopTab === "designs" ? " has-inline-view-toggle" : ""}`}
+							role="group"
+						>
+							{(
+								[
+									["examples", t("entry.tabExamples")],
+									["design-systems", t("entry.tabDesignSystems")],
+									["image-templates", t("entry.tabImageTemplates")],
+									["video-templates", t("entry.tabVideoTemplates")],
+									["designs", t("entry.tabDesigns")],
+								] as const
+							).map(([value, label]) => (
+								<Fragment key={value}>
+									{value === "designs" && activeTopTab === "designs" ? (
+										<span className="designs-inline-control">
+											<button
+												type="button"
+												aria-pressed
+												className="active designs-inline-label"
+												onClick={() => onTopTabChange(value)}
+											>
+												{label}
+											</button>
+											{viewToggle}
+										</span>
+									) : (
+										<button
+											type="button"
+											aria-pressed={activeTopTab === value}
+											className={activeTopTab === value ? "active" : ""}
+											onClick={() => onTopTabChange(value)}
+										>
+											{label}
+										</button>
+									)}
+								</Fragment>
+							))}
+						</div>
+					)}
 					<div className="toolbar-search">
 						<span className="search-icon" aria-hidden>
 							<Icon name="search" size={13} />
@@ -233,33 +317,20 @@ export function DesignsTab({
 							onChange={(e) => setFilter(e.target.value)}
 						/>
 					</div>
-					<div
-						className="subtab-pill"
-						role="group"
-						aria-label={t("designs.viewToggleAria")}
-					>
-						<button
-							aria-pressed={view === "grid"}
-							className={view === "grid" ? "active" : ""}
-							onClick={() => setView("grid")}
-							title={t("designs.viewGrid")}
-							data-testid="designs-view-grid"
+					{!onTopTabChange ? (
+						<div
+							className="subtab-pill designs-view-toggle"
+							role="group"
+							aria-label={t("designs.viewToggleAria")}
 						>
-							<Icon name="grid" size={14} />
-						</button>
-						<button
-							aria-pressed={view === "kanban"}
-							className={view === "kanban" ? "active" : ""}
-							onClick={() => setView("kanban")}
-							title={t("designs.viewKanban")}
-							data-testid="designs-view-kanban"
-						>
-							<Icon name="kanban" size={14} />
-						</button>
-					</div>
+							{viewToggle}
+						</div>
+					) : null}
 				</div>
 			</div>
-			{filtered.length === 0 ? (
+			{customTopTabContent ? (
+				customTopTabContent
+			) : filtered.length === 0 ? (
 				<div className="tab-empty">
 					{projects.length === 0
 						? t("designs.emptyNoProjects")

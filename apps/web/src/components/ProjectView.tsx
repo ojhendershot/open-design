@@ -86,7 +86,7 @@ import {
 import { AppChromeHeader, type ChromeTab } from './AppChromeHeader';
 import { AvatarMenu } from './AvatarMenu';
 import { ChatPane } from './ChatPane';
-import { consumePendingSetup } from './PromptHomeView';
+import { consumePendingSetup, consumePendingAttachments } from './PromptHomeView';
 import type { CreateInput, CreateTab } from './NewProjectPanel';
 import { decideAutoOpenAfterWrite } from './auto-open-file';
 import { FileWorkspace } from './FileWorkspace';
@@ -1415,8 +1415,9 @@ export function ProjectView({
       // Drop the form so the chat log gets the spotlight as the run streams.
       setSetupPending(false);
       const seed = (project.pendingPrompt ?? '').trim();
-      if (seed) {
-        void handleSend(seed, [], []);
+      const pendingAttachments = consumePendingAttachments();
+      if (seed || pendingAttachments.length > 0) {
+        void handleSend(seed, pendingAttachments, []);
       }
     },
     [project.id, project.pendingPrompt, handleSend, onProjectChange],
@@ -2019,6 +2020,17 @@ export function ProjectView({
           focusMode={workspaceFocused}
           onFocusModeChange={setWorkspaceFocused}
           onAttachFilesToChat={requestAttachFilesToChat}
+          skills={skills}
+          designSystems={designSystems}
+          promptTemplates={promptTemplates}
+          selectedDesignSystemId={project.designSystemId ?? config.designSystemId}
+          onSelectDesignSystem={(id) => {
+            onProjectChange({ ...project, designSystemId: id });
+            void patchProject(project.id, { designSystemId: id });
+          }}
+          onUseExamplePrompt={(skill) => {
+            void handleSend(skill.examplePrompt || skill.description, []);
+          }}
         />
       </div>
     </div>

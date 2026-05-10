@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { EntryView } from './components/EntryView';
-import { PromptHomeView } from './components/PromptHomeView';
+import { PromptHomeView, savePendingAttachments } from './components/PromptHomeView';
 import type { CreateInput } from './components/NewProjectPanel';
 import { PetOverlay } from './components/pet/PetOverlay';
 import { migrateCustomPetAtlas } from './components/pet/pets';
@@ -17,6 +17,7 @@ import {
   fetchDesignSystems,
   fetchPromptTemplates,
   fetchSkills,
+  uploadProjectFiles,
 } from './providers/registry';
 import { navigate, useRoute } from './router';
 import {
@@ -48,12 +49,15 @@ import type {
   AppVersionInfo,
   DesignSystemSummary,
   Project,
+  ProjectDisplayStatus,
   ProjectTemplate,
   PromptTemplateSummary,
   SkillSummary,
 } from './types';
 
 const OPEN_TABS_STORAGE_KEY = 'od:tabs';
+
+const ACTIVE_PROJECT_STATUSES = new Set<ProjectDisplayStatus>(['queued', 'running', 'awaiting_input']);
 
 function loadOpenTabIds(): string[] {
   if (typeof window === 'undefined') return [];
@@ -445,6 +449,40 @@ export function App() {
     setProjects(list);
   }, []);
 
+  // Poll every 3 s while any project is in a non-terminal state so the
+  // kanban board reflects live progress without requiring a manual refresh.
+  const hasActiveProjects = projects.some(
+    (p) => p.status != null && ACTIVE_PROJECT_STATUSES.has(p.status.value),
+  );
+  useEffect(() => {
+    if (!hasActiveProjects) return;
+    const id = setInterval(() => { void refreshProjects(); }, 3000);
+    return () => clearInterval(id);
+  }, [hasActiveProjects, refreshProjects]);
+
+  // When a project transitions from an active status to succeeded, auto-open
+  // its tab so the user doesn't have to click through to find the result.
+  const prevProjectStatusesRef = useRef<Map<string, ProjectDisplayStatus>>(new Map());
+  useEffect(() => {
+    const prev = prevProjectStatusesRef.current;
+    for (const p of projects) {
+      const prevStatus = prev.get(p.id);
+      const currStatus = p.status?.value;
+      if (
+        prevStatus != null &&
+        ACTIVE_PROJECT_STATUSES.has(prevStatus) &&
+        currStatus === 'succeeded'
+      ) {
+        addOpenTab(p.id);
+      }
+    }
+    const next = new Map<string, ProjectDisplayStatus>();
+    for (const p of projects) {
+      if (p.status?.value != null) next.set(p.id, p.status.value);
+    }
+    prevProjectStatusesRef.current = next;
+  }, [projects, addOpenTab]);
+
   const refreshTemplates = useCallback(async () => {
     const list = await listTemplates();
     setTemplates(list);
@@ -564,7 +602,7 @@ export function App() {
   );
 
   const handleCreateProject = useCallback(
-    async (input: CreateInput & { pendingPrompt?: string }) => {
+    async (input: CreateInput & { pendingPrompt?: string; pendingFiles?: File[] }) => {
       // Honor an explicit `null` design system — the create panel defaults
       // to "None" for every kind now, and the user expects that to land
       // as a no-design-system project rather than silently inheriting the
@@ -581,6 +619,14 @@ export function App() {
         metadata: input.metadata,
       });
       if (!result) return;
+
+      if (input.pendingFiles && input.pendingFiles.length > 0) {
+        const upload = await uploadProjectFiles(result.project.id, input.pendingFiles);
+        if (upload.uploaded.length > 0) {
+          savePendingAttachments(upload.uploaded);
+        }
+      }
+
       setProjects((curr) => [
         result.project,
         ...curr.filter((p) => p.id !== result.project.id),
@@ -846,7 +892,10 @@ export function App() {
           skills={enabledSkills}
           designSystems={enabledDS}
           projects={projects}
+          promptTemplates={promptTemplates}
+          defaultDesignSystemId={config.designSystemId}
           onCreateProject={handleCreateProject}
+          onChangeDefaultDesignSystem={handleChangeDefaultDesignSystem}
           onOpenProject={handleOpenProject}
           onOpenLiveArtifact={handleOpenLiveArtifact}
           onDeleteProject={handleDeleteProject}
