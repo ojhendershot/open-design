@@ -63,6 +63,8 @@ export type RuntimeAgentDef = {
   supportsImagePaths?: boolean;
   maxPromptArgBytes?: number;
   mcpDiscovery?: string;
+  installUrl?: string;
+  docsUrl?: string;
 };
 
 export type DetectedAgent = Omit<

@@ -108,7 +108,13 @@ const MAC_WINDOW_CHROME_CSS = `
   .ds-modal-backdrop,
   .ds-modal-backdrop *,
   .ds-modal,
-  .ds-modal * {
+  .ds-modal *,
+  .prompt-template-modal-backdrop,
+  .prompt-template-modal-backdrop *,
+  .prompt-template-modal,
+  .prompt-template-modal *,
+  .prompt-template-lightbox-backdrop,
+  .prompt-template-lightbox-backdrop * {
     -webkit-app-region: no-drag;
   }
   .entry-brand,
@@ -228,6 +234,10 @@ export function isAllowedChildWindowUrl(url: string): boolean {
   }
 }
 
+export function resolveDesktopStatusUrl(currentUrl: string | null, pendingUrl: string | null): string | null {
+  return pendingUrl ?? currentUrl;
+}
+
 function installWindowChromeCssHook(window: BrowserWindow): void {
   window.webContents.on("did-finish-load", () => {
     void applyWindowChromeCss(window).catch((error: unknown) => {
@@ -319,6 +329,7 @@ export async function createDesktopRuntime(options: DesktopRuntimeOptions): Prom
   showWindowButtons(window);
   attachDownloadSaveAsDialog(window);
   let currentUrl: string | null = null;
+  let pendingUrl: string | null = null;
   let stopped = false;
   let timer: NodeJS.Timeout | null = null;
 
@@ -378,12 +389,17 @@ export async function createDesktopRuntime(options: DesktopRuntimeOptions): Prom
     try {
       const url = await options.discoverUrl();
       if (url != null && url !== currentUrl) {
-        currentUrl = url;
+        pendingUrl = url;
         await window.loadURL(url);
+        currentUrl = url;
+        pendingUrl = null;
         showWindowButtons(window);
+      } else if (url == null) {
+        pendingUrl = null;
       }
       schedule(url == null ? PENDING_POLL_MS : RUNNING_POLL_MS);
     } catch (error) {
+      pendingUrl = null;
       console.error("desktop web discovery failed", error);
       schedule(PENDING_POLL_MS);
     }
@@ -448,7 +464,7 @@ export async function createDesktopRuntime(options: DesktopRuntimeOptions): Prom
         state: window.isDestroyed() ? "unknown" : "running",
         title: window.isDestroyed() ? null : window.getTitle(),
         updatedAt: new Date().toISOString(),
-        url: currentUrl,
+        url: resolveDesktopStatusUrl(currentUrl, pendingUrl),
         windowVisible: !window.isDestroyed() && window.isVisible(),
       };
     },

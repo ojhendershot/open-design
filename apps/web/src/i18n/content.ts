@@ -365,6 +365,7 @@ const DE_DESIGN_SYSTEM_CATEGORIES: Record<string, string> = {
 const DE_SKILL_IDS_WITH_EN_FALLBACK = [
   'clinical-case-report',
   'dcf-valuation',
+  'editorial-burgundy-principles-template',
   'flowai-live-dashboard-template',
   'html-ppt-taste-brutalist',
   'html-ppt-taste-editorial',
@@ -411,17 +412,25 @@ const DE_SKILL_IDS_WITH_EN_FALLBACK = [
   'orbit-gmail',
   'orbit-linear',
   'orbit-notion',
+  'release-notes-one-pager',
   // TODO: add localized copy for social-media-dashboard (introduced in #678).
   // Fallback for now so the localized-content coverage test passes.
   'social-media-dashboard',
   'social-media-matrix-tracker-template',
+  '8-bit-orbit-video-template',
+  'digits-fintech-swiss-template',
+  'field-notes-editorial-template',
+  'html-ppt-retro-quarterly-review',
+  'swiss-user-research-video-template',
   'web-prototype-taste-brutalist',
   'web-prototype-taste-editorial',
   'web-prototype-taste-soft',
   'waitlist-page',
   'x-research',
   'trading-analysis-dashboard-template',
+  'swiss-creative-mode-template',
   'github-dashboard',
+  'after-hours-editorial-template',
 ] as const;
 
 const DE_DESIGN_SYSTEM_IDS_WITH_EN_FALLBACK = [
@@ -463,8 +472,10 @@ const DE_DESIGN_SYSTEM_IDS_WITH_EN_FALLBACK = [
   'glassmorphism',
   'gradient',
   'huggingface',
+  'hud',
   'levels',
   'lingo',
+  'loom',
   'luxury',
   'material',
   'minimal',
@@ -492,6 +503,7 @@ const DE_DESIGN_SYSTEM_IDS_WITH_EN_FALLBACK = [
   'storytelling',
   'totality-festival',
   'tetris',
+  'trading-terminal',
   'urdu',
   'vibrant',
   'vintage',

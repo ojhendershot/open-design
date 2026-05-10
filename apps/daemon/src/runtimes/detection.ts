@@ -4,6 +4,7 @@ import { DEFAULT_MODEL_OPTION, rememberLiveModels } from './models.js';
 import { resolveAgentExecutable } from './executables.js';
 import { spawnEnvForAgent } from './env.js';
 import { agentCapabilities } from './capabilities.js';
+import { installMetaForAgent } from './metadata.js';
 import type {
   DetectedAgent,
   RuntimeAgentDef,
@@ -56,6 +57,7 @@ async function probe(
       ...stripFns(def),
       models: def.fallbackModels ?? [DEFAULT_MODEL_OPTION],
       available: false,
+      ...installMetaForAgent(def.id),
     };
   }
   const probeEnv = spawnEnvForAgent(
@@ -102,6 +104,7 @@ async function probe(
     available: true,
     path: resolved,
     version,
+    ...installMetaForAgent(def.id),
   };
 }
 

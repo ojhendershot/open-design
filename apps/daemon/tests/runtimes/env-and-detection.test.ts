@@ -118,6 +118,32 @@ test('resolveAgentExecutable supports configured binary overrides for non-Codex 
   }
 });
 
+test('detectAgents includes sanitized install and docs metadata from split runtime metadata', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'od-agent-install-meta-'));
+  try {
+    return await withEnvSnapshot(['PATH', 'OD_AGENT_HOME'], async () => {
+      process.env.PATH = dir;
+      process.env.OD_AGENT_HOME = dir;
+
+      const agents = await detectAgents();
+      const qoder = agents.find((agent) => agent.id === 'qoder');
+      const deepseek = agents.find((agent) => agent.id === 'deepseek');
+
+      assert.ok(qoder);
+      assert.equal(qoder.available, false);
+      assert.equal(qoder.installUrl, 'https://qoder.com/download');
+      assert.equal(qoder.docsUrl, 'https://docs.qoder.com/');
+      assert.ok(deepseek);
+      assert.equal(
+        deepseek.docsUrl,
+        'https://github.com/deepseek-ai/DeepSeek-TUI/blob/main/README.md',
+      );
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('resolveAgentExecutable ignores relative CODEX_BIN overrides', () => {
   const dir = mkdtempSync(join(tmpdir(), 'od-codex-bin-rel-'));
   const oldCwd = process.cwd();

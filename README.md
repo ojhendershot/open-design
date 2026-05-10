@@ -601,6 +601,27 @@ The desktop app discovers the web URL automatically via sidecar IPC — no port 
 
 For fixed-port restarts, background startup, and full troubleshooting see [`QUICKSTART.md`](QUICKSTART.md).
 
+## Nix
+
+A flake is published at the repo root. Home Manager is the recommended path for individual developers; a NixOS module is also exposed for shared/server installs. See [`nix/README.md`](nix/README.md) for the full surface (data dir, secrets, `webFrontend` vs. bringing your own server, `OD_DAEMON_URL`).
+
+```nix
+# Home Manager
+inputs.open-design.url = "github:nexu-io/open-design";
+# then: imports = [ inputs.open-design.homeManagerModules.default ];
+```
+
+```bash
+nix run github:nexu-io/open-design       # boot the daemon (`od`) without installing
+```
+
+For developers, a Nix dev shell is available and can be used with `direnv` too:
+
+```bash
+nix develop   # dev shell with required dependencies to work on Open Design
+```
+
+
 ## Use Open Design from your coding agent
 
 Open Design ships a stdio MCP server. Wire it into Claude Code, Codex, Cursor, VS Code, Antigravity, Zed, Windsurf, or any MCP-compatible client and the agent in another repo can read files from your local Open Design projects directly. Replaces the export-then-attach loop. When the agent calls `search_files`, `get_file`, or `get_artifact` without a project argument, the MCP defaults to whatever project (and file) you have open in Open Design right now, so prompts like *"build this in my app"* or *"match these styles"* just work.
@@ -611,7 +632,7 @@ Open **Settings → MCP server** in the Open Design app for a per-client install
 
 The daemon must be running locally for MCP tool calls to succeed. If the agent was started before Open Design, restart the agent after Open Design is up so it can reach the live daemon. Tool calls made while the daemon is offline return a clear `"daemon not reachable"` error rather than a crash.
 
-**Security model.** The MCP server is read-only; it exposes file reads, file metadata, and search -- nothing that writes to disk or calls an external service. It runs as a child process of the coding agent over stdio, so any MCP client you register inherits read access to your local Open Design projects. Treat it like installing a VS Code extension: only register clients you trust. The daemon binds to `127.0.0.1` by default; LAN-wide exposure requires an explicit `OD_BIND_HOST` opt-in.
+**Security model.** The MCP server is read-only; it exposes file reads, file metadata, and search -- nothing that writes to disk or calls an external service. It runs as a child process of the coding agent over stdio, so any MCP client you register inherits read access to your local Open Design projects. Treat it like installing a VS Code extension: only register clients you trust. The daemon binds to `127.0.0.1` by default; LAN-wide exposure requires an explicit `OD_BIND_HOST` opt-in. If you also front the SPA with a non-loopback static server, set `OD_ALLOWED_ORIGINS=<origin1>,<origin2>,...` (comma-separated `scheme://host[:port]` entries) so the daemon's same-origin gate accepts API writes from those origins on both the `Origin` and `Host` checks; without it the browser will see 403s on every PUT/POST (Caddy v2 reverse_proxy preserves the original Host header upstream by default, so loopback alone is not enough). Connector-credential and live-artifact preview routes stay loopback-only regardless.
 
 ## Repository structure
 
