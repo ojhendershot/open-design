@@ -1,14 +1,20 @@
 // @vitest-environment node
 
 import { execFile } from 'node:child_process';
-import { access, stat } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { describe, expect, test } from 'vitest';
 
-import { expectLinuxRemovedStatus, expectPathInside, linuxUserHome } from './linux-helpers.js';
+import {
+  PACKAGED_APP_KEYS,
+  expectLinuxRemovedStatus,
+  expectPathInside,
+  linuxUserHome,
+  pathExists,
+} from './linux-helpers.js';
 
 const execFileAsync = promisify(execFile);
 const e2eRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -325,7 +331,7 @@ async function waitForHealthyAppImageDesktop(): Promise<LinuxInspectResult> {
 
 function assertLogPathsAndContent(result: LogsResult): void {
   expect(result.namespace).toBe(namespace);
-  for (const app of ['desktop', 'web', 'daemon']) {
+  for (const app of PACKAGED_APP_KEYS) {
     const entry = result.logs[app];
     if (entry == null) {
       throw new Error(`expected ${app} log entry`);
@@ -351,15 +357,6 @@ async function printPackagedLogs(): Promise<void> {
 
 function resolveFromWorkspace(filePath: string): string {
   return isAbsolute(filePath) ? filePath : resolve(workspaceRoot, filePath);
-}
-
-async function pathExists(filePath: string): Promise<boolean> {
-  try {
-    await access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function assertHealthEvalValue(value: unknown): HealthEvalValue {

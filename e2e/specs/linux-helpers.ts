@@ -1,7 +1,10 @@
+import { access } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { resolve, sep } from 'node:path';
 
 import { expect } from 'vitest';
+
+export const PACKAGED_APP_KEYS = ['desktop', 'web', 'daemon'] as const;
 
 export function linuxUserHome(): string {
   return homedir();
@@ -14,6 +17,15 @@ export function expectPathInside(filePath: string, expectedRoot: string): void {
     normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}${sep}`),
     `${normalizedPath} should be inside ${normalizedRoot}`,
   ).toBe(true);
+}
+
+export async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function linuxRemovalStatusMessage(label: string, status: string): string {
