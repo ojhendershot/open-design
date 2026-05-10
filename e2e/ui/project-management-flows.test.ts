@@ -250,20 +250,25 @@ test('home design card deletion supports cancel and confirm flows', async ({ pag
   const designCard = homeDesignCard(page, projectName);
   await expect(designCard).toBeVisible();
 
-  page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain(projectName);
-    await dialog.dismiss();
-  });
+  // Cancel flow: open the overflow menu, choose Delete, then dismiss the confirm modal.
   await designCard.hover();
-  await designCard.getByRole('button', { name: new RegExp(`delete project ${escapeRegExp(projectName)}`, 'i') }).click();
+  await designCard.getByRole('button', { name: /more actions/i }).click();
+  await page.getByRole('menuitem', { name: /^delete$/i }).click();
+  const confirmDialog = page.locator('.modal-confirm');
+  await expect(confirmDialog).toBeVisible();
+  await expect(confirmDialog).toContainText(projectName);
+  await confirmDialog.getByRole('button', { name: /^cancel$/i }).click();
+  await expect(confirmDialog).toHaveCount(0);
   await expect(designCard).toBeVisible();
 
-  page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain(projectName);
-    await dialog.accept();
-  });
+  // Confirm flow: same trigger, this time accept the confirm modal.
   await designCard.hover();
-  await designCard.getByRole('button', { name: new RegExp(`delete project ${escapeRegExp(projectName)}`, 'i') }).click();
+  await designCard.getByRole('button', { name: /more actions/i }).click();
+  await page.getByRole('menuitem', { name: /^delete$/i }).click();
+  const confirmDialog2 = page.locator('.modal-confirm');
+  await expect(confirmDialog2).toBeVisible();
+  await expect(confirmDialog2).toContainText(projectName);
+  await confirmDialog2.getByRole('button', { name: /^delete$/i }).click();
   await expect(homeDesignCard(page, projectName)).toHaveCount(0);
 
   const response = await page.request.get(`/api/projects/${projectId}`);
