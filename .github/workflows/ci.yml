@@ -62,7 +62,7 @@ jobs:
                   required=true
                 fi
               done
-              if [[ "$file" == "e2e/specs/mac.spec.ts" || "$file" == "e2e/specs/win.spec.ts" || "$file" == "package.json" || "$file" == "pnpm-lock.yaml" || "$file" == "pnpm-workspace.yaml" || "$file" == ".github/workflows/ci.yml" || "$file" == ".github/workflows/release-beta.yml" ]]; then
+              if [[ "$file" == "e2e/specs/mac.spec.ts" || "$file" == "e2e/specs/win.spec.ts" || "$file" == "e2e/specs/linux.spec.ts" || "$file" == "package.json" || "$file" == "pnpm-lock.yaml" || "$file" == "pnpm-workspace.yaml" || "$file" == ".github/workflows/ci.yml" || "$file" == ".github/workflows/release-beta.yml" || "$file" == ".github/workflows/release-stable.yml" ]]; then
                 required=true
               fi
               if [ "$required" = "true" ]; then
@@ -457,3 +457,45 @@ jobs:
         with:
           path: ${{ runner.temp }}/tools-pack-cache
           key: tools-pack-win-v6-${{ runner.os }}-${{ steps.win_tools_pack_cache_key.outputs.epoch }}-${{ github.sha }}
+
+  packaged_smoke_linux_headless:
+    name: Packaged linux headless smoke
+    needs: [validate, packaged_changes]
+    if: ${{ needs.packaged_changes.outputs.required == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 10.33.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build PR linux headless artifacts
+        run: |
+          set -euo pipefail
+          pnpm exec tools-pack linux build \
+            --dir "$RUNNER_TEMP/tools-pack" \
+            --namespace ci-pr-linux \
+            --to dir \
+            --json
+
+      - name: Smoke PR linux headless packaged runtime
+        working-directory: e2e
+        env:
+          OD_PACKAGED_E2E_LINUX_HEADLESS: "1"
+          OD_PACKAGED_E2E_NAMESPACE: ci-pr-linux
+          OD_PACKAGED_E2E_TOOLS_PACK_DIR: ${{ runner.temp }}/tools-pack
+        run: pnpm test specs/linux.spec.ts

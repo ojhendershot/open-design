@@ -16,4 +16,12 @@ describe("packaged smoke workflow", () => {
     expect(macBuildStep?.[0]).toBeDefined();
     expect(macBuildStep?.[0]).not.toContain("--portable");
   });
+
+  it("runs a linux headless packaged smoke job when packaged changes require smoke", async () => {
+    const workflow = await readFile(ciWorkflowPath, "utf8");
+    expect(workflow).toContain("packaged_smoke_linux_headless:");
+    expect(workflow).toContain("Build PR linux headless artifacts");
+    expect(workflow).toContain('OD_PACKAGED_E2E_LINUX_HEADLESS: "1"');
+    expect(workflow).toContain("pnpm test specs/linux.spec.ts");
+  });
 });
