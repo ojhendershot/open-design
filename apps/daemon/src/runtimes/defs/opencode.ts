@@ -4,7 +4,8 @@ import type { RuntimeAgentDef } from '../types.js';
 export const opencodeAgentDef = {
     id: 'opencode',
     name: 'OpenCode',
-    bin: 'opencode',
+    bin: 'opencode-cli',
+    fallbackBins: ['opencode'],
     versionArgs: ['--version'],
     // `opencode models` prints `provider/model` per line.
     listModels: {
