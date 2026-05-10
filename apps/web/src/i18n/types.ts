@@ -644,6 +644,22 @@ export interface Dict {
   'designs.viewKanban': string;
   'designs.kanbanEmptyColumn': string;
   'designs.deleteAria': string;
+  'designs.menuMore': string;
+  'designs.menuRename': string;
+  'designs.menuDelete': string;
+  'designs.renamePrompt': string;
+  'designs.selectMode': string;
+  'designs.cancelSelect': string;
+  'designs.deleteSelected': string;
+  'designs.selectedCount': string;
+  'designs.deleteSelectedConfirm': string;
+  'designs.tagPrototype': string;
+  'designs.tagLiveArtifact': string;
+  'designs.tagSlide': string;
+  'designs.tagMedia': string;
+  'designs.renameTitle': string;
+  'designs.renameSave': string;
+  'designs.renameCancel': string;
 
   // Examples tab
   'examples.typeLabel': string;
