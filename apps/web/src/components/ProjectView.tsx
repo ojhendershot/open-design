@@ -1156,8 +1156,9 @@ export function ProjectView({
         // file the moment the agent finishes writing it. The file-creating
         // tools we care about: Write (new file), Edit (existing file —
         // surfacing the freshly-modified file is also useful).
-        if (ev.kind === 'tool_use' && (ev.name === 'Write' || ev.name === 'Edit')) {
-          const filePath = (ev.input as { file_path?: unknown } | null)?.file_path;
+        if (ev.kind === 'tool_use' && ((ev.name === 'Write' || ev.name === 'write') || ev.name === 'Edit')) {
+          const input = ev.input as { file_path?: unknown; filePath?: unknown } | null;
+          const filePath = input?.file_path ?? input?.filePath;
           if (typeof filePath === 'string' && filePath.length > 0) {
             // Preserve the full path so decideAutoOpenAfterWrite can do a
             // path-suffix match against the project's relative file paths.
