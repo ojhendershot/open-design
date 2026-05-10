@@ -120,7 +120,8 @@ test('prompt template retry preserves the edited body in project metadata', asyn
   });
 
   await gotoEntryHome(page);
-  await page.getByTestId('new-project-tab-image').click();
+  await page.getByTestId('new-project-tab-media').click();
+  await page.getByTestId('new-project-media-surface-image').click();
   await page.getByTestId('new-project-name').fill('Prompt template retry metadata');
 
   await page.getByTestId('prompt-template-trigger').click();

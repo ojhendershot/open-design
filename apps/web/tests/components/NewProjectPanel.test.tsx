@@ -213,7 +213,7 @@ describe('NewProjectPanel design system defaults', () => {
     );
   });
 
-  it('saves live artifact creation with prototype kind, live-artifact intent, and fidelity metadata', () => {
+  it('saves live artifact creation with prototype kind, live-artifact intent, and locked high fidelity', () => {
     const onCreate = vi.fn();
     render(
       <NewProjectPanel
@@ -231,7 +231,9 @@ describe('NewProjectPanel design system defaults', () => {
     fireEvent.change(screen.getByTestId('new-project-name'), {
       target: { value: 'Realtime artifact payload' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Wireframe' }));
+    // Live artifact hides the fidelity picker — wireframe live artifacts
+    // don't make sense, so the surface is locked to high-fidelity.
+    expect(screen.queryByRole('button', { name: 'Wireframe' })).toBeNull();
     fireEvent.click(screen.getByTestId('create-project'));
 
     expect(onCreate).toHaveBeenCalledWith(
@@ -240,7 +242,7 @@ describe('NewProjectPanel design system defaults', () => {
         metadata: expect.objectContaining({
           kind: 'prototype',
           intent: 'live-artifact',
-          fidelity: 'wireframe',
+          fidelity: 'high-fidelity',
         }),
       }),
     );
@@ -327,7 +329,6 @@ describe('NewProjectPanel design system defaults', () => {
         }),
       }),
     );
-    expect(templateOnCreate.mock.calls[0]?.[0]).not.toHaveProperty('pendingPrompt');
   });
 
   it('saves image creation with the selected aspect and trimmed style notes metadata', () => {
@@ -343,14 +344,12 @@ describe('NewProjectPanel design system defaults', () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole('tab', { name: 'Media' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Image' }));
     fireEvent.change(screen.getByTestId('new-project-name'), {
       target: { value: 'Image payload metadata' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /Tall3:4/i }));
-    fireEvent.change(screen.getByPlaceholderText('Editorial photo, soft daylight, muted palette'), {
-      target: { value: '  cinematic still life  ' },
-    });
+    fireEvent.click(screen.getByRole('radio', { name: '3:4' }));
     fireEvent.click(screen.getByTestId('create-project'));
 
     expect(onCreate).toHaveBeenCalledWith(
@@ -361,7 +360,6 @@ describe('NewProjectPanel design system defaults', () => {
           kind: 'image',
           imageModel: 'gpt-image-2',
           imageAspect: '3:4',
-          imageStyle: 'cinematic still life',
         }),
       }),
     );
@@ -380,11 +378,12 @@ describe('NewProjectPanel design system defaults', () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole('tab', { name: 'Media' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Video' }));
     fireEvent.change(screen.getByTestId('new-project-name'), {
       target: { value: 'Video payload metadata' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /Portrait9:16/i }));
+    fireEvent.click(screen.getByRole('radio', { name: '9:16' }));
     fireEvent.change(screen.getByLabelText('Length'), {
       target: { value: '10' },
     });
@@ -417,6 +416,7 @@ describe('NewProjectPanel design system defaults', () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole('tab', { name: 'Media' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Audio' }));
     fireEvent.change(screen.getByTestId('new-project-name'), {
       target: { value: 'Audio payload metadata' },

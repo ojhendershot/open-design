@@ -124,8 +124,10 @@ test('new project tabs switch visible form sections and preserve drafts', async 
   await expect(page.getByTestId('new-project-name')).toHaveValue('Prototype draft survives');
 
   await page.getByRole('button', { name: 'Scroll project types right' }).click();
-  await page.getByTestId('new-project-tab-image').click();
-  await expect(page.getByTestId('new-project-tab-image')).toHaveAttribute('aria-selected', 'true');
+  await page.getByTestId('new-project-tab-media').click();
+  await expect(page.getByTestId('new-project-tab-media')).toHaveAttribute('aria-selected', 'true');
+  await page.getByTestId('new-project-media-surface-image').click();
+  await expect(page.getByTestId('new-project-media-surface-image')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('.newproj-title')).toContainText('New image');
   await expect(page.getByTestId('design-system-picker')).toHaveCount(0);
   await expect(page.getByText('Model', { exact: true })).toBeVisible();
