@@ -11,6 +11,7 @@ import {
   matchesAppImageProcess,
   renderDesktopTemplate,
   resolveLinuxLifecycleMode,
+  shouldRejectLinuxHeadlessInspectOptions,
   sanitizeNamespace,
 } from "../src/linux.js";
 
@@ -237,6 +238,23 @@ describe("resolveLinuxLifecycleMode", () => {
     expect(resolveLinuxLifecycleMode({}, "stop")).toBe("appimage");
     expect(resolveLinuxLifecycleMode({}, "uninstall")).toBe("appimage");
     expect(resolveLinuxLifecycleMode({}, "cleanup")).toBe("appimage");
+  });
+});
+
+describe("shouldRejectLinuxHeadlessInspectOptions", () => {
+  it("allows status-only headless inspect", () => {
+    expect(shouldRejectLinuxHeadlessInspectOptions({})).toBe(false);
+  });
+
+  it("rejects headless eval and screenshot requests", () => {
+    expect(shouldRejectLinuxHeadlessInspectOptions({ expr: "document.title" })).toBe(true);
+    expect(shouldRejectLinuxHeadlessInspectOptions({ path: "/tmp/open-design-linux.png" })).toBe(true);
+    expect(
+      shouldRejectLinuxHeadlessInspectOptions({
+        expr: "document.title",
+        path: "/tmp/open-design-linux.png",
+      }),
+    ).toBe(true);
   });
 });
 

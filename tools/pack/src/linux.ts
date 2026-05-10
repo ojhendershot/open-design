@@ -10,6 +10,8 @@ import {
   SIDECAR_MESSAGES,
   SIDECAR_MODES,
   SIDECAR_SOURCES,
+  type DesktopEvalResult,
+  type DesktopScreenshotResult,
   type DesktopStatusSnapshot,
   type SidecarStamp,
 } from "@open-design/sidecar-proto";
@@ -650,6 +652,19 @@ export type LinuxStartResult = {
   status: DesktopStatusSnapshot | null;
 };
 
+export type LinuxInspectResult = {
+  eval?: DesktopEvalResult;
+  screenshot?: DesktopScreenshotResult;
+  status: DesktopStatusSnapshot | null;
+};
+
+export function shouldRejectLinuxHeadlessInspectOptions(options: {
+  expr?: string;
+  path?: string;
+}): boolean {
+  return options.expr != null || options.path != null;
+}
+
 type DesktopRootIdentityMarker = {
   appPath: string;
   executablePath: string;
@@ -992,6 +1007,47 @@ export async function readPackedLinuxLogs(config: ToolPackConfig): Promise<{
     logs[app] = { lines, logPath };
   }
   return { logs, namespace: config.namespace };
+}
+
+export async function inspectPackedLinuxApp(
+  config: ToolPackConfig,
+  options: { expr?: string; headless?: boolean; path?: string },
+): Promise<LinuxInspectResult> {
+  const stamp = linuxDesktopStamp(config);
+  const status = await requestJsonIpc<DesktopStatusSnapshot>(
+    stamp.ipc,
+    { type: SIDECAR_MESSAGES.STATUS },
+    { timeoutMs: 2000 },
+  ).catch(() => null);
+
+  if (options.headless === true) {
+    if (shouldRejectLinuxHeadlessInspectOptions(options)) {
+      throw new Error("linux inspect --headless supports status only; omit --expr and --path");
+    }
+    return { status };
+  }
+
+  return {
+    ...(options.expr == null
+      ? {}
+      : {
+          eval: await requestJsonIpc<DesktopEvalResult>(
+            stamp.ipc,
+            { input: { expression: options.expr }, type: SIDECAR_MESSAGES.EVAL },
+            { timeoutMs: 5000 },
+          ),
+        }),
+    ...(options.path == null
+      ? {}
+      : {
+          screenshot: await requestJsonIpc<DesktopScreenshotResult>(
+            stamp.ipc,
+            { input: { path: options.path }, type: SIDECAR_MESSAGES.SCREENSHOT },
+            { timeoutMs: 10000 },
+          ),
+        }),
+    status,
+  };
 }
 
 export type LinuxUninstallResult = {

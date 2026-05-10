@@ -28,6 +28,7 @@ import {
   cleanupPackedLinuxNamespace,
   installPackedLinuxApp,
   installPackedLinuxHeadless,
+  inspectPackedLinuxApp,
   packLinux,
   readPackedLinuxLogs,
   resolveLinuxLifecycleMode,
@@ -184,7 +185,7 @@ addWinLifecycleOptions(
   }
 });
 
-addBuildOptions(addSharedOptions(cli.command("linux <action>", "Linux packaging commands: build|install|start|stop|logs|uninstall|cleanup")), "linux")
+addBuildOptions(addSharedOptions(cli.command("linux <action>", "Linux packaging commands: build|install|start|stop|logs|uninstall|cleanup|inspect")), "linux")
   .option("--containerized", "build inside electronuserland/builder Docker for distro-agnostic glibc compat")
   .option("--headless", "install/start/stop/uninstall/cleanup the headless (no-Electron) entry instead of the full desktop app")
   .action(async (action: string, options: CliOptions) => {
@@ -210,6 +211,13 @@ addBuildOptions(addSharedOptions(cli.command("linux <action>", "Linux packaging 
       }
       case "logs":
         printLogs(await readPackedLinuxLogs(config), options);
+        return;
+      case "inspect":
+        printJson(await inspectPackedLinuxApp(config, {
+          expr: options.expr,
+          headless: options.headless === true,
+          path: options.path,
+        }));
         return;
       case "uninstall": {
         const mode = resolveLinuxLifecycleMode(options, "uninstall");
