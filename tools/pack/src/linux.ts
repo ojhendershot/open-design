@@ -48,6 +48,16 @@ export function sanitizeNamespace(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]+/g, "-");
 }
 
+export type LinuxLifecycleAction = "cleanup" | "install" | "start" | "stop" | "uninstall";
+export type LinuxLifecycleMode = "appimage" | "headless";
+
+export function resolveLinuxLifecycleMode(
+  options: { headless?: boolean },
+  _action: LinuxLifecycleAction,
+): LinuxLifecycleMode {
+  return options.headless === true ? "headless" : "appimage";
+}
+
 async function pathExists(path: string): Promise<boolean> {
   try {
     await access(path);
@@ -1052,6 +1062,36 @@ export async function uninstallPackedLinuxApp(config: ToolPackConfig): Promise<L
   };
 }
 
+export type LinuxHeadlessUninstallResult = {
+  launcherPath: string;
+  namespace: string;
+  removed: "ok" | "already-removed" | "skipped-process-running";
+  stop: LinuxStopResult;
+};
+
+export async function uninstallPackedLinuxHeadless(
+  config: ToolPackConfig,
+): Promise<LinuxHeadlessUninstallResult> {
+  const stop = await stopPackedLinuxHeadless(config);
+  const launcherPath = headlessLauncherPath(config);
+
+  if (!isSafeToRemoveInstallFiles(stop)) {
+    return {
+      launcherPath,
+      namespace: config.namespace,
+      removed: "skipped-process-running",
+      stop,
+    };
+  }
+
+  return {
+    launcherPath,
+    namespace: config.namespace,
+    removed: await tryRemove(launcherPath),
+    stop,
+  };
+}
+
 export type LinuxCleanupResult = {
   namespace: string;
   outputRoot: string;
@@ -1339,8 +1379,13 @@ export async function stopPackedLinuxHeadless(config: ToolPackConfig): Promise<L
   };
 }
 
-export async function cleanupPackedLinuxNamespace(config: ToolPackConfig): Promise<LinuxCleanupResult> {
-  const stop = await stopPackedLinuxApp(config);
+export async function cleanupPackedLinuxNamespace(
+  config: ToolPackConfig,
+  options: { headless?: boolean } = {},
+): Promise<LinuxCleanupResult> {
+  const stop = resolveLinuxLifecycleMode(options, "cleanup") === "headless"
+    ? await stopPackedLinuxHeadless(config)
+    : await stopPackedLinuxApp(config);
   const outputRoot = config.roots.output.namespaceRoot;
   const runtimeNamespaceRoot = config.roots.runtime.namespaceRoot;
 

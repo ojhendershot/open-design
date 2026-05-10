@@ -10,6 +10,7 @@ import {
   buildDockerArgs,
   matchesAppImageProcess,
   renderDesktopTemplate,
+  resolveLinuxLifecycleMode,
   sanitizeNamespace,
 } from "../src/linux.js";
 
@@ -218,6 +219,24 @@ MimeType=x-scheme-handler/od;
 describe("sanitizeNamespace", () => {
   it("replaces non-alphanumeric chars with hyphens", () => {
     expect(sanitizeNamespace("a/b c")).toBe("a-b-c");
+  });
+});
+
+describe("resolveLinuxLifecycleMode", () => {
+  it("uses headless mode for every lifecycle action when --headless is set", () => {
+    expect(resolveLinuxLifecycleMode({ headless: true }, "install")).toBe("headless");
+    expect(resolveLinuxLifecycleMode({ headless: true }, "start")).toBe("headless");
+    expect(resolveLinuxLifecycleMode({ headless: true }, "stop")).toBe("headless");
+    expect(resolveLinuxLifecycleMode({ headless: true }, "uninstall")).toBe("headless");
+    expect(resolveLinuxLifecycleMode({ headless: true }, "cleanup")).toBe("headless");
+  });
+
+  it("uses appimage mode when --headless is omitted", () => {
+    expect(resolveLinuxLifecycleMode({}, "install")).toBe("appimage");
+    expect(resolveLinuxLifecycleMode({}, "start")).toBe("appimage");
+    expect(resolveLinuxLifecycleMode({}, "stop")).toBe("appimage");
+    expect(resolveLinuxLifecycleMode({}, "uninstall")).toBe("appimage");
+    expect(resolveLinuxLifecycleMode({}, "cleanup")).toBe("appimage");
   });
 });
 
