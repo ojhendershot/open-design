@@ -25,6 +25,10 @@ describe("packaged smoke workflow", () => {
     expect(workflow).toContain("Build PR linux headless artifacts");
     expect(workflow).toContain('OD_PACKAGED_E2E_LINUX_HEADLESS: "1"');
     expect(workflow).toContain("pnpm test specs/linux.spec.ts");
+    expect(workflow).toContain("manifest.json");
+    expect(workflow).toContain("linux-tools-pack-build.json");
+    expect(workflow).toContain("Upload linux headless e2e spec report");
+    expect(workflow).toContain("open-design-pr-linux-headless-e2e-report");
   });
 
   it("preserves beta linux AppImage smoke reports for release publication", async () => {

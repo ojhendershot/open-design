@@ -283,6 +283,27 @@ describe("inspectPackedLinuxApp", () => {
     ).rejects.toThrow("linux inspect --headless supports status only; omit --expr and --path");
     expect(requestJsonIpcMock).not.toHaveBeenCalled();
   });
+
+  it("allows desktop inspect eval and screenshot options when headless is omitted", async () => {
+    const requestJsonIpcMock = vi.mocked(requestJsonIpc);
+    requestJsonIpcMock.mockReset();
+    requestJsonIpcMock
+      .mockResolvedValueOnce({ state: "running", url: "od://app/" })
+      .mockResolvedValueOnce({ ok: true, value: "Open Design" })
+      .mockResolvedValueOnce({ path: "/tmp/open-design-linux.png" });
+
+    const result = await inspectPackedLinuxApp(makeConfig(), {
+      expr: "document.title",
+      path: "/tmp/open-design-linux.png",
+    });
+
+    expect(result).toEqual({
+      eval: { ok: true, value: "Open Design" },
+      screenshot: { path: "/tmp/open-design-linux.png" },
+      status: { state: "running", url: "od://app/" },
+    });
+    expect(requestJsonIpcMock).toHaveBeenCalledTimes(3);
+  });
 });
 
 describe("matchesAppImageProcess", () => {

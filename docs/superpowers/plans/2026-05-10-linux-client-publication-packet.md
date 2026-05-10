@@ -26,11 +26,13 @@ Body:
 - Add Linux packaged client parity for headless lifecycle operations, including headless uninstall and cleanup routing.
 - Add Linux `inspect` support, with AppImage desktop inspection and explicit status-only behavior for headless mode.
 - Add Linux packaged e2e coverage: PR-side headless smoke, release-side AppImage smoke, release evidence upload/download, and workflow guard tests.
+- Preserve PR-side Linux headless smoke build/test evidence as a workflow artifact.
 - Refresh Linux packaged client documentation and issue 709 implementation status.
 
 ## Test Plan
 
 - [x] `corepack pnpm --filter @open-design/e2e test -- tests/packaged-smoke-workflow.test.ts`
+- [x] `corepack pnpm --filter @open-design/e2e test -- tests/linux-helpers.test.ts tests/packaged-smoke-workflow.test.ts`
 - [x] `corepack pnpm --filter @open-design/tools-pack test -- linux.test.ts`
 - [x] `corepack pnpm --filter @open-design/tools-pack typecheck`
 - [x] `corepack pnpm --filter @open-design/e2e typecheck`
@@ -44,6 +46,7 @@ Body:
 - Linux beta release remains opt-in through the existing `enable_linux` input.
 - Linux stable release remains gated by `vars.ENABLE_STABLE_LINUX == 'true'`.
 - PR validation uses the display-independent headless Linux smoke; AppImage smoke runs in release lanes where artifact correctness is required.
+- PR-side Linux headless smoke now uploads `open-design-pr-linux-headless-e2e-report` with build JSON/logs, manifest, and vitest output.
 - Release Linux build evidence now validates `linux-tools-pack-build.json` after capture so non-JSON stdout fails before evidence upload.
 
 Closes #709.
@@ -58,12 +61,13 @@ Scope covered:
 - Linux headless lifecycle parity for uninstall/cleanup.
 - Linux inspect support with status-only headless behavior and AppImage desktop inspection.
 - Linux packaged e2e spec coverage.
-- PR-side Linux headless smoke.
+- PR-side Linux headless smoke with preserved build/test evidence.
 - Release-side Linux AppImage smoke with preserved release evidence.
 - Workflow guard tests and docs/status refresh.
 
 Verification completed locally:
 - `corepack pnpm --filter @open-design/e2e test -- tests/packaged-smoke-workflow.test.ts`
+- `corepack pnpm --filter @open-design/e2e test -- tests/linux-helpers.test.ts tests/packaged-smoke-workflow.test.ts`
 - `corepack pnpm --filter @open-design/tools-pack test -- linux.test.ts`
 - `corepack pnpm --filter @open-design/tools-pack typecheck`
 - `corepack pnpm --filter @open-design/e2e typecheck`
@@ -89,6 +93,7 @@ git log --oneline --decorate -8
 
 ```bash
 corepack pnpm --filter @open-design/e2e test -- tests/packaged-smoke-workflow.test.ts
+corepack pnpm --filter @open-design/e2e test -- tests/linux-helpers.test.ts tests/packaged-smoke-workflow.test.ts
 corepack pnpm --filter @open-design/tools-pack test -- linux.test.ts
 corepack pnpm --filter @open-design/tools-pack typecheck
 corepack pnpm --filter @open-design/e2e typecheck
@@ -105,11 +110,11 @@ git push -u origin codex/linux-client-issue-709
 
 If GitHub authentication still rejects access, re-authenticate with an account that has write access to `nexu-io/open-design` or publish to an authorized fork remote.
 
-## Optional Follow-Up Hardening
+## Additional Local Hardening Completed
 
-These are not required for the current issue 709 parity branch, but they are reasonable follow-ups if the branch needs more defensive polish before review:
+These follow-ups were completed locally after the initial publication packet:
 
-- Make Linux e2e path expectations avoid `process.env.HOME ?? ''` so an unset `HOME` cannot anchor expectations to the current working directory.
-- Improve failure diagnostics when uninstall returns `skipped-process-running`.
-- Preserve PR-side Linux headless smoke artifacts if maintainers want parity with release evidence artifacts.
-- Add a focused unit test proving non-headless Linux inspect still permits eval/path options.
+- Linux e2e path expectations now use `os.homedir()` through a tested helper instead of `process.env.HOME ?? ''`.
+- Linux uninstall assertions now include an explicit `skipped-process-running` lifecycle diagnostic.
+- PR-side Linux headless smoke now uploads a report artifact with build JSON/logs, manifest, and vitest output.
+- `tools-pack` unit coverage now proves non-headless Linux inspect still permits eval and screenshot options.

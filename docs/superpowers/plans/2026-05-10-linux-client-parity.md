@@ -1059,4 +1059,11 @@ Post-audit remediation verification:
 
 Publication packet prepared at `docs/superpowers/plans/2026-05-10-linux-client-publication-packet.md`.
 
+Additional local hardening completed after the publication packet:
+
+- Linux e2e path expectations use `os.homedir()` through a tested helper instead of `process.env.HOME ?? ''`.
+- Linux uninstall assertions include clearer `skipped-process-running` lifecycle diagnostics.
+- PR-side Linux headless smoke preserves a report artifact with build JSON/logs, manifest, and vitest output.
+- Non-headless Linux inspect eval/screenshot behavior is now covered by a focused unit regression test.
+
 Next agent should verify live branch state before publishing or opening a PR. Do not push or create a PR unless the user explicitly authorizes publication.

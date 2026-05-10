@@ -2,11 +2,13 @@
 
 import { execFile } from 'node:child_process';
 import { access, stat } from 'node:fs/promises';
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { describe, expect, test } from 'vitest';
+
+import { expectLinuxRemovedStatus, expectPathInside, linuxUserHome } from './linux-helpers.js';
 
 const execFileAsync = promisify(execFile);
 const e2eRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -26,6 +28,7 @@ const shouldRunLinuxAppImageSmoke =
 const linuxAppImageDescribe = shouldRunLinuxAppImageSmoke ? describe : describe.skip;
 
 const runtimeNamespaceRoot = join(toolsPackDir, 'runtime', 'linux', 'namespaces', namespace);
+const userHome = linuxUserHome();
 
 type LinuxHeadlessInstallResult = {
   launcherPath: string;
@@ -133,7 +136,7 @@ linuxHeadlessDescribe('packaged linux headless runtime smoke', () => {
     try {
       const install = await runToolsPackJson<LinuxHeadlessInstallResult>('install', ['--headless']);
       expect(install.namespace).toBe(namespace);
-      expectPathInside(install.launcherPath, join(process.env.HOME ?? '', '.local', 'bin'));
+      expectPathInside(install.launcherPath, join(userHome, '.local', 'bin'));
 
       const start = await runToolsPackJson<LinuxHeadlessStartResult>('start', ['--headless']);
       started = true;
@@ -164,7 +167,7 @@ linuxHeadlessDescribe('packaged linux headless runtime smoke', () => {
 
       const uninstall = await runToolsPackJson<LinuxHeadlessUninstallResult>('uninstall', ['--headless']);
       expect(uninstall.namespace).toBe(namespace);
-      expect(uninstall.removed).toMatch(/^(ok|already-removed)$/);
+      expectLinuxRemovedStatus('headless launcher', uninstall.removed);
       expect(await pathExists(install.launcherPath)).toBe(false);
 
       const cleanup = await runToolsPackJson<LinuxCleanupResult>('cleanup', ['--headless']);
@@ -196,17 +199,17 @@ linuxAppImageDescribe('packaged linux AppImage runtime smoke', () => {
       installed = true;
 
       expect(install.namespace).toBe(namespace);
-      expectPathInside(install.appImagePath, join(process.env.HOME ?? '', '.local', 'bin'));
-      expectPathInside(install.desktopFilePath, join(process.env.HOME ?? '', '.local', 'share', 'applications'));
-      expectPathInside(install.iconPath, join(process.env.HOME ?? '', '.local', 'share', 'icons', 'hicolor'));
+      expectPathInside(install.appImagePath, join(userHome, '.local', 'bin'));
+      expectPathInside(install.desktopFilePath, join(userHome, '.local', 'share', 'applications'));
+      expectPathInside(install.iconPath, join(userHome, '.local', 'share', 'icons', 'hicolor'));
 
       const start = await runToolsPackJson<LinuxAppImageStartResult>('start');
       started = true;
 
       expect(start.namespace).toBe(namespace);
       expect(start.source).toBe('installed');
-      expectPathInside(start.appImagePath, join(process.env.HOME ?? '', '.local', 'bin'));
-      expectPathInside(start.executablePath, join(process.env.HOME ?? '', '.local', 'bin'));
+      expectPathInside(start.appImagePath, join(userHome, '.local', 'bin'));
+      expectPathInside(start.executablePath, join(userHome, '.local', 'bin'));
       expectPathInside(start.logPath, join(runtimeNamespaceRoot, 'logs', 'desktop'));
       expect(start.pid).toBeGreaterThan(0);
       if (start.status != null) {
@@ -237,7 +240,9 @@ linuxAppImageDescribe('packaged linux AppImage runtime smoke', () => {
       const uninstall = await runToolsPackJson<LinuxAppImageUninstallResult>('uninstall');
       installed = false;
       expect(uninstall.namespace).toBe(namespace);
-      expect(uninstall.removed.appImage).toMatch(/^(ok|already-removed)$/);
+      expectLinuxRemovedStatus('AppImage', uninstall.removed.appImage);
+      expectLinuxRemovedStatus('desktop file', uninstall.removed.desktop);
+      expectLinuxRemovedStatus('icon', uninstall.removed.icon);
       expect(await pathExists(install.appImagePath)).toBe(false);
       passed = true;
     } finally {
@@ -374,15 +379,6 @@ function asHealthEvalValue(value: unknown): HealthEvalValue | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value != null && !Array.isArray(value);
-}
-
-function expectPathInside(filePath: string, expectedRoot: string): void {
-  const normalizedPath = resolve(filePath);
-  const normalizedRoot = resolve(expectedRoot);
-  expect(
-    normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}${sep}`),
-    `${normalizedPath} should be inside ${normalizedRoot}`,
-  ).toBe(true);
 }
 
 async function fileSizeBytes(filePath: string): Promise<number> {
