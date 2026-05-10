@@ -95,9 +95,13 @@ Local lifecycle commands:
 - `tools-pack linux start --headless` (start the headless entry — daemon + web, no Electron)
 - `tools-pack linux stop`
 - `tools-pack linux stop --headless` (stop a running headless process)
+- `tools-pack linux inspect` (desktop status, eval, and screenshot for AppImage mode)
+- `tools-pack linux inspect --headless` (status only)
 - `tools-pack linux logs`
 - `tools-pack linux uninstall`
+- `tools-pack linux uninstall --headless`
 - `tools-pack linux cleanup`
+- `tools-pack linux cleanup --headless`
 
 Build artifacts are namespace-scoped under `.tmp/tools-pack/out/linux/namespaces/<namespace>/`. Packaged runtime state is namespace-scoped under `.tmp/tools-pack/runtime/linux/namespaces/<namespace>/{data,logs,runtime,cache,user-data}/`. Containerized build cache lives under `.tmp/tools-pack/.docker-cache/{electron,electron-builder}/`.
 
@@ -113,11 +117,14 @@ The `<namespace>` suffix is unconditional so multiple developer namespaces can c
 
 Headless mode targets environments without a display (WSL2, headless servers, CI) where Electron can't run. If you have a desktop, use the AppImage; if you're SSH'd into a machine or in WSL, use headless.
 
-`--headless` makes `install`, `start`, and `stop` operate on the headless entry (`@open-design/packaged/dist/headless.mjs`) instead of the AppImage. Headless mode runs daemon + web without Electron.
+`--headless` makes `install`, `start`, `stop`, `uninstall`, and `cleanup` operate on the headless entry (`@open-design/packaged/dist/headless.mjs`) instead of the AppImage. Headless mode runs daemon + web without Electron.
 
 - `install --headless` writes a shell launcher at `~/.local/bin/open-design-headless-<namespace>` that bakes in the namespace and resource paths. The launcher is self-contained, but the assembled app directory at those paths must remain in place — don't move it after install.
 - `start --headless` spawns the headless process directly, redirects stdout/stderr to `logs/desktop/latest.log`, and waits up to 95s (35s for identity marker + 60s for web URL) before returning.
 - `stop --headless` reads the same `runtime/desktop-root.json` identity marker as the AppImage path, validates `stamp.source === PACKAGED`, sends a graceful SHUTDOWN over IPC, then terminates the process tree. It does not perform the AppImage-specific process-command check.
+- `inspect --headless` returns status only. Eval and screenshot require AppImage mode because there is no Electron renderer in headless mode.
+- `uninstall --headless` removes the headless launcher after a safe stop.
+- `cleanup --headless` stops the headless process before removing namespace output/runtime roots.
 
 `logs` always reads `logs/desktop/latest.log` regardless of mode, so headless output is visible via `tools-pack linux logs`.
 
@@ -154,7 +161,7 @@ Linux desktop apps in this space split across formats: VS Code ships `.deb` + `.
 - AppImage signing (`--signed`) — deferred pending a GPG key infrastructure decision and a user-facing verification flow design (no ETA).
 - AppImage auto-update feed (`latest-linux.yml`) — the linux electron-builder config has no `publish` block wired, so a generated feed would point users at a feed that never updates. Tracked alongside signing.
 - Additional package formats: `.deb`, `.rpm`, Snap, Flatpak.
-- Linux entry in `ci.yml` (release lanes only build linux; PR validation does not yet).
+- Full Linux AppImage PR smoke remains release-lane only; PR validation runs the Linux headless packaged smoke because it does not require a display server.
 
 `--to dmg` is manual-install DMG output only. Any builder-generated updater metadata such as `latest-mac.yml` or
 `.blockmap` files is treated as scratch and cleaned from the builder directory; release-beta generates the authoritative
