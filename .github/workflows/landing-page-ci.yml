@@ -88,12 +88,12 @@ jobs:
         run: pnpm --filter @open-design/landing-page typecheck
 
       # Generate the per-skill / per-template thumbnail PNGs *before*
-      # the build so they ship in `out/previews/` automatically.
-      # Failures in this step degrade the visual quality of the catalog
-      # but should not break the deploy, so we tolerate non-zero exit.
+      # the build so they ship in `out/previews/` automatically. The
+      # script itself decides what's a soft vs. hard failure: a single
+      # broken `example.html` is logged and skipped, but a chromium
+      # launch failure or a 100%-failure run exits non-zero so the
+      # build stops instead of silently shipping zero thumbnails.
       - name: Generate skill + template previews
-        id: previews
-        continue-on-error: true
         run: pnpm --filter @open-design/landing-page previews
 
       - name: Build landing page

@@ -21,8 +21,14 @@ const ext = {
 export interface HeaderProps {
   /** Nav highlight target. `'home'` is the default for `/`. */
   active?: 'home' | 'skills' | 'systems' | 'templates' | 'craft';
-  /** Live counts from the Markdown catalogs. */
-  counts?: {
+  /**
+   * Live counts from the Markdown catalogs. Required so we can never
+   * silently render stale fallback numbers when a caller forgets to
+   * thread `getCatalogCounts()` through. Header only consumes these
+   * four scalar fields; the homepage passes the wider `CatalogCounts`
+   * value (with `byMode` / `byPlatform`) by structural subtyping.
+   */
+  counts: {
     skills: number;
     systems: number;
     templates: number;
@@ -34,9 +40,9 @@ export interface HeaderProps {
 
 export function Header({
   active = 'home',
-  counts = { skills: 31, systems: 72, templates: 5, craft: 11 },
+  counts,
   brandHref = '#top',
-}: HeaderProps = {}) {
+}: HeaderProps) {
   const linkClass = (key: NonNullable<HeaderProps['active']>) =>
     active === key ? 'is-active' : undefined;
 

@@ -134,16 +134,53 @@ async function captureOne(browser: Browser, job: Job): Promise<{
   }
 }
 
-async function main() {
-  const jobs = await discoverJobs();
+// Exit codes used by main():
+//   0 — at least one preview was produced (or there was nothing to do).
+//   1 — discovery / browser launch failure, OR every job in a non-empty
+//       run failed (systemic issue — workflows must surface this).
+//
+// Per-artifact failures alone do NOT exit non-zero. A single broken
+// `example.html` should never block a deploy that successfully renders
+// the other 100+ previews. CI workflows therefore do NOT need
+// `continue-on-error: true` on this step — a non-zero exit here means
+// something is genuinely wrong and the build should stop.
+const EXIT_OK = 0;
+const EXIT_SYSTEMIC = 1;
+
+async function main(): Promise<number> {
+  let jobs: Job[];
+  try {
+    jobs = await discoverJobs();
+  } catch (err) {
+    console.error(`✗ discoverJobs failed: ${err instanceof Error ? err.message : String(err)}`);
+    return EXIT_SYSTEMIC;
+  }
+
   // Allow a single arg `--only=<substring>` to subset for fast iteration.
   const only = process.argv.find((a) => a.startsWith('--only='))?.slice('--only='.length);
   const filtered = only ? jobs.filter((j) => j.slug.includes(only)) : jobs;
 
   console.log(`Generating ${filtered.length} previews → ${path.relative(REPO_ROOT, OUT_DIR)}/`);
+
+  if (filtered.length === 0) {
+    // Nothing to do — empty repo, or `--only=` matched nothing. Exit
+    // clean so CI doesn't fail a deploy that legitimately has no
+    // previews to render (e.g., on an early scaffold where no skill
+    // ships an `example.html` yet).
+    return EXIT_OK;
+  }
+
   await mkdir(OUT_DIR, { recursive: true });
 
-  const browser = await chromium.launch({ headless: true });
+  let browser: Browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (err) {
+    console.error(`✗ chromium.launch failed: ${err instanceof Error ? err.message : String(err)}`);
+    console.error('  Hint: in CI, ensure `playwright install --with-deps chromium` has run.');
+    return EXIT_SYSTEMIC;
+  }
+
   let ok = 0;
   let failed = 0;
   let bytes = 0;
@@ -154,37 +191,52 @@ async function main() {
   // and keeps total RAM under ~1.5GB.
   const CONCURRENCY = 4;
   let cursor = 0;
-  await Promise.all(
-    Array.from({ length: CONCURRENCY }, async () => {
-      while (cursor < filtered.length) {
-        const idx = cursor++;
-        const job = filtered[idx];
-        if (!job) break;
-        const result = await captureOne(browser, job);
-        if (result.ok) {
-          ok++;
-          bytes += result.bytes;
-          if (result.source === 'reuse') reused.push(job.slug);
-          process.stdout.write(`✓ ${job.bucket}/${job.slug} (${(result.bytes / 1024).toFixed(0)}kb${result.source === 'reuse' ? ', reused' : ''})\n`);
-        } else {
-          failed++;
-          errors.push({ slug: `${job.bucket}/${job.slug}`, error: result.error ?? 'unknown' });
-          process.stdout.write(`✗ ${job.bucket}/${job.slug}: ${result.error}\n`);
+  try {
+    await Promise.all(
+      Array.from({ length: CONCURRENCY }, async () => {
+        while (cursor < filtered.length) {
+          const idx = cursor++;
+          const job = filtered[idx];
+          if (!job) break;
+          const result = await captureOne(browser, job);
+          if (result.ok) {
+            ok++;
+            bytes += result.bytes;
+            if (result.source === 'reuse') reused.push(job.slug);
+            process.stdout.write(`✓ ${job.bucket}/${job.slug} (${(result.bytes / 1024).toFixed(0)}kb${result.source === 'reuse' ? ', reused' : ''})\n`);
+          } else {
+            failed++;
+            errors.push({ slug: `${job.bucket}/${job.slug}`, error: result.error ?? 'unknown' });
+            process.stdout.write(`✗ ${job.bucket}/${job.slug}: ${result.error}\n`);
+          }
         }
-      }
-    }),
-  );
+      }),
+    );
+  } finally {
+    await browser.close();
+  }
 
-  await browser.close();
   console.log(`\nDone. ok=${ok} failed=${failed} reused=${reused.length} total=${(bytes / 1024 / 1024).toFixed(1)}MB`);
   if (errors.length > 0) {
-    console.log('\nFailures:');
+    console.log('\nPer-artifact failures (deploy continues — catalog degrades gracefully for these):');
     for (const e of errors) console.log(`  ${e.slug}: ${e.error}`);
-    process.exit(1);
   }
+
+  // Systemic failure: every job in a non-empty run failed. That means
+  // the generator itself is broken, not just one author's example.html.
+  if (filtered.length > 0 && ok === 0) {
+    console.error(
+      `\n✗ All ${filtered.length} preview job(s) failed — treating as systemic.`,
+    );
+    return EXIT_SYSTEMIC;
+  }
+
+  return EXIT_OK;
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .then((code) => process.exit(code))
+  .catch((err) => {
+    console.error(err);
+    process.exit(EXIT_SYSTEMIC);
+  });

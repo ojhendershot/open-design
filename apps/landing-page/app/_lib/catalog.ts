@@ -25,23 +25,39 @@ const PREVIEWS_ROOT = path.resolve(
   fileURLToPath(new URL('../../public/previews', import.meta.url)),
 );
 
-function listPreviews(bucket: 'skills' | 'systems' | 'templates'): Set<string> {
+/**
+ * Map of `slug → filename`, e.g. `'kami-deck' → 'kami-deck.webp'`.
+ *
+ * We track the actual on-disk filename (with its real extension) so the
+ * generated `<img src>` URL never lies about the format. Earlier this
+ * was a `Set<string>` and `previewUrlFor()` always emitted `.png`,
+ * which 404'd whenever the previews step produced `.webp`/`.jpg`/`.jpeg`
+ * (e.g., after a future sharp post-processor or a manually committed
+ * template asset).
+ */
+function listPreviews(bucket: 'skills' | 'systems' | 'templates'): Map<string, string> {
   const dir = path.join(PREVIEWS_ROOT, bucket);
-  if (!existsSync(dir)) return new Set();
-  const slugs = new Set<string>();
+  if (!existsSync(dir)) return new Map();
+  const map = new Map<string, string>();
   for (const file of readdirSync(dir)) {
     const m = /^(.+)\.(png|webp|jpg|jpeg)$/i.exec(file);
-    if (m && m[1]) slugs.add(m[1]);
+    if (m && m[1]) {
+      // First match wins. If two files exist with the same slug but
+      // different extensions, prefer the one that sorts earlier (PNG
+      // before WebP in alphabetical order) for deterministic output.
+      if (!map.has(m[1])) map.set(m[1], file);
+    }
   }
-  return slugs;
+  return map;
 }
 
 function previewUrlFor(
   bucket: 'skills' | 'systems' | 'templates',
   slug: string,
-  available: Set<string>,
+  available: Map<string, string>,
 ): string | null {
-  return available.has(slug) ? `/previews/${bucket}/${slug}.png` : null;
+  const filename = available.get(slug);
+  return filename ? `/previews/${bucket}/${filename}` : null;
 }
 
 const REPO_TREE = 'https://github.com/nexu-io/open-design/tree/main';
@@ -84,7 +100,7 @@ function firstParagraph(text: string | undefined, fallback = ''): string {
 
 export function shapeSkill(
   entry: SkillEntry,
-  previews: Set<string>,
+  previews: Map<string, string>,
 ): SkillRecord {
   const slug = deriveSkillSlug(entry.id);
   const data = entry.data as {
@@ -305,8 +321,14 @@ export function shapeCraft(entry: CraftEntry): CraftRecord {
 
 export async function getCraftRecords(): Promise<ReadonlyArray<CraftRecord>> {
   const entries = await getCollection('craft');
+  // Astro normalizes the entry id from `craft/README.md` to `readme`
+  // (lowercase, extension stripped). Comparing the raw `'README'` string
+  // misses it on disk and used to ship `/craft/readme/` as a public
+  // craft principle and inflate the nav count by one. Compare
+  // case-insensitively so future README casings (`Readme.md`, etc.) are
+  // also filtered out.
   return entries
-    .filter((e) => e.id !== 'README')
+    .filter((e) => e.id.toLowerCase() !== 'readme')
     .map(shapeCraft)
     .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -331,7 +353,7 @@ export type TemplateEntry = CollectionEntry<'templates'>;
 
 export function shapeLiveArtifactTemplate(
   entry: TemplateEntry,
-  previews: Set<string>,
+  previews: Map<string, string>,
 ): TemplateRecord {
   const slug = entry.id.split('/')[0] ?? entry.id;
   const body = entry.body ?? '';
@@ -390,15 +412,38 @@ export async function getTemplateRecords(): Promise<ReadonlyArray<TemplateRecord
 }
 
 // ---------------------------------------------------------------------------
-// Counts (used for nav badges)
+// Counts
+//
+// `getCatalogCounts()` is the canonical numbers source for the homepage
+// (hero stat rings, hero lead, capabilities cards, footer Library) and
+// the nav badges. Anything in `app/page.tsx` that talks about catalog
+// size MUST read from here — never hardcode. The `byMode` and
+// `byPlatform` breakdowns power the `Labs` filter pills so they stay
+// in sync with `od.mode` / `od.platform` across the SKILL.md corpus.
 // ---------------------------------------------------------------------------
 
-export async function getCatalogCounts(): Promise<{
+export interface CatalogCounts {
   skills: number;
   systems: number;
   templates: number;
   craft: number;
-}> {
+  /** SKILL.md `od.mode` → count. Lowercase keys (e.g. `deck`, `prototype`). */
+  byMode: Readonly<Record<string, number>>;
+  /** SKILL.md `od.platform` → count. Lowercase keys (e.g. `mobile`, `desktop`). */
+  byPlatform: Readonly<Record<string, number>>;
+}
+
+function tallyKey(values: Iterable<string | undefined>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const v of values) {
+    if (!v) continue;
+    const k = v.toLowerCase();
+    out[k] = (out[k] ?? 0) + 1;
+  }
+  return out;
+}
+
+export async function getCatalogCounts(): Promise<CatalogCounts> {
   const [skills, systems, templates, craft] = await Promise.all([
     getSkillRecords(),
     getSystemRecords(),
@@ -410,6 +455,8 @@ export async function getCatalogCounts(): Promise<{
     systems: systems.length,
     templates: templates.length,
     craft: craft.length,
+    byMode: tallyKey(skills.map((s) => s.mode)),
+    byPlatform: tallyKey(skills.map((s) => s.platform)),
   };
 }
 
