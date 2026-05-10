@@ -289,7 +289,7 @@ jobs:
     name: Build beta mac x64
     needs: metadata
     if: ${{ inputs.enable_mac_intel }}
-    runs-on: macos-13
+    runs-on: macos-15-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2

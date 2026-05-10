@@ -23,6 +23,12 @@ async function main(): Promise<void> {
   process.env.OD_PACKAGED_E2E_REPORT_DIR = report.root;
 
   await report.json('manifest.json', {
+    ...(process.env.OD_PACKAGED_E2E_RELEASE_CHANNEL == null
+      ? {}
+      : { channel: process.env.OD_PACKAGED_E2E_RELEASE_CHANNEL }),
+    ...(process.env.OD_PACKAGED_E2E_RELEASE_VERSION == null
+      ? {}
+      : { releaseVersion: process.env.OD_PACKAGED_E2E_RELEASE_VERSION }),
     commit: process.env.GITHUB_SHA ?? null,
     generatedAt: new Date().toISOString(),
     githubRunAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
