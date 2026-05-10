@@ -9,7 +9,7 @@
  * islands only when behavior is needed.
  */
 
-import { Header } from './_components/header';
+import { Header, type HeaderProps } from './_components/header';
 import { Wire } from './_components/wire';
 import { heroImage, imageAsset } from './image-assets';
 
@@ -90,7 +90,12 @@ const WIRE_CITIES = [
   { name: 'Sydney', coord: '33.87°S' },
 ] as const;
 
-export default function Page() {
+interface PageProps {
+  /** Live counts from the Markdown catalogs; passed through to Header. */
+  counts?: HeaderProps['counts'];
+}
+
+export default function Page({ counts }: PageProps = {}) {
   return (
     <>
       {/* side rails (rotated brand text) */}
@@ -145,7 +150,7 @@ export default function Page() {
 
         {/* ====== NAV ====== */}
         {/* Headroom-style sticky header with live GitHub star count. */}
-        <Header />
+        <Header counts={counts} />
 
         {/* ====== HERO ====== */}
         <section className='hero' id='top' data-od-id='hero'>
