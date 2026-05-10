@@ -1057,4 +1057,6 @@ Post-audit remediation verification:
   - `.github/workflows/release-beta.yml`, `.github/workflows/release-stable.yml`, and `.github/workflows/ci.yml` parsed with the local `yaml@2.8.4` package.
   - `git diff --check` produced no output.
 
-Next agent should verify live branch state before publishing or opening a PR.
+Publication packet prepared at `docs/superpowers/plans/2026-05-10-linux-client-publication-packet.md`.
+
+Next agent should verify live branch state before publishing or opening a PR. Do not push or create a PR unless the user explicitly authorizes publication.
