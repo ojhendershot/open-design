@@ -135,12 +135,14 @@ type HealthEvalValue = {
 };
 
 linuxHeadlessDescribe('packaged linux headless runtime smoke', () => {
+  let installed = false;
   let started = false;
 
   test('installs, starts, inspects status, logs, stops, uninstalls, and cleans up headless runtime', async () => {
     let passed = false;
     try {
       const install = await runToolsPackJson<LinuxHeadlessInstallResult>('install', ['--headless']);
+      installed = true;
       expect(install.namespace).toBe(namespace);
       expectPathInside(install.launcherPath, join(userHome, '.local', 'bin'));
       expect(await pathExists(install.launcherPath)).toBe(true);
@@ -173,6 +175,7 @@ linuxHeadlessDescribe('packaged linux headless runtime smoke', () => {
       expect(stop.remainingPids).toEqual([]);
 
       const uninstall = await runToolsPackJson<LinuxHeadlessUninstallResult>('uninstall', ['--headless']);
+      installed = false;
       expect(uninstall.namespace).toBe(namespace);
       expectLinuxRemovedStatus('headless launcher', uninstall.removed);
       expect(await pathExists(install.launcherPath)).toBe(false);
@@ -186,10 +189,12 @@ linuxHeadlessDescribe('packaged linux headless runtime smoke', () => {
           console.error('failed to read packaged linux logs after failure', error);
         });
       }
-      if (started) {
-        await runToolsPackJson<LinuxStopResult>('stop', ['--headless']).catch((error: unknown) => {
-          console.error('failed to stop packaged linux headless runtime during cleanup', error);
+      if (started || installed) {
+        await runToolsPackJson<LinuxHeadlessUninstallResult>('uninstall', ['--headless']).catch((error: unknown) => {
+          console.error('failed to uninstall packaged linux headless runtime during cleanup', error);
         });
+        started = false;
+        installed = false;
       }
     }
   }, 180_000);

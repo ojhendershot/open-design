@@ -39,6 +39,9 @@ const DESKTOP_LOG_ECHO_ENV = "OD_DESKTOP_LOG_ECHO";
 // `electronuserland/builder:base`, which strips npm/npx/corepack.
 const PRODUCTION_INSTALL_PNPM_BIN_ENV = "OD_TOOLS_PACK_PNPM_BIN";
 const CONTAINER_PNPM_PATH = "/tmp/pnpm";
+const CONTAINER_PNPM_HOME = "/tmp/pnpm-home";
+const CONTAINER_NODE_VERSION = "24.14.1";
+const CONTAINER_TOOLS_PACK_CLI_PATH = "tools/pack/bin/tools-pack.mjs";
 
 const INTERNAL_PACKAGES = [
   { directory: "packages/contracts", name: "@open-design/contracts" },
@@ -124,14 +127,17 @@ export function buildDockerArgs(
   //     carry punctuation that is not part of the namespace / target enums.
   //
   // The `electronuserland/builder:base` image is intentionally minimal: it
-  // ships a Node binary but strips npm, npx, and corepack from PATH. Every
-  // "ask the image to invoke pnpm" path fails with `command not found`.
+  // strips node/npm/npx/corepack from PATH. Every "ask the image to invoke a
+  // package-manager shim" path fails with `command not found`.
   //
   // Download the official pnpm `linuxstatic-<arch>` standalone binary at
   // container start. The binary bundles its own Node runtime, so it does not
   // depend on the image's npm tooling. Select the asset by the container CPU so
   // amd64 GitHub runners and arm64 local Docker hosts both work. Stage it under
-  // `/tmp/pnpm`, which is writable by the unprivileged container user.
+  // `/tmp/pnpm`, which is writable by the unprivileged container user. Then use
+  // it to install a pinned Node into PNPM_HOME so root lifecycle scripts and the
+  // final tools-pack CLI can run through an explicit `node .../tools-pack.mjs`
+  // entrypoint instead of generated `node_modules/.bin/*` shims.
   //
   // Route bootstrap and install diagnostics to stderr so stdout remains
   // machine-readable when the inner `tools-pack linux build --json` emits JSON.
@@ -144,6 +150,7 @@ export function buildDockerArgs(
   const pnpmReleaseUrl = `https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}`;
   const setupPnpm =
     `command -v curl >/dev/null || { echo "curl not found in container image" >&2; exit 127; } && ` +
+    `mkdir -p ${CONTAINER_PNPM_HOME} && ` +
     `case "$(uname -m)" in ` +
     `x86_64) PNPM_ASSET=pnpm-linuxstatic-x64; PNPM_SHA256=${pnpmLinuxStaticX64Sha256} ;; ` +
     `aarch64) PNPM_ASSET=pnpm-linuxstatic-arm64; PNPM_SHA256=${pnpmLinuxStaticArm64Sha256} ;; ` +
@@ -152,10 +159,13 @@ export function buildDockerArgs(
     `curl --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 -fsSL "${pnpmReleaseUrl}/$PNPM_ASSET" -o ${CONTAINER_PNPM_PATH}.tmp && ` +
     `echo "$PNPM_SHA256  ${CONTAINER_PNPM_PATH}.tmp" | sha256sum -c - && ` +
     `mv ${CONTAINER_PNPM_PATH}.tmp ${CONTAINER_PNPM_PATH} && ` +
-    `chmod +x ${CONTAINER_PNPM_PATH}`;
+    `chmod +x ${CONTAINER_PNPM_PATH} && ` +
+    `PNPM_HOME=${CONTAINER_PNPM_HOME} PATH=${CONTAINER_PNPM_HOME}:$PATH ${CONTAINER_PNPM_PATH} env use --global ${CONTAINER_NODE_VERSION} && ` +
+    `export PNPM_HOME=${CONTAINER_PNPM_HOME} PATH=${CONTAINER_PNPM_HOME}:$PATH && ` +
+    `command -v node >/dev/null`;
   const pnpmCmd = CONTAINER_PNPM_PATH;
   const innerArgs = [
-    `${pnpmCmd} tools-pack linux build`,
+    `node ${CONTAINER_TOOLS_PACK_CLI_PATH} linux build`,
     `--to ${config.to}`,
     `--namespace ${config.namespace}`,
     "--dir /tools-pack",
@@ -761,11 +771,10 @@ function isDesktopRootIdentityMarker(value: unknown): value is DesktopRootIdenti
   );
 }
 
-async function readDesktopRootIdentityMarker(config: ToolPackConfig): Promise<{
+async function readRootIdentityMarker(markerPath: string): Promise<{
   fallback: DesktopRootIdentityFallback;
   marker: DesktopRootIdentityMarker | null;
 }> {
-  const markerPath = desktopIdentityPath(config);
   let payload: unknown;
   try {
     payload = JSON.parse(await readFile(markerPath, "utf8"));
@@ -783,6 +792,20 @@ async function readDesktopRootIdentityMarker(config: ToolPackConfig): Promise<{
     fallback: { marker: payload, markerPath, reason: "marker-present" },
     marker: payload,
   };
+}
+
+async function readDesktopRootIdentityMarker(config: ToolPackConfig): Promise<{
+  fallback: DesktopRootIdentityFallback;
+  marker: DesktopRootIdentityMarker | null;
+}> {
+  return readRootIdentityMarker(desktopIdentityPath(config));
+}
+
+async function readHeadlessRootIdentityMarker(config: ToolPackConfig): Promise<{
+  fallback: DesktopRootIdentityFallback;
+  marker: DesktopRootIdentityMarker | null;
+}> {
+  return readRootIdentityMarker(headlessIdentityPath(config));
 }
 
 async function readProcessEnv(pid: number): Promise<Record<string, string>> {
@@ -814,6 +837,10 @@ function desktopLogPath(config: ToolPackConfig): string {
 
 function desktopIdentityPath(config: ToolPackConfig): string {
   return join(config.roots.runtime.namespaceRoot, "runtime", "desktop-root.json");
+}
+
+function headlessIdentityPath(config: ToolPackConfig): string {
+  return join(config.roots.runtime.namespaceRoot, "runtime", "headless-root.json");
 }
 
 function linuxDesktopStamp(config: ToolPackConfig): SidecarStamp {
@@ -1346,9 +1373,11 @@ export async function startPackedLinuxHeadless(config: ToolPackConfig): Promise<
   await mkdir(dirname(logPath), { recursive: true });
   await writeFile(logPath, "", "utf8");
 
-  // Remove stale identity markers from a previous run so waitForMarker and
-  // waitForWebIdentity below wait for the newly spawned process.
-  await rm(desktopIdentityPath(config), { force: true }).catch(() => undefined);
+  // Remove stale headless identity markers from a previous run so waitForMarker
+  // and waitForWebIdentity below wait for the newly spawned process. Leave
+  // desktop-root.json alone: a menu-launched AppImage uses that marker and
+  // headless start/stop must not claim or erase it.
+  await rm(headlessIdentityPath(config), { force: true }).catch(() => undefined);
   await rm(webIdentityPath(config), { force: true }).catch(() => undefined);
 
   // Open the log file so stdout/stderr from the headless process are captured.
@@ -1378,11 +1407,11 @@ export async function startPackedLinuxHeadless(config: ToolPackConfig): Promise<
     await logHandle.close().catch(() => undefined);
   }
 
-  const markerPath = desktopIdentityPath(config);
+  const markerPath = headlessIdentityPath(config);
   const ready = await waitForMarker(markerPath, 35_000);
   if (!ready) {
     await teardownOrphanedStart(child.pid).catch(() => undefined);
-    throw new Error(`headless identity marker not written within 35s at ${markerPath}`);
+    throw new Error(`headless-root.json not written within 35s at ${markerPath}`);
   }
 
   const webIdentity = await waitForWebIdentity(config, child.pid, 60_000);
@@ -1401,7 +1430,7 @@ export async function startPackedLinuxHeadless(config: ToolPackConfig): Promise<
 }
 
 export async function stopPackedLinuxHeadless(config: ToolPackConfig): Promise<LinuxStopResult> {
-  const { fallback, marker } = await readDesktopRootIdentityMarker(config);
+  const { fallback, marker } = await readHeadlessRootIdentityMarker(config);
 
   if (marker == null) {
     return {
@@ -1427,9 +1456,10 @@ export async function stopPackedLinuxHeadless(config: ToolPackConfig): Promise<L
     };
   }
 
-  // Validate the stamp. Headless writes source=PACKAGED; skip the AppImage
-  // process-command check used by stopPackedLinuxApp since the headless entry
-  // is a plain Node process, not an AppImage.
+  // Validate the stamp from headless-root.json. A menu-launched AppImage writes
+  // the same PACKAGED source to desktop-root.json, so the distinct marker path
+  // is the ownership boundary that keeps --headless stop/cleanup from claiming
+  // the AppImage runtime.
   const expectedIpc = resolveAppIpcPath({
     app: APP_KEYS.DESKTOP,
     contract: OPEN_DESIGN_SIDECAR_CONTRACT,
@@ -1470,7 +1500,7 @@ export async function stopPackedLinuxHeadless(config: ToolPackConfig): Promise<L
   const result = await stopProcesses(treePids);
 
   if (result.remainingPids.length === 0) {
-    await rm(desktopIdentityPath(config), { force: true }).catch(() => undefined);
+    await rm(headlessIdentityPath(config), { force: true }).catch(() => undefined);
     await rm(webIdentityPath(config), { force: true }).catch(() => undefined);
   }
 
@@ -1487,7 +1517,8 @@ export async function cleanupPackedLinuxNamespace(
   config: ToolPackConfig,
   options: { headless?: boolean } = {},
 ): Promise<LinuxCleanupResult> {
-  const stop = resolveLinuxLifecycleMode(options, "cleanup") === "headless"
+  const mode = resolveLinuxLifecycleMode(options, "cleanup");
+  const stop = mode === "headless"
     ? await stopPackedLinuxHeadless(config)
     : await stopPackedLinuxApp(config);
   const outputRoot = config.roots.output.namespaceRoot;
@@ -1503,6 +1534,21 @@ export async function cleanupPackedLinuxNamespace(
       skipped: true,
       stop,
     };
+  }
+
+  if (mode === "headless") {
+    const { marker } = await readDesktopRootIdentityMarker(config);
+    if (marker != null) {
+      return {
+        namespace: config.namespace,
+        outputRoot,
+        removedOutputRoot: false,
+        removedRuntimeNamespaceRoot: false,
+        runtimeNamespaceRoot,
+        skipped: true,
+        stop,
+      };
+    }
   }
 
   const hadOutput = await pathExists(outputRoot);

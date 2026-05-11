@@ -30,6 +30,7 @@ describe("packaged smoke workflow", () => {
     expect(workflow).toContain("linux-tools-pack-build.json");
     expect(workflow).toContain("Upload linux headless e2e spec report");
     expect(workflow).toContain("open-design-pr-linux-headless-e2e-report");
+    expectPrLinuxBuildPreservesEvidence(workflow, "Build PR linux headless artifacts");
   });
 
   it("preserves beta linux AppImage smoke reports for release publication", async () => {
@@ -70,6 +71,17 @@ describe("packaged smoke workflow", () => {
     expectReleaseLinuxSmokePreservesEvidenceBeforeApt(workflow, "Smoke release linux AppImage runtime");
   });
 });
+
+function expectPrLinuxBuildPreservesEvidence(workflow: string, stepName: string): void {
+  const step = workflow.match(new RegExp(`- name: ${stepName}\\n(?:.+\\n)+?(?=\\n      - name: Smoke PR linux headless packaged runtime)`, "m"))?.[0];
+  expect(step).toBeDefined();
+  expect(step).toContain('report_dir="$RUNNER_TEMP/packaged-report/linux-headless"');
+  expect(step).toContain('mkdir -p "$report_dir"');
+  expect(step).toContain('build_json_path="$report_dir/linux-tools-pack-build.json"');
+  expect(step).toContain('build_log_path="$report_dir/linux-tools-pack-build.log"');
+  const capturedStdoutWrites = step?.match(/printf '%s\\n' "\$build_output" \| tee "\$build_json_path"/g) ?? [];
+  expect(capturedStdoutWrites).toHaveLength(2);
+}
 
 function expectReleaseLinuxBuildPreservesEvidence(workflow: string, stepName: string): void {
   const step = workflow.match(new RegExp(`- name: ${stepName}\\n(?:.+\\n)+?(?=\\n      - name: Smoke .+ linux AppImage runtime)`, "m"))?.[0];

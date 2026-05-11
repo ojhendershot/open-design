@@ -505,7 +505,7 @@ jobs:
             node -e 'const fs = require("node:fs"); JSON.parse(fs.readFileSync(process.argv[1], "utf8"));' "$build_json_path"
           else
             build_status=$?
-            printf '%s\n' "$build_output"
+            printf '%s\n' "$build_output" | tee "$build_json_path"
             exit "$build_status"
           fi
           cat > "$report_dir/manifest.json" <<EOF
