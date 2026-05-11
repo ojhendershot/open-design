@@ -22,6 +22,8 @@ interface Props {
   onUploadFiles: (files: File[]) => void;
   onPaste: () => void;
   onNewSketch: () => void;
+  uploadError?: string | null;
+  onClearUploadError?: () => void;
 }
 
 type DesignFilesGroupMode = 'kind' | 'modified';
@@ -64,6 +66,8 @@ export function DesignFilesPanel({
   onUploadFiles,
   onPaste,
   onNewSketch,
+  uploadError = null,
+  onClearUploadError,
 }: Props) {
   const t = useT();
   const [refreshing, setRefreshing] = useState(false);
@@ -600,6 +604,20 @@ export function DesignFilesPanel({
           )}
         </div>
         <div className="df-body">
+          {uploadError && !preview ? (
+            <div className="df-upload-banner" data-testid="upload-error-banner">
+              <span>{uploadError}</span>
+              {onClearUploadError ? (
+                <button
+                  type="button"
+                  data-testid="upload-error-dismiss"
+                  onClick={onClearUploadError}
+                >
+                  Dismiss
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {files.length === 0 && liveArtifacts.length === 0 ? (
             <div className="df-empty">{t('designFiles.empty')}</div>
           ) : (

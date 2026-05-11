@@ -10,6 +10,7 @@ import {
   deleteProjectFile,
   fetchProjectFileText,
   renameProjectFile,
+  type UploadProjectFilesResult,
   uploadProjectFiles,
   writeProjectTextFile,
 } from '../providers/registry';
@@ -161,6 +162,7 @@ export function FileWorkspace({
   }, [openRequest]);
 
   function openFile(name: string) {
+    setUploadError(null);
     onTabsStateChange({
       tabs: persistedTabs.includes(name) ? persistedTabs : [...persistedTabs, name],
       active: name,
@@ -232,7 +234,14 @@ export function FileWorkspace({
     if (picked.length === 0) return;
 
     setUploadError(null);
-    const result = await uploadProjectFiles(projectId, picked);
+    let result: UploadProjectFilesResult;
+    try {
+      result = await uploadProjectFiles(projectId, picked);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      setUploadError(`Upload failed for ${picked.length} file(s) (${detail}).`);
+      return;
+    }
     if (result.uploaded.length > 0) {
       await onRefreshFiles();
       const lastUploaded = result.uploaded[result.uploaded.length - 1];
@@ -651,25 +660,22 @@ export function FileWorkspace({
         </div>
       </div>
       <div className="ws-body">
-        {/* Keep the failure banner visible across tab switches so the
-            partial-success case (some files succeed and auto-open while
-            others fail) doesn't silently drop the failure signal. The
-            banner now carries an explicit dismiss button so the user
-            can clear the stale message themselves, which is what #786
-            was really asking for: a way to drop the message rather than
-            have it pinned above an unrelated file preview forever. The
-            next upload also clears it via setUploadError(null) at the
-            top of uploadFiles(). */}
-        {uploadError ? (
-          <div className="viewer-empty viewer-empty-dismissible">
+        {/* Banner moved into DesignFilesPanel for the Design Files tab so
+            single-click preview (which keeps activeTab on DESIGN_FILES_TAB)
+            no longer leaves a stale banner mounted above the preview.
+            Keep a fallback here that fires only when activeTab is not the
+            Design Files tab, which preserves visibility for the
+            partial-upload case where the last successful file auto-opens
+            into a viewer surface. */}
+        {uploadError && activeTab !== DESIGN_FILES_TAB ? (
+          <div className="df-upload-banner" data-testid="upload-error-banner">
             <span>{uploadError}</span>
             <button
               type="button"
-              className="ghost"
-              aria-label={t('common.close')}
+              data-testid="upload-error-dismiss"
               onClick={() => setUploadError(null)}
             >
-              {t('common.close')}
+              Dismiss
             </button>
           </div>
         ) : null}
@@ -689,6 +695,8 @@ export function FileWorkspace({
             onUploadFiles={(picked) => void uploadFiles(picked)}
             onPaste={() => setShowPasteDialog(true)}
             onNewSketch={startNewSketch}
+            uploadError={uploadError}
+            onClearUploadError={() => setUploadError(null)}
           />
         ) : isActiveSketch && activeSketch && activeFile ? (
           activeSketch.loaded ? (

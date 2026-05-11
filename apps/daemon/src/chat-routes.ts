@@ -8,7 +8,13 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
   const { sendApiError, createSseResponse } = ctx.http;
   const { startChatRun } = ctx.chat;
   const { testProviderConnection, testAgentConnection, getAgentDef, isKnownModel, sanitizeCustomModel, listProviderModels } = ctx.agents;
-  const { handleCritiqueInterrupt, critiqueRunRegistry } = ctx.critique;
+  const {
+    handleCritiqueArtifact,
+    handleCritiqueInterrupt,
+    critiqueArtifactsRoot,
+    critiqueResponseCapBytes,
+    critiqueRunRegistry,
+  } = ctx.critique;
   const { validateBaseUrl } = ctx.validation;
   const isDaemonShuttingDown = ctx.lifecycle?.isDaemonShuttingDown ?? (() => false);
   app.post('/api/runs', (req, res) => {
@@ -260,6 +266,22 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
   app.post(
     '/api/projects/:projectId/critique/:runId/interrupt',
     handleCritiqueInterrupt(db, critiqueRunRegistry),
+  );
+
+  // GET /api/projects/:projectId/critique/:runId/artifact
+  // Streams the SHIP <ARTIFACT> body the orchestrator persisted, with
+  // mime derived from the file extension on disk. Cross-project leak
+  // guard mirrors the interrupt route. The web layer fetches this as
+  // the logical artifact handle so it never sees daemon paths.
+  //
+  // Response cap is threaded from cfg.parserMaxBlockBytes so a row that
+  // the orchestrator + writer accepted is always retrievable.
+  app.get(
+    '/api/projects/:projectId/critique/:runId/artifact',
+    handleCritiqueArtifact(db, {
+      artifactsRoot: critiqueArtifactsRoot,
+      responseCapBytes: critiqueResponseCapBytes,
+    }),
   );
 
   // ---- API Proxy (SSE) for API-compatible endpoints ------------------------

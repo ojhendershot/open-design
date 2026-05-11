@@ -46,6 +46,7 @@ import { reconcileStaleRuns } from './critique/persistence.js';
 import { runOrchestrator } from './critique/orchestrator.js';
 import { createRunRegistry } from './critique/run-registry.js';
 import { handleCritiqueInterrupt } from './critique/interrupt-handler.js';
+import { handleCritiqueArtifact } from './critique/artifact-handler.js';
 import { createCopilotStreamHandler } from './copilot-stream.js';
 import { createJsonEventStreamHandler } from './json-event-stream.js';
 import { createQoderStreamHandler } from './qoder-stream.js';
@@ -946,6 +947,10 @@ migrateLegacyDataDirSync({
   dataDir: RUNTIME_DATA_DIR,
 });
 const ARTIFACTS_DIR = path.join(RUNTIME_DATA_DIR, 'artifacts');
+// Critique Theater artifacts intentionally live outside the static
+// `/artifacts` tree. The per-run artifact endpoint is the sanctioned
+// read path so project-membership, size, and CSP guards cannot be bypassed.
+const CRITIQUE_ARTIFACTS_DIR = path.join(RUNTIME_DATA_DIR, 'critique-artifacts');
 const PROJECTS_DIR = path.join(RUNTIME_DATA_DIR, 'projects');
 const USER_SKILLS_DIR = path.join(RUNTIME_DATA_DIR, 'skills');
 const USER_DESIGN_SYSTEMS_DIR = path.join(RUNTIME_DATA_DIR, 'design-systems');
@@ -953,6 +958,7 @@ fs.mkdirSync(PROJECTS_DIR, { recursive: true });
 for (const dir of [USER_SKILLS_DIR, USER_DESIGN_SYSTEMS_DIR]) {
   fs.mkdirSync(dir, { recursive: true });
 }
+fs.mkdirSync(CRITIQUE_ARTIFACTS_DIR, { recursive: true });
 const orbitService = new OrbitService(RUNTIME_DATA_DIR);
 let routineService = null;
 
@@ -2413,7 +2419,13 @@ export async function startServer({
     isKnownModel,
     sanitizeCustomModel,
   };
-  const critiqueDeps = { handleCritiqueInterrupt, critiqueRunRegistry };
+  const critiqueDeps = {
+    handleCritiqueArtifact,
+    handleCritiqueInterrupt,
+    critiqueArtifactsRoot: CRITIQUE_ARTIFACTS_DIR,
+    critiqueResponseCapBytes: critiqueCfg.parserMaxBlockBytes,
+    critiqueRunRegistry,
+  };
 
   // External services
   registerMcpRoutes(app, {
