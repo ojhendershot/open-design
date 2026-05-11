@@ -62,7 +62,7 @@ jobs:
                   required=true
                 fi
               done
-              if [[ "$file" == "e2e/specs/mac.spec.ts" || "$file" == "e2e/specs/win.spec.ts" || "$file" == "e2e/specs/linux.spec.ts" || "$file" == "e2e/specs/linux-helpers.ts" || "$file" == "package.json" || "$file" == "pnpm-lock.yaml" || "$file" == "pnpm-workspace.yaml" || "$file" == ".github/workflows/ci.yml" || "$file" == ".github/workflows/release-beta.yml" || "$file" == ".github/workflows/release-stable.yml" ]]; then
+              if [[ "$file" == "e2e/specs/mac.spec.ts" || "$file" == "e2e/specs/win.spec.ts" || "$file" == "e2e/specs/linux.spec.ts" || "$file" == "e2e/lib/linux-helpers.ts" || "$file" == "package.json" || "$file" == "pnpm-lock.yaml" || "$file" == "pnpm-workspace.yaml" || "$file" == ".github/workflows/ci.yml" || "$file" == ".github/workflows/release-beta.yml" || "$file" == ".github/workflows/release-stable.yml" ]]; then
                 required=true
               fi
               if [ "$required" = "true" ]; then

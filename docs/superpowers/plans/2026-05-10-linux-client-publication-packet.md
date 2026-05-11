@@ -122,5 +122,5 @@ These follow-ups were completed locally after the initial publication packet:
 
 ## Final Audit Remediation Completed
 
-- CI packaged smoke detection now includes `e2e/specs/linux-helpers.ts`, so helper-only Linux e2e changes trigger the Linux packaged smoke gate.
+- CI packaged smoke detection now includes `e2e/lib/linux-helpers.ts`, so helper-only Linux e2e changes trigger the Linux packaged smoke gate.
 - Beta/stable Linux release smoke stages manifest/build evidence before `apt-get update` / `apt-get install`, and tees apt output into the uploaded report directory.

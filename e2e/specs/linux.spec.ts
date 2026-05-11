@@ -14,7 +14,7 @@ import {
   expectPathInside,
   linuxUserHome,
   pathExists,
-} from './linux-helpers.js';
+} from '../lib/linux-helpers.js';
 
 const execFileAsync = promisify(execFile);
 const e2eRoot = dirname(dirname(fileURLToPath(import.meta.url)));

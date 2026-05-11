@@ -7,6 +7,7 @@ import { expect } from 'vitest';
 export const PACKAGED_APP_KEYS = ['desktop', 'web', 'daemon'] as const;
 
 export function linuxUserHome(): string {
+  // Match tools-pack path resolution instead of deriving expectations from HOME directly.
   return homedir();
 }
 

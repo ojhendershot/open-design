@@ -1,21 +1,18 @@
-import { homedir } from "node:os";
+import { describe, expect, it, vi } from "vitest";
 
-import { describe, expect, it } from "vitest";
-
-import { linuxRemovalStatusMessage, linuxUserHome } from "../specs/linux-helpers.js";
+import { linuxRemovalStatusMessage } from "../lib/linux-helpers.js";
 
 describe("linux e2e helpers", () => {
-  it("uses os.homedir for install path expectations when HOME is unset", () => {
-    const originalHome = process.env.HOME;
+  it("delegates user-home resolution to node os.homedir", async () => {
+    vi.resetModules();
+    vi.doMock("node:os", () => ({ homedir: () => "/tmp/open-design-test-home" }));
+
     try {
-      delete process.env.HOME;
-      expect(linuxUserHome()).toBe(homedir());
+      const { linuxUserHome } = await import("../lib/linux-helpers.js");
+      expect(linuxUserHome()).toBe("/tmp/open-design-test-home");
     } finally {
-      if (originalHome == null) {
-        delete process.env.HOME;
-      } else {
-        process.env.HOME = originalHome;
-      }
+      vi.doUnmock("node:os");
+      vi.resetModules();
     }
   });
 
