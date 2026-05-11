@@ -34,6 +34,11 @@ const execFileAsync = promisify(execFile);
 const PRODUCT_NAME = "Open Design";
 const APP_IMAGE_PRODUCT_NAME = "Open-Design";
 const DESKTOP_LOG_ECHO_ENV = "OD_DESKTOP_LOG_ECHO";
+// The containerized build sets this to the standalone pnpm binary fetched by
+// buildDockerArgs; runProductionInstall reads it to avoid invoking `npm` inside
+// `electronuserland/builder:base`, which strips npm/npx/corepack.
+const PRODUCTION_INSTALL_PNPM_BIN_ENV = "OD_TOOLS_PACK_PNPM_BIN";
+const CONTAINER_PNPM_PATH = "/tmp/pnpm";
 
 const INTERNAL_PACKAGES = [
   { directory: "packages/contracts", name: "@open-design/contracts" },
@@ -144,11 +149,11 @@ export function buildDockerArgs(
     `aarch64) PNPM_ASSET=pnpm-linuxstatic-arm64; PNPM_SHA256=${pnpmLinuxStaticArm64Sha256} ;; ` +
     `*) echo "unsupported container arch: $(uname -m)" >&2; exit 1 ;; ` +
     `esac && ` +
-    `curl --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 -fsSL "${pnpmReleaseUrl}/$PNPM_ASSET" -o /tmp/pnpm.tmp && ` +
-    `echo "$PNPM_SHA256  /tmp/pnpm.tmp" | sha256sum -c - && ` +
-    `mv /tmp/pnpm.tmp /tmp/pnpm && ` +
-    `chmod +x /tmp/pnpm`;
-  const pnpmCmd = "/tmp/pnpm";
+    `curl --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 -fsSL "${pnpmReleaseUrl}/$PNPM_ASSET" -o ${CONTAINER_PNPM_PATH}.tmp && ` +
+    `echo "$PNPM_SHA256  ${CONTAINER_PNPM_PATH}.tmp" | sha256sum -c - && ` +
+    `mv ${CONTAINER_PNPM_PATH}.tmp ${CONTAINER_PNPM_PATH} && ` +
+    `chmod +x ${CONTAINER_PNPM_PATH}`;
+  const pnpmCmd = CONTAINER_PNPM_PATH;
   const innerArgs = [
     `${pnpmCmd} tools-pack linux build`,
     `--to ${config.to}`,
@@ -184,6 +189,8 @@ export function buildDockerArgs(
     "ELECTRON_CACHE=/home/builder/.cache/electron",
     "-e",
     "ELECTRON_BUILDER_CACHE=/home/builder/.cache/electron-builder",
+    "-e",
+    `${PRODUCTION_INSTALL_PNPM_BIN_ENV}=${CONTAINER_PNPM_PATH}`,
     "-w",
     "/project",
     "electronuserland/builder:base",
@@ -299,8 +306,31 @@ async function runPnpm(
   });
 }
 
-async function runNpmInstall(appRoot: string): Promise<void> {
-  await execFileAsync("npm", ["install", "--omit=dev", "--no-package-lock"], {
+export type ProductionInstallCommand = { command: string; args: string[] };
+
+// Picks the package manager used to materialize the assembled-app node_modules
+// during writeAssembledApp. The default (`npm`) preserves host behavior for
+// developer-machine builds. When the build runs inside
+// `electronuserland/builder:base` (which strips npm, npx, and corepack),
+// buildDockerArgs sets OD_TOOLS_PACK_PNPM_BIN to the standalone pnpm binary it
+// bootstrapped, and this resolver routes the install through that binary.
+// `--config.node-linker=hoisted` keeps the resulting layout flat so
+// electron-builder packs node_modules the same way it does for npm-installed
+// trees.
+export function resolveProductionInstallCommand(env: NodeJS.ProcessEnv): ProductionInstallCommand {
+  const pnpmBin = env[PRODUCTION_INSTALL_PNPM_BIN_ENV];
+  if (pnpmBin != null && pnpmBin.length > 0) {
+    return {
+      command: pnpmBin,
+      args: ["install", "--prod", "--no-lockfile", "--config.node-linker=hoisted"],
+    };
+  }
+  return { command: "npm", args: ["install", "--omit=dev", "--no-package-lock"] };
+}
+
+async function runProductionInstall(appRoot: string): Promise<void> {
+  const { command, args } = resolveProductionInstallCommand(process.env);
+  await execFileAsync(command, args, {
     cwd: appRoot,
     env: process.env,
   });
@@ -422,7 +452,7 @@ async function writeAssembledApp(
     "utf8",
   );
 
-  await runNpmInstall(paths.assembledAppRoot);
+  await runProductionInstall(paths.assembledAppRoot);
 }
 
 // --- Step 5: writeLinuxBuilderConfig helper ---
