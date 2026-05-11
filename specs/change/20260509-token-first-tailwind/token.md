@@ -208,18 +208,19 @@ The current codebase has a small set of color sources that need either migration
 
 ### Migrate to tokens
 
-- `apps/web/src/components/SettingsDialog.tsx:3811,3824,3928,3939-3940` uses legacy variable names and fallback colors such as `var(--danger-fg, #f88)`, `var(--warning-fg, #fbbf24)`, `var(--fg-2, #9aa0a6)`, and `var(--surface-2, #11141a)`. Replace these with current tokens or Tailwind utilities such as `text-danger`, `border-warning-border`, `text-muted`, `bg-subtle`, and `text-text`.
-- `apps/web/src/index.css:200,202,449,454,1303-1311,6275-6283` contains component-level hardcoded foregrounds, shadows, status fallbacks, and live artifact badge colors. Replace these with `--accent*`, `--info*`, `--danger*`, `--success*`, `--warning*`, `--color-accent-foreground`, or migrated Tailwind token utilities.
-- `apps/web/src/components/FileViewer.tsx:2247-2249` and `apps/web/src/edit-mode/bridge.ts:200-202` use blue inspect/comment overlay colors. Treat these as `info` if the visual intent is informational; add a dedicated `selection`/`inspect` token later if this interaction color becomes a repeated product concept.
+- `apps/web/src/components/SettingsDialog.tsx:4244,4255,4358,4369-4370` uses legacy variable names and fallback colors such as `var(--danger-fg, #f88)`, `var(--warning-fg, #fbbf24)`, `var(--fg-2, #9aa0a6)`, `var(--surface-2, #11141a)`, and `var(--fg-1, #e6e6e6)`. Replace these with current tokens or Tailwind utilities such as `text-danger`, `border-warning-border`, `text-muted`, `bg-subtle`, and `text-text`.
+- `apps/web/src/index.css:200,202,449,454,1303-1311,6492-6500,8130-8133` contains component-level hardcoded foregrounds, shadows, status fallbacks, and live artifact badge colors. Replace these with `--accent*`, `--info*`, `--danger*`, `--success*`, `--warning*`, `--color-accent-foreground`, or migrated Tailwind token utilities.
+- `apps/web/src/components/FileViewer.tsx:2350-2352` and `apps/web/src/edit-mode/bridge.ts:200-202` use blue inspect/comment overlay colors. Treat these as `info` if the visual intent is informational; add a dedicated `selection`/`inspect` token later if this interaction color becomes a repeated product concept.
 
 ### Allowlist as intentional exceptions
 
 - Brand and product assets: `apps/web/src/components/AgentIcon.tsx` brand fills and brand gradients.
-- One-off SVG illustrations and previews: `apps/web/src/components/NewProjectPanel.tsx:797-825` preview artwork. Prefer CSS variables when practical, but allow fixed SVG art colors when the values encode the illustration itself.
-- User-controlled color input and persisted accent defaults: `apps/web/src/state/config.ts`, `apps/web/src/state/appearance.ts`, `apps/web/src/components/SettingsDialog.tsx` accent palette, and pet accent settings. These values are inputs to the token system or user content.
+- One-off SVG illustrations and previews: `apps/web/src/components/NewProjectPanel.tsx:888-912` preview artwork and `apps/web/src/components/NewProjectPanel.tsx:1674-1677` generated HSL artwork. Prefer CSS variables when practical, but allow fixed SVG/art colors when the values encode the illustration itself.
+- User-controlled color input and persisted accent defaults: `apps/web/src/state/config.ts`, `apps/web/src/state/appearance.ts`, `apps/web/src/components/SettingsDialog.tsx:4486-4495` accent palette, and `apps/web/src/components/pet/PetSettings.tsx:41-48` pet accent settings. These values are inputs to the token system or user content.
 - Canvas and sketch colors: `apps/web/src/components/SketchEditor.tsx` brush colors and canvas drawing colors. Use tokens for UI controls around the canvas; keep user drawing data as user content. The eraser/background color can use `var(--bg)` when it represents the app canvas background.
-- File/content color conversion and inspect overrides: `apps/web/src/components/FileViewer.tsx` helpers and related tests. These operate on user-authored HTML/CSS and browser computed colors.
-- External document, iframe, popup, and generated runtime HTML styles: `apps/web/src/runtime/exports.ts`, `apps/web/src/runtime/react-component.ts`, `apps/web/src/providers/registry.ts`, and `apps/web/src/edit-mode/bridge.ts`. These documents may run outside the app CSS/Tailwind context, so inline values are acceptable when scoped and documented.
+- File/content color conversion, inspect/comment overlays, and inspect overrides: `apps/web/src/components/FileViewer.tsx` helpers, `apps/web/src/components/FileViewer.tsx:2350-2352` overlay variables, and related tests. These operate on user-authored HTML/CSS, browser computed colors, or preview annotation overlays.
+- Manual edit user input examples: `apps/web/src/components/ManualEditPanel.tsx:309` placeholder colors are examples of user-authored CSS values, not app chrome styling.
+- External document, iframe, popup, and generated runtime HTML styles: `apps/web/src/runtime/exports.ts`, `apps/web/src/runtime/react-component.ts`, `apps/web/src/providers/registry.ts:423-488`, and `apps/web/src/edit-mode/bridge.ts`. These documents may run outside the app CSS/Tailwind context, so inline values are acceptable when scoped and documented.
 - Tests and fixtures under `apps/web/tests/` when the colors are test data for user content, accent normalization, or override parsing.
 
 ### General decision framework
