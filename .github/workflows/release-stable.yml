@@ -546,9 +546,11 @@ jobs:
         run: |
           set -euo pipefail
           tools_pack_dir="$RUNNER_TEMP/tools-pack"
-          build_json_path="$RUNNER_TEMP/linux-tools-pack-build.json"
-          build_log_path="$RUNNER_TEMP/linux-tools-pack-build.log"
+          report_dir="$RUNNER_TEMP/release-report/linux"
+          build_json_path="$report_dir/tools-pack.json"
+          build_log_path="$report_dir/tools-pack.log"
           rm -rf "$tools_pack_dir"
+          mkdir -p "$report_dir"
           : > "$build_log_path"
           build_args=(
             exec tools-pack linux build
@@ -564,7 +566,7 @@ jobs:
             node -e 'const fs = require("node:fs"); JSON.parse(fs.readFileSync(process.argv[1], "utf8"));' "$build_json_path"
           else
             build_status=$?
-            printf '%s\n' "$build_output"
+            printf '%s\n' "$build_output" | tee "$build_json_path"
             exit "$build_status"
           fi
 
@@ -592,8 +594,6 @@ jobs:
             "commit": "$GITHUB_SHA"
           }
           EOF
-          cp "$RUNNER_TEMP/linux-tools-pack-build.json" "$report_dir/tools-pack.json"
-          cp "$RUNNER_TEMP/linux-tools-pack-build.log" "$report_dir/tools-pack.log"
           sudo apt-get update 2>&1 | tee "$report_dir/apt-get-update.log"
           sudo apt-get install -y xvfb 2>&1 | tee "$report_dir/apt-get-install-xvfb.log"
           xvfb-run -a pnpm test specs/linux.spec.ts 2>&1 | tee "$report_dir/vitest.log"

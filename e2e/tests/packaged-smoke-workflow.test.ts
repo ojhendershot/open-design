@@ -43,10 +43,11 @@ describe("packaged smoke workflow", () => {
     );
     expect(workflow).toContain("Smoke beta linux AppImage runtime");
     expect(workflow).toContain("manifest.json");
-    expect(workflow).toContain("linux-tools-pack-build.json");
+    expect(workflow).toContain("tools-pack.json");
     expect(workflow).toContain("Upload linux e2e spec report");
     expect(workflow).toContain("open-design-beta-linux-e2e-report");
     expect(workflow).toContain("Download linux e2e spec report");
+    expectReleaseLinuxBuildPreservesEvidence(workflow, "Build beta linux artifacts");
     expectReleaseLinuxSmokePreservesEvidenceBeforeApt(workflow, "Smoke beta linux AppImage runtime");
   });
 
@@ -61,27 +62,32 @@ describe("packaged smoke workflow", () => {
     );
     expect(workflow).toContain("Smoke release linux AppImage runtime");
     expect(workflow).toContain("manifest.json");
-    expect(workflow).toContain("linux-tools-pack-build.json");
+    expect(workflow).toContain("tools-pack.json");
     expect(workflow).toContain("Upload linux e2e spec report");
     expect(workflow).toContain("open-design-release-linux-e2e-report");
     expect(workflow).toContain("Download linux e2e spec report");
+    expectReleaseLinuxBuildPreservesEvidence(workflow, "Build release linux artifacts");
     expectReleaseLinuxSmokePreservesEvidenceBeforeApt(workflow, "Smoke release linux AppImage runtime");
   });
 });
+
+function expectReleaseLinuxBuildPreservesEvidence(workflow: string, stepName: string): void {
+  const step = workflow.match(new RegExp(`- name: ${stepName}\\n(?:.+\\n)+?(?=\\n      - name: Smoke .+ linux AppImage runtime)`, "m"))?.[0];
+  expect(step).toBeDefined();
+  expect(step).toContain('report_dir="$RUNNER_TEMP/release-report/linux"');
+  expect(step).toContain('mkdir -p "$report_dir"');
+  expect(step).toContain('build_json_path="$report_dir/tools-pack.json"');
+  expect(step).toContain('build_log_path="$report_dir/tools-pack.log"');
+  expect(step).toContain('printf \'%s\\n\' "$build_output" | tee "$build_json_path"');
+}
 
 function expectReleaseLinuxSmokePreservesEvidenceBeforeApt(workflow: string, stepName: string): void {
   const step = workflow.match(new RegExp(`- name: ${stepName}\\n(?:.+\\n)+?(?=\\n      - name: Upload linux e2e spec report)`, "m"))?.[0];
   expect(step).toBeDefined();
   const aptIndex = step?.indexOf("sudo apt-get update") ?? -1;
   const reportDirIndex = step?.indexOf('report_dir="$RUNNER_TEMP/release-report/linux"') ?? -1;
-  const copyJsonIndex = step?.indexOf('cp "$RUNNER_TEMP/linux-tools-pack-build.json" "$report_dir/tools-pack.json"') ?? -1;
-  const copyLogIndex = step?.indexOf('cp "$RUNNER_TEMP/linux-tools-pack-build.log" "$report_dir/tools-pack.log"') ?? -1;
 
   expect(aptIndex).toBeGreaterThan(-1);
   expect(reportDirIndex).toBeGreaterThan(-1);
-  expect(copyJsonIndex).toBeGreaterThan(-1);
-  expect(copyLogIndex).toBeGreaterThan(-1);
   expect(reportDirIndex).toBeLessThan(aptIndex);
-  expect(copyJsonIndex).toBeLessThan(aptIndex);
-  expect(copyLogIndex).toBeLessThan(aptIndex);
 }

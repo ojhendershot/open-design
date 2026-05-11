@@ -186,8 +186,8 @@ addWinLifecycleOptions(
 });
 
 addBuildOptions(addSharedOptions(cli.command("linux <action>", "Linux packaging commands: build|install|start|stop|logs|uninstall|cleanup|inspect")), "linux")
-  .option("--containerized", "build inside electronuserland/builder Docker for distro-agnostic glibc compat")
-  .option("--headless", "install/start/stop/uninstall/cleanup the headless (no-Electron) entry instead of the full desktop app")
+  .option("--containerized", "build inside electronuserland/builder Docker for wider glibc compatibility")
+  .option("--headless", "install/start/stop/uninstall/cleanup the headless entry; inspect returns status only")
   .action(async (action: string, options: CliOptions) => {
     const config = resolveToolPackConfig("linux", options);
     switch (action) {

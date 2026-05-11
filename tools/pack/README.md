@@ -87,7 +87,7 @@ Local lifecycle commands:
 - `tools-pack linux build --to all` (default; produces AppImage)
 - `tools-pack linux build --to appimage` (explicit AppImage)
 - `tools-pack linux build --to dir` (unpacked output for fast iteration)
-- `tools-pack linux build --containerized` (run electron-builder inside `electronuserland/builder:base` Docker for distro-agnostic glibc compat — requires Docker)
+- `tools-pack linux build --containerized` (run electron-builder inside `electronuserland/builder:base` Docker for a wider glibc compatibility target — requires Docker)
 - `tools-pack linux build --to all --portable` (release artifacts that must not bake local tools-pack runtime paths)
 - `tools-pack linux install`
 - `tools-pack linux install --headless` (install the headless launcher script instead of the AppImage)
@@ -148,19 +148,25 @@ Headless mode targets environments without a display (WSL2, headless servers, CI
 
 Electron 41 on Linux requires `kernel.unprivileged_userns_clone=1` (default on Arch, Ubuntu 24+, Debian 12+) or AppImage's `--no-sandbox` fallback. Most modern distros need no extra setup.
 
-### Distro-agnostic guarantee
+### Distro compatibility target
 
-AppImages built natively on a rolling distro (e.g., Arch / CachyOS) link against recent glibc and may not run on stable distros (Ubuntu 22.04, Debian 12). Use `--containerized` to build against the wide-compat `electronuserland/builder:base` baseline (Ubuntu 18.04 / glibc 2.27).
+AppImages built natively on a rolling distro (e.g., Arch / CachyOS) link against recent glibc and may not run on stable distros (Ubuntu 22.04, Debian 12). Use `--containerized` to build against the `electronuserland/builder:base` baseline (Ubuntu 18.04 / glibc 2.27), which is the compatibility target for release AppImages rather than a guarantee for every Linux distribution.
+
+Verified smoke coverage in this repository currently includes:
+
+- PR lane: Ubuntu GitHub-hosted runner, headless Linux runtime.
+- Release lane: Ubuntu GitHub-hosted runner, containerized AppImage build plus Xvfb AppImage runtime smoke when the Linux release lane is enabled.
+- Manual AppImage behavior used to choose `--appimage-extract-and-run`: Ubuntu 24.04 and Arch Linux.
 
 ### Format choice: why AppImage first
 
-Linux desktop apps in this space split across formats: VS Code ships `.deb` + `.rpm` + Snap; Discord ships AppImage + `.deb`; Slack ships `.deb` + `.rpm`; Cursor and Obsidian ship AppImage. We start with AppImage because it is universal (one artifact runs on any glibc-compatible distro), needs no repo plumbing, and integrates cleanly with the namespace-scoped install layout. `.deb` / `.rpm` / Snap / Flatpak can land incrementally if user demand surfaces.
+Linux desktop apps in this space split across formats: VS Code ships `.deb` + `.rpm` + Snap; Discord ships AppImage + `.deb`; Slack ships `.deb` + `.rpm`; Cursor and Obsidian ship AppImage. We start with AppImage because one artifact can cover the widest glibc-compatible target without distro repositories, store packaging, signing infrastructure, or per-format install scripts, and it integrates cleanly with the namespace-scoped install layout. `.deb` / `.rpm` / Snap / Flatpak can land incrementally when user demand justifies the extra release ownership.
 
 ### Out of scope (later phases)
 
 - AppImage signing (`--signed`) — deferred pending a GPG key infrastructure decision and a user-facing verification flow design (no ETA).
 - AppImage auto-update feed (`latest-linux.yml`) — the linux electron-builder config has no `publish` block wired, so a generated feed would point users at a feed that never updates. Tracked alongside signing.
-- Additional package formats: `.deb`, `.rpm`, Snap, Flatpak.
+- Additional package formats: `.deb`, `.rpm`, Snap, Flatpak — deferred until there is demand and an owner for per-distro metadata, signing/store/repository plumbing, install/remove hooks, and release validation.
 - Full Linux AppImage PR smoke remains release-lane only; PR validation runs the Linux headless packaged smoke because it does not require a display server.
 
 `--to dmg` is manual-install DMG output only. Any builder-generated updater metadata such as `latest-mac.yml` or

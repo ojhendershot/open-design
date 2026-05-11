@@ -143,6 +143,7 @@ linuxHeadlessDescribe('packaged linux headless runtime smoke', () => {
       const install = await runToolsPackJson<LinuxHeadlessInstallResult>('install', ['--headless']);
       expect(install.namespace).toBe(namespace);
       expectPathInside(install.launcherPath, join(userHome, '.local', 'bin'));
+      expect(await pathExists(install.launcherPath)).toBe(true);
 
       const start = await runToolsPackJson<LinuxHeadlessStartResult>('start', ['--headless']);
       started = true;

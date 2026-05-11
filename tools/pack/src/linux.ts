@@ -118,20 +118,37 @@ export function buildDockerArgs(
   //   - config.appVersion is shell-quoted below because release versions can
   //     carry punctuation that is not part of the namespace / target enums.
   //
-  // We can't rely on `corepack pnpm` here: although Node 16.10+ ships corepack,
-  // the `electronuserland/builder:base` image strips the corepack binary, so
-  // the inner `bash -lc` fails with `corepack: command not found`. We also
-  // can't `corepack enable` ourselves — the container runs as the host's
-  // non-root uid (--user above) and corepack would try to write shims next
-  // to the system Node binary, which is owned by root in this image.
+  // The `electronuserland/builder:base` image is intentionally minimal: it
+  // ships a Node binary but strips npm, npx, and corepack from PATH. Every
+  // "ask the image to invoke pnpm" path fails with `command not found`.
   //
-  // Use `npx --yes pnpm@<version>` instead: `npx` ships with npm (always
-  // present in the image), `--yes` skips the install confirmation, and the
-  // package gets cached under `$HOME/.npm/_npx`, which is writable by the
-  // unprivileged user. The pinned version matches the `packageManager`
-  // field in the root package.json so reproducibility is preserved.
+  // Download the official pnpm `linuxstatic-<arch>` standalone binary at
+  // container start. The binary bundles its own Node runtime, so it does not
+  // depend on the image's npm tooling. Select the asset by the container CPU so
+  // amd64 GitHub runners and arm64 local Docker hosts both work. Stage it under
+  // `/tmp/pnpm`, which is writable by the unprivileged container user.
+  //
+  // Route bootstrap and install diagnostics to stderr so stdout remains
+  // machine-readable when the inner `tools-pack linux build --json` emits JSON.
+  //
+  // The pinned version matches the `packageManager` field in the root
+  // package.json so reproducibility is preserved.
   const PNPM_VERSION = "10.33.2";
-  const pnpmCmd = `npx --yes pnpm@${PNPM_VERSION}`;
+  const pnpmLinuxStaticX64Sha256 = "a47be715939bafa420fbdc5e34f7f9d8292c032402162c89ccb611e944e526d6";
+  const pnpmLinuxStaticArm64Sha256 = "4d402d0ef12cdc4d81ca339904e68638d841f4e27c73e460534d06e6b56048a9";
+  const pnpmReleaseUrl = `https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}`;
+  const setupPnpm =
+    `command -v curl >/dev/null || { echo "curl not found in container image" >&2; exit 127; } && ` +
+    `case "$(uname -m)" in ` +
+    `x86_64) PNPM_ASSET=pnpm-linuxstatic-x64; PNPM_SHA256=${pnpmLinuxStaticX64Sha256} ;; ` +
+    `aarch64) PNPM_ASSET=pnpm-linuxstatic-arm64; PNPM_SHA256=${pnpmLinuxStaticArm64Sha256} ;; ` +
+    `*) echo "unsupported container arch: $(uname -m)" >&2; exit 1 ;; ` +
+    `esac && ` +
+    `curl --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 -fsSL "${pnpmReleaseUrl}/$PNPM_ASSET" -o /tmp/pnpm.tmp && ` +
+    `echo "$PNPM_SHA256  /tmp/pnpm.tmp" | sha256sum -c - && ` +
+    `mv /tmp/pnpm.tmp /tmp/pnpm && ` +
+    `chmod +x /tmp/pnpm`;
+  const pnpmCmd = "/tmp/pnpm";
   const innerArgs = [
     `${pnpmCmd} tools-pack linux build`,
     `--to ${config.to}`,
@@ -144,7 +161,7 @@ export function buildDockerArgs(
   if (config.appVersion != null) {
     innerArgs.push(`--app-version ${shellQuote(config.appVersion)}`);
   }
-  const innerCommand = `${pnpmCmd} install --frozen-lockfile && ` + innerArgs.join(" ");
+  const innerCommand = `{ ${setupPnpm} && ${pnpmCmd} install --frozen-lockfile; } >&2 && ` + innerArgs.join(" ");
 
   return [
     "run",

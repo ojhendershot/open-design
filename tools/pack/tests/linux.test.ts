@@ -103,22 +103,64 @@ describe("buildDockerArgs", () => {
   it("re-invokes pnpm tools-pack linux build inside the container without --containerized", () => {
     const args = buildDockerArgs(makeConfig(), { uid: 1000, gid: 1000 });
     const last = args[args.length - 1];
-    expect(last).toMatch(/npx --yes pnpm@\d+\.\d+\.\d+ install --frozen-lockfile/);
-    expect(last).toMatch(/npx --yes pnpm@\d+\.\d+\.\d+ tools-pack linux build --to all --namespace default/);
+    expect(last).toMatch(/command -v curl >\/dev\/null/);
+    expect(last).toMatch(/case "\$\(uname -m\)" in/);
+    expect(last).toMatch(/x86_64\) PNPM_ASSET=pnpm-linuxstatic-x64; PNPM_SHA256=[a-f0-9]{64}/);
+    expect(last).toMatch(/aarch64\) PNPM_ASSET=pnpm-linuxstatic-arm64; PNPM_SHA256=[a-f0-9]{64}/);
+    expect(last).toMatch(
+      /curl --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 -fsSL "https:\/\/github\.com\/pnpm\/pnpm\/releases\/download\/v\d+\.\d+\.\d+\/\$PNPM_ASSET" -o \/tmp\/pnpm\.tmp/,
+    );
+    expect(last).toMatch(/echo "\$PNPM_SHA256  \/tmp\/pnpm\.tmp" \| sha256sum -c -/);
+    expect(last).toMatch(/mv \/tmp\/pnpm\.tmp \/tmp\/pnpm/);
+    expect(last).toMatch(/chmod \+x \/tmp\/pnpm/);
+    expect(last).toMatch(/\/tmp\/pnpm install --frozen-lockfile/);
+    expect(last).toMatch(/\/tmp\/pnpm tools-pack linux build --to all --namespace default/);
     expect(last).not.toMatch(/--containerized/);
   });
 
-  it("invokes pnpm via `npx --yes pnpm@<version>` (electronuserland/builder:base strips corepack, and the non-root container can't write Node shim dir)", () => {
+  it("fetches pnpm standalone binary instead of relying on image npm tooling", () => {
     const args = buildDockerArgs(makeConfig(), { uid: 1000, gid: 1000 });
     const last = args[args.length - 1];
     expect(last).not.toMatch(/corepack/);
-    expect(last).toMatch(/npx --yes pnpm@/);
+    expect(last).not.toMatch(/\bnpx\b/);
+    expect(last).not.toMatch(/(^|[;&|]\s*)npm(\s|$)/);
+    expect(last).toMatch(/pnpm-linuxstatic-x64/);
+    expect(last).toMatch(/pnpm-linuxstatic-arm64/);
+  });
+
+  it("routes container setup and install output to stderr before the JSON-emitting build", () => {
+    const args = buildDockerArgs(makeConfig(), { uid: 1000, gid: 1000 });
+    const last = args[args.length - 1];
+    expect(last).toContain("{ command -v curl");
+    expect(last).toContain("/tmp/pnpm install --frozen-lockfile; } >&2 && /tmp/pnpm tools-pack linux build");
+    expect(last.indexOf("/tmp/pnpm install --frozen-lockfile")).toBeLessThan(
+      last.indexOf("} >&2 && /tmp/pnpm tools-pack linux build"),
+    );
+  });
+
+  it("picks the pnpm asset by container CPU so amd64 and arm64 hosts both work", () => {
+    const args = buildDockerArgs(makeConfig(), { uid: 1000, gid: 1000 });
+    const last = args[args.length - 1];
+    expect(last).toContain('case "$(uname -m)" in');
+    expect(last).toContain("x86_64) PNPM_ASSET=pnpm-linuxstatic-x64");
+    expect(last).toContain("aarch64) PNPM_ASSET=pnpm-linuxstatic-arm64");
+    expect(last).toMatch(/unsupported container arch/);
+  });
+
+  it("verifies the downloaded standalone pnpm binary before executing it", () => {
+    const args = buildDockerArgs(makeConfig(), { uid: 1000, gid: 1000 });
+    const last = args[args.length - 1];
+    expect(last).toMatch(/PNPM_SHA256=[a-f0-9]{64}/);
+    expect(last).toMatch(/sha256sum -c -/);
+    expect(last).toMatch(/\/tmp\/pnpm\.tmp/);
+    expect(last.indexOf("sha256sum -c -")).toBeLessThan(last.indexOf("mv /tmp/pnpm.tmp /tmp/pnpm"));
+    expect(last.indexOf("mv /tmp/pnpm.tmp /tmp/pnpm")).toBeLessThan(last.indexOf("chmod +x /tmp/pnpm"));
   });
 
   it("hardcoded pnpm version stays in lockstep with root package.json `packageManager`", () => {
     // Guard against silent drift: if someone bumps packageManager in the
     // root package.json but forgets to update PNPM_VERSION in linux.ts,
-    // the Linux container build would silently keep using the old pnpm.
+    // the Linux container build would silently keep downloading the old pnpm.
     const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
     const rootPkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf-8")) as {
       packageManager?: string;
@@ -129,7 +171,7 @@ describe("buildDockerArgs", () => {
 
     const args = buildDockerArgs(makeConfig(), { uid: 1000, gid: 1000 });
     const last = args[args.length - 1];
-    expect(last).toContain(`npx --yes pnpm@${expectedVersion}`);
+    expect(last).toContain(`pnpm/releases/download/v${expectedVersion}/$PNPM_ASSET`);
   });
 
   it("forwards --dir /tools-pack so inner build output lands under the mounted host dir", () => {
