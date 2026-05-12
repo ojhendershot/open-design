@@ -80,6 +80,8 @@ A memory-plus-UI release: **auto-memory store** carries agent context across run
 ### Fixed
 
 #### Web
+- Persist Appearance accent color selection so swatch picks survive Settings close. ([#1439])
+- Load Orbit template choices from `design-templates` instead of `skills` (aligns with the skill model refactor). ([#1442])
 - Restore custom dropdown chevron for the timezone selector in dark mode. ([#1368])
 - Polish EntryView UI — sidebar layout, folder tabs, slim form, blue selected token. ([#1360])
 - Translate Design Files refresh strings instead of hardcoding English. ([#1300])
@@ -114,6 +116,7 @@ A memory-plus-UI release: **auto-memory store** carries agent context across run
 - Fix daemon browser opener on Windows. ([#953])
 
 #### Daemon, agents & contracts
+- Wire finalized assistant message writes to the Langfuse report bridge so reports settle reliably. ([#1402])
 - Remove OpenCode stdin dash sentinel. ([#1365])
 - Use ACP config options for model selection. ([#1208])
 - Persist `runStatus` / `endedAt` on chat run termination. ([#1230])
@@ -1401,3 +1404,6 @@ First public release of Open Design — a local-first, open-source alternative t
 [#1360]: https://github.com/nexu-io/open-design/pull/1360
 [#1365]: https://github.com/nexu-io/open-design/pull/1365
 [#1368]: https://github.com/nexu-io/open-design/pull/1368
+[#1402]: https://github.com/nexu-io/open-design/pull/1402
+[#1439]: https://github.com/nexu-io/open-design/pull/1439
+[#1442]: https://github.com/nexu-io/open-design/pull/1442
