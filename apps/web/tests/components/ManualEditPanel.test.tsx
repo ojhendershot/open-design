@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 import { ManualEditPanel, emptyManualEditDraft, manualEditPatchSummary } from '../../src/components/ManualEditPanel';
-import type { ManualEditTarget } from '../../src/edit-mode/types';
+import { emptyManualEditStyles, type ManualEditTarget } from '../../src/edit-mode/types';
 
 const target: ManualEditTarget = {
   id: 'hero-title',
@@ -15,19 +15,7 @@ const target: ManualEditTarget = {
   rect: { x: 0, y: 0, width: 120, height: 40 },
   fields: { text: 'Original' },
   attributes: { 'data-od-id': 'hero-title' },
-  styles: {
-    color: '',
-    backgroundColor: '',
-    fontSize: '',
-    fontWeight: '',
-    textAlign: '',
-    padding: '',
-    margin: '',
-    borderRadius: '',
-    border: '',
-    width: '',
-    minHeight: '',
-  },
+  styles: emptyManualEditStyles(),
   outerHtml: '<h1 data-od-id="hero-title">Original</h1>',
 };
 
@@ -55,13 +43,17 @@ describe('ManualEditPanel', () => {
     Reflect.deleteProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT');
   });
 
-  it('opens with target metadata and calls selection from the layers rail', () => {
+  it('opens with target metadata and calls selection from the layers list', () => {
     const onSelectTarget = vi.fn();
     renderPanel({ onSelectTarget });
 
-    expect(host.textContent).toContain('Hero Title');
-    expect(host.textContent).toContain('hero-title');
-
+    click(buttonByText('▸ Advanced'));
+    const summaries = Array.from(host.querySelectorAll('details > summary'));
+    const layersSummary = summaries.find((s) => s.textContent?.includes('Layers')) as HTMLElement | undefined;
+    if (layersSummary) {
+      const details = layersSummary.parentElement as HTMLDetailsElement;
+      act(() => { details.open = true; });
+    }
     click(buttonByText('Hero Title'));
 
     expect(onSelectTarget).toHaveBeenCalledWith(target);
@@ -71,6 +63,8 @@ describe('ManualEditPanel', () => {
     const onApplyPatch = vi.fn();
     renderPanel({ onApplyPatch });
 
+    click(buttonByText('▸ Advanced'));
+    click(buttonByText('Content'));
     click(buttonByText('Apply Content'));
 
     expect(onApplyPatch).toHaveBeenCalledWith(
@@ -84,6 +78,7 @@ describe('ManualEditPanel', () => {
     const onError = vi.fn();
     renderPanel({ onApplyPatch, onError, attributesText: '{bad' });
 
+    click(buttonByText('▸ Advanced'));
     click(buttonByText('Attributes'));
     click(buttonByText('Apply Attributes'));
 

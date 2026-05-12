@@ -25,6 +25,12 @@ import {
 import type { KnownProvider } from '../state/config';
 import { navigate as navigateRoute } from '../router';
 import {
+  API_KEY_PLACEHOLDERS,
+  API_PROTOCOL_LABELS,
+  API_PROTOCOL_TABS,
+  SUGGESTED_MODELS_BY_PROTOCOL,
+} from '../state/apiProtocols';
+import {
   MAX_MAX_TOKENS,
   MIN_MAX_TOKENS,
   modelMaxTokensDefault,
@@ -51,14 +57,18 @@ import { MEDIA_PROVIDERS } from '../media/models';
 import type { MediaProvider } from '../media/models';
 import { PetSettings } from './pet/PetSettings';
 import { McpClientSection } from './McpClientSection';
-import { LibrarySection } from './LibrarySection';
+import { SkillsSection } from './SkillsSection';
+import { DesignSystemsSection } from './DesignSystemsSection';
 import { PrivacySection } from './PrivacySection';
 import { RoutinesSection } from './RoutinesSection';
 import { ConnectorsBrowser } from './ConnectorsBrowser';
+import { MemoryModelInline } from './MemoryModelInline';
+import { MemorySection } from './MemorySection';
 import {
   applyAppearanceToDocument,
   normalizeAccentColor,
 } from '../state/appearance';
+import { isAutosaveDraftOnlyChange } from '../App';
 import {
   FAILURE_SOUNDS,
   SUCCESS_SOUNDS,
@@ -80,7 +90,9 @@ export type SettingsSection =
   | 'appearance'
   | 'notifications'
   | 'pet'
-  | 'library'
+  | 'skills'
+  | 'designSystems'
+  | 'memory'
   | 'privacy'
   | 'about';
 
@@ -131,114 +143,6 @@ export interface AgentRefreshOptions {
   agentCliEnv?: AppConfig['agentCliEnv'];
 }
 
-const SUGGESTED_MODELS_BY_PROTOCOL = {
-  anthropic: [
-    'claude-opus-4-5',
-    'claude-sonnet-4-5',
-    'claude-haiku-4-5',
-    'deepseek-chat',
-    'deepseek-reasoner',
-    'deepseek-v4-flash',
-    'deepseek-v4-pro',
-    'MiniMax-M2.7-highspeed',
-    'MiniMax-M2.7',
-    'MiniMax-M2.5-highspeed',
-    'MiniMax-M2.5',
-    'MiniMax-M2.1-highspeed',
-    'MiniMax-M2.1',
-    'MiniMax-M2',
-    'mimo-v2.5-pro',
-  ],
-  openai: [
-    'gpt-4o',
-    'gpt-4o-mini',
-    'o3',
-    'o4-mini',
-    'deepseek-chat',
-    'deepseek-reasoner',
-    'deepseek-v4-flash',
-    'deepseek-v4-pro',
-    'MiniMax-M2.7-highspeed',
-    'MiniMax-M2.7',
-    'MiniMax-M2.5-highspeed',
-    'MiniMax-M2.5',
-    'MiniMax-M2.1-highspeed',
-    'MiniMax-M2.1',
-    'MiniMax-M2',
-    'mimo-v2.5-pro',
-  ],
-  ollama: [
-    'cogito-2.1:671b',
-    'deepseek-v3.1:671b',
-    'deepseek-v3.2',
-    'deepseek-v4-flash',
-    'deepseek-v4-pro',
-    'devstral-2:123b',
-    'devstral-small-2:24b',
-    'gemini-3-flash-preview',
-    'gemma3:4b',
-    'gemma3:12b',
-    'gemma3:27b',
-    'gemma4:31b',
-    'glm-4.6',
-    'glm-4.7',
-    'glm-5',
-    'glm-5.1',
-    'gpt-oss:20b',
-    'gpt-oss:120b',
-    'kimi-k2:1t',
-    'kimi-k2-thinking',
-    'kimi-k2.5',
-    'kimi-k2.6',
-    'minimax-m2',
-    'minimax-m2.1',
-    'minimax-m2.5',
-    'minimax-m2.7',
-    'ministral-3:3b',
-    'ministral-3:8b',
-    'ministral-3:14b',
-    'mistral-large-3:675b',
-    'nemotron-3-nano:30b',
-    'nemotron-3-super',
-    'qwen3-coder:480b',
-    'qwen3-coder-next',
-    'qwen3-next:80b',
-    'qwen3-vl:235b',
-    'qwen3-vl:235b-instruct',
-    'qwen3.5:397b',
-    'rnj-1:8b',
-  ],
-  azure: [
-    'gpt-4o',
-    'gpt-4o-mini',
-  ],
-  google: [
-    'gemini-2.0-flash',
-    'gemini-2.0-flash-lite',
-    'gemini-1.5-pro',
-    'gemini-1.5-flash',
-  ],
-} as const;
-
-const API_PROTOCOL_TABS: Array<{
-  id: ApiProtocol;
-  title: string;
-}> = [
-  { id: 'anthropic', title: 'Anthropic' },
-  { id: 'openai', title: 'OpenAI' },
-  { id: 'azure', title: 'Azure OpenAI' },
-  { id: 'google', title: 'Google Gemini' },
-  { id: 'ollama', title: 'Ollama Cloud' },
-];
-
-const API_PROTOCOL_LABELS: Record<ApiProtocol, string> = {
-  anthropic: 'Anthropic API',
-  openai: 'OpenAI API',
-  azure: 'Azure OpenAI',
-  google: 'Google Gemini',
-  ollama: 'Ollama Cloud API',
-};
-
 function codexPathStrings(locale: Locale) {
   if (locale === 'zh-CN') {
     return {
@@ -286,14 +190,6 @@ function sanitizeHttpsUrl(url: string | undefined): string | undefined {
     return undefined;
   }
 }
-
-const API_KEY_PLACEHOLDERS: Record<ApiProtocol, string> = {
-  anthropic: 'sk-ant-...',
-  openai: 'sk-...',
-  azure: 'azure key',
-  google: 'AIza...',
-  ollama: 'Ollama API key',
-};
 
 type RescanNotice =
   | { kind: 'success'; count: number }
@@ -393,6 +289,19 @@ const AGENT_CLI_ENV_FIELDS = [
     placeholder: '~/.claude-2',
   },
   {
+    agentId: 'claude',
+    envKey: 'ANTHROPIC_BASE_URL',
+    labelKey: 'settings.cliEnvClaudeBaseUrl',
+    placeholder: 'https://your-proxy.example.com',
+  },
+  {
+    agentId: 'claude',
+    envKey: 'ANTHROPIC_API_KEY',
+    labelKey: 'settings.cliEnvClaudeApiKey',
+    placeholder: 'Paste proxy API key',
+    secret: true,
+  },
+  {
     agentId: 'codex',
     envKey: 'CODEX_HOME',
     labelKey: 'settings.cliEnvCodexHome',
@@ -403,6 +312,19 @@ const AGENT_CLI_ENV_FIELDS = [
     envKey: 'CODEX_BIN',
     labelKey: 'settings.cliEnvCodexBin',
     placeholder: '/absolute/path/to/codex',
+  },
+  {
+    agentId: 'codex',
+    envKey: 'OPENAI_BASE_URL',
+    labelKey: 'settings.cliEnvCodexBaseUrl',
+    placeholder: 'https://your-proxy.example.com/v1',
+  },
+  {
+    agentId: 'codex',
+    envKey: 'OPENAI_API_KEY',
+    labelKey: 'settings.cliEnvCodexApiKey',
+    placeholder: 'Paste proxy API key',
+    secret: true,
   },
 ] as const;
 
@@ -726,7 +648,6 @@ export function SettingsDialog({
     };
   }, [initial.theme, initial.accentColor]);
   const [showApiKey, setShowApiKey] = useState(false);
-  const [languageOpen, setLanguageOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
   // Scroll the right-hand content pane back to the top whenever the user
   // picks a different settings section. Without this, switching from a
@@ -734,7 +655,6 @@ export function SettingsDialog({
   // (About) keeps the previous scrollTop, so the new section's header
   // can land out of view and the panel reads as half-loaded. Issue #634.
   const settingsContentRef = useRef<HTMLDivElement | null>(null);
-  const [languageMenuRect, setLanguageMenuRect] = useState<DOMRect | null>(null);
   const [agentRescanRunning, setAgentRescanRunning] = useState(false);
   const [agentRescanNotice, setAgentRescanNotice] =
     useState<RescanNotice | null>(null);
@@ -759,7 +679,6 @@ export function SettingsDialog({
   const [agentCustomModelIds, setAgentCustomModelIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
-  const languageRef = useRef<HTMLDivElement | null>(null);
   // Imperative handle for the External MCP section. The dialog footer Save
   // routes through this when the MCP tab is active so the user can press the
   // single Save button at the bottom instead of hunting for the inner one.
@@ -821,41 +740,6 @@ export function SettingsDialog({
       providerModelsAbortRef.current?.abort();
     };
   }, []);
-
-  useEffect(() => {
-    if (!languageOpen) return;
-    const updateRect = () => {
-      const button = languageRef.current?.querySelector('button');
-      setLanguageMenuRect(button?.getBoundingClientRect() ?? null);
-    };
-    updateRect();
-    function onDown(e: MouseEvent) {
-      if (languageRef.current?.contains(e.target as Node)) return;
-      setLanguageOpen(false);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setLanguageOpen(false);
-    }
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    window.addEventListener('resize', updateRect);
-    window.addEventListener('scroll', updateRect, true);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-      window.removeEventListener('resize', updateRect);
-      window.removeEventListener('scroll', updateRect, true);
-    };
-  }, [languageOpen]);
-
-  // Close the language menu on window resize so its placement (computed on
-  // open) cannot end up stale relative to the new viewport dimensions.
-  useEffect(() => {
-    if (!languageOpen) return;
-    const handleResize = () => setLanguageOpen(false);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [languageOpen]);
 
   const installedCount = useMemo(
     () => agents.filter((a) => a.available).length,
@@ -1217,6 +1101,13 @@ export function SettingsDialog({
   const autosaveRetryTimerRef = useRef<number | null>(null);
   const autosavePendingFlushRef = useRef(false);
   const autosaveLatestRef = useRef<AppConfig>(cfg);
+  // Baseline used by the draft-only detector: the snapshot at the most
+  // recent successful autosave (or the initial cfg on mount). Compared
+  // against the current snapshot to decide whether the only edits
+  // since last save are intentionally-stripped fields like the
+  // Composio API key — in which case we must NOT flash "All changes
+  // saved", because the draft has not actually been persisted.
+  const autosaveLastSavedRef = useRef<AppConfig>(cfg);
   const mediaProvidersChangeVersionRef = useRef(0);
   const lastSyncedMediaProvidersVersionRef = useRef(0);
   const [autosaveRetryTick, setAutosaveRetryTick] = useState(0);
@@ -1224,6 +1115,7 @@ export function SettingsDialog({
   useEffect(() => {
     if (autosaveSkipFirstRef.current) {
       autosaveSkipFirstRef.current = false;
+      autosaveLastSavedRef.current = cfg;
       return;
     }
     setAutosaveStatus('pending');
@@ -1247,10 +1139,27 @@ export function SettingsDialog({
       const persistOptions = {
         forceMediaProviderSync: mediaProvidersVersion > lastSyncedMediaProvidersVersionRef.current,
       };
+      // Draft-only edit (e.g. the user is mid-typing the Composio API
+      // key, which only commits via the explicit "Save key" gesture):
+      // the persisted shape would be identical to what is already on
+      // disk, so a save would be a no-op that mis-reports "Saved" and
+      // makes users trust that a sensitive key was persisted when it
+      // was not. Skip the persist and settle the indicator to idle.
+      // The forced media-provider sync path still runs because that
+      // is a real outbound effect even when the persisted shape
+      // hasn't changed.
+      if (
+        !persistOptions.forceMediaProviderSync
+        && isAutosaveDraftOnlyChange(snapshot, autosaveLastSavedRef.current)
+      ) {
+        setAutosaveStatus('idle');
+        return;
+      }
       setAutosaveStatus('saving');
       void (async () => {
         try {
           await onPersist(snapshot, persistOptions);
+          autosaveLastSavedRef.current = snapshot;
           if (persistOptions.forceMediaProviderSync) {
             lastSyncedMediaProvidersVersionRef.current = mediaProvidersVersion;
           }
@@ -1327,19 +1236,15 @@ export function SettingsDialog({
   }, [onPersist]);
 
   // Global Escape closes the dialog. With no footer button anymore the
-  // close affordances are: top-right X · backdrop click · Escape. We
-  // skip the handler when an inline popover (e.g. the language menu
-  // listbox) is open, because that menu owns its own Escape handling
-  // and closing the dialog out from under it would be jarring.
+  // close affordances are: top-right X · backdrop click · Escape.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== 'Escape') return;
-      if (languageOpen) return;
       onClose();
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, languageOpen]);
+  }, [onClose]);
 
   const protocolProviders = useMemo(
     () => KNOWN_PROVIDERS.filter((p) => p.protocol === apiProtocol),
@@ -1411,7 +1316,12 @@ export function SettingsDialog({
     notifications: { title: t('settings.notifications'), subtitle: t('settings.notificationsHint') },
     privacy: { title: t('settings.privacy'), subtitle: t('settings.privacyHint') },
     pet: { title: t('pet.title'), subtitle: t('pet.subtitle') },
-    library: { title: t('settings.library'), subtitle: t('settings.libraryHint') },
+    skills: { title: t('settings.skills'), subtitle: t('settings.skillsHint') },
+    designSystems: {
+      title: t('settings.designSystems'),
+      subtitle: t('settings.designSystemsHint'),
+    },
+    memory: { title: t('settings.memory'), subtitle: t('settings.memoryHint') },
     about: { title: t('settings.about'), subtitle: t('settings.aboutHint') },
   };
   const activeHeader = sectionHeader[activeSection];
@@ -1479,26 +1389,6 @@ export function SettingsDialog({
               <span className="kicker">{t('settings.welcomeKicker')}</span>
               <h2>{t('settings.welcomeTitle')}</h2>
               <p className="subtitle">{t('settings.welcomeSubtitle')}</p>
-              {/* First-run users see a mini pet teaser inside the welcome
-                  modal so adoption is part of the warm intro rather than
-                  hidden behind another nav click. The chip nudges them
-                  toward Pets without forcing them to leave the rest of
-                  the welcome flow. */}
-              <button
-                type="button"
-                className="welcome-pet-teaser"
-                onClick={() => setActiveSection('pet')}
-              >
-                <span className="welcome-pet-glyph" aria-hidden>🐾</span>
-                <span className="welcome-pet-copy">
-                  <strong>{t('pet.welcomeTeaserTitle')}</strong>
-                  <span>{t('pet.welcomeTeaserBody')}</span>
-                </span>
-                <span className="welcome-pet-cta">
-                  {t('pet.welcomeTeaserCta')}
-                  <Icon name="chevron-right" size={12} />
-                </span>
-              </button>
             </>
           ) : (
             <>
@@ -1524,6 +1414,17 @@ export function SettingsDialog({
             </button>
             <button
               type="button"
+              className={`settings-nav-item${activeSection === 'memory' ? ' active' : ''}`}
+              onClick={() => setActiveSection('memory')}
+            >
+              <Icon name="history" size={18} />
+              <span>
+                <strong>{t('settings.memory')}</strong>
+                <small>{t('settings.memoryHint')}</small>
+              </span>
+            </button>
+            <button
+              type="button"
               className={`settings-nav-item${activeSection === 'media' ? ' active' : ''}`}
               onClick={() => setActiveSection('media')}
             >
@@ -1531,6 +1432,28 @@ export function SettingsDialog({
               <span>
                 <strong>{t('settings.mediaProviders')}</strong>
                 <small>Image / video / audio</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-item${activeSection === 'skills' ? ' active' : ''}`}
+              onClick={() => setActiveSection('skills')}
+            >
+              <Icon name="grid" size={18} />
+              <span>
+                <strong>{t('settings.skills')}</strong>
+                <small>{t('settings.skillsHint')}</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-item${activeSection === 'mcpClient' ? ' active' : ''}`}
+              onClick={() => setActiveSection('mcpClient')}
+            >
+              <Icon name="sparkles" size={18} />
+              <span>
+                <strong>{t('settings.externalMcpTitle')}</strong>
+                <small>{t('settings.externalMcpHint')}</small>
               </span>
             </button>
             <button
@@ -1579,17 +1502,6 @@ export function SettingsDialog({
             </button>
             <button
               type="button"
-              className={`settings-nav-item${activeSection === 'mcpClient' ? ' active' : ''}`}
-              onClick={() => setActiveSection('mcpClient')}
-            >
-              <Icon name="sparkles" size={18} />
-              <span>
-                <strong>{t('settings.externalMcpTitle')}</strong>
-                <small>{t('settings.externalMcpHint')}</small>
-              </span>
-            </button>
-            <button
-              type="button"
               className={`settings-nav-item${activeSection === 'language' ? ' active' : ''}`}
               onClick={() => setActiveSection('language')}
             >
@@ -1634,13 +1546,13 @@ export function SettingsDialog({
             </button>
             <button
               type="button"
-              className={`settings-nav-item${activeSection === 'library' ? ' active' : ''}`}
-              onClick={() => setActiveSection('library')}
+              className={`settings-nav-item${activeSection === 'designSystems' ? ' active' : ''}`}
+              onClick={() => setActiveSection('designSystems')}
             >
-              <Icon name="grid" size={18} />
+              <Icon name="draw" size={18} />
               <span>
-                <strong>{t('settings.library')}</strong>
-                <small>{t('settings.libraryHint')}</small>
+                <strong>{t('settings.designSystems')}</strong>
+                <small>{t('settings.designSystemsHint')}</small>
               </span>
             </button>
             <button
@@ -2077,6 +1989,20 @@ export function SettingsDialog({
                         </select>
                       </label>
                     ) : null}
+                    <MemoryModelInline
+                      mode="daemon"
+                      apiProtocol={apiProtocol}
+                      chatApiKey={cfg.apiKey}
+                      chatBaseUrl={cfg.baseUrl}
+                      chatApiVersion={cfg.apiVersion ?? ''}
+                      chatModel={modelValue}
+                      cliAgentId={selected.id}
+                      cliModelOptions={
+                        hasModels
+                          ? selected.models!.map((m) => m.id)
+                          : []
+                      }
+                    />
                     <p className="hint">{t('settings.modelPickerHint')}</p>
                   </div>
                 );
@@ -2091,10 +2017,11 @@ export function SettingsDialog({
                     <label className="field" key={`${field.agentId}:${field.envKey}`}>
                       <span className="field-label">{t(field.labelKey)}</span>
                       <input
-                        type="text"
+                        type={'secret' in field && field.secret ? 'password' : 'text'}
                         value={cfg.agentCliEnv?.[field.agentId]?.[field.envKey] ?? ''}
                         placeholder={field.placeholder}
                         spellCheck={false}
+                        autoComplete="off"
                         onChange={(e) =>
                           setCfg((c) =>
                             updateAgentCliEnvValue(
@@ -2321,6 +2248,14 @@ export function SettingsDialog({
                   />
                 </label>
               ) : null}
+              <MemoryModelInline
+                mode="api"
+                apiProtocol={apiProtocol}
+                chatApiKey={cfg.apiKey}
+                chatBaseUrl={cfg.baseUrl}
+                chatApiVersion={cfg.apiVersion ?? ''}
+                chatModel={cfg.model}
+              />
               <label className="field">
                 <span className="field-label">{t('settings.baseUrl')}</span>
                 <input
@@ -2415,73 +2350,30 @@ export function SettingsDialog({
                 <p className="hint">{t('settings.languageHint')}</p>
               </div>
             </div>
-            <div className="settings-language-picker" ref={languageRef}>
-              <button
-                type="button"
-                className="settings-language-button"
-                aria-haspopup="menu"
-                aria-expanded={languageOpen}
-                onClick={() => setLanguageOpen((v) => !v)}
-              >
-                <span className="settings-language-icon" aria-hidden="true">
-                  <Icon name="languages" size={22} strokeWidth={1.8} />
-                </span>
-                <span className="settings-language-text">
-                  <span className="settings-language-title">
-                    {LOCALE_LABEL[locale]}
-                  </span>
-                  <span className="settings-language-code">{locale}</span>
-                </span>
-                <Icon name="chevron-down" size={16} />
-              </button>
-              {languageOpen && languageMenuRect ? (() => {
-                const spaceBelow = window.innerHeight - languageMenuRect.bottom;
-                const spaceAbove = languageMenuRect.top;
-                // Prefer downward if at least 200px available (enough for ~5 options)
-                const openDownward = spaceBelow >= spaceAbove || spaceBelow >= 200;
+            <div className="settings-language-grid" role="radiogroup" aria-label={t('settings.language')}>
+              {LOCALES.map((code) => {
+                const active = locale === code;
                 return (
-                <div
-                  className="settings-language-menu"
-                  role="menu"
-                  style={{
-                    top: openDownward ? languageMenuRect.bottom + 6 : undefined,
-                    bottom: openDownward
-                      ? undefined
-                      : window.innerHeight - languageMenuRect.top + 6,
-                    left: languageMenuRect.left,
-                    width: languageMenuRect.width,
-                    '--menu-available-h': `${(openDownward ? spaceBelow : spaceAbove) - 6}px`,
-                  } as React.CSSProperties}
-                >
-                  {LOCALES.map((code) => {
-                    const active = locale === code;
-                    return (
-                      <button
-                        key={code}
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={active}
-                        className={`settings-language-option${active ? ' active' : ''}`}
-                        onClick={() => {
-                          setLocale(code as Locale);
-                          setLanguageOpen(false);
-                        }}
-                      >
-                        <span>
-                          <span className="settings-language-option-title">
-                            {LOCALE_LABEL[code]}
-                          </span>
-                          <span className="settings-language-option-code">
-                            {code}
-                          </span>
-                        </span>
-                        {active ? <Icon name="check" size={16} /> : null}
-                      </button>
-                    );
-                  })}
-                </div>
+                  <button
+                    key={code}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    className={`settings-language-tile${active ? ' active' : ''}`}
+                    onClick={() => setLocale(code as Locale)}
+                  >
+                    <span className="settings-language-tile-text">
+                      <span className="settings-language-tile-title">
+                        {LOCALE_LABEL[code]}
+                      </span>
+                      <span className="settings-language-tile-code">
+                        {code}
+                      </span>
+                    </span>
+                    {active ? <Icon name="check" size={16} /> : null}
+                  </button>
                 );
-              })() : null}
+              })}
             </div>
           </section>
           ) : null}
@@ -2498,8 +2390,34 @@ export function SettingsDialog({
             <PetSettings cfg={cfg} setCfg={setCfg} />
           ) : null}
 
-          {activeSection === 'library' ? (
-            <LibrarySection cfg={cfg} setCfg={setCfg} />
+          {activeSection === 'skills' ? (
+            <SkillsSection cfg={cfg} setCfg={setCfg} />
+          ) : null}
+
+          {activeSection === 'designSystems' ? (
+            <DesignSystemsSection cfg={cfg} setCfg={setCfg} />
+          ) : null}
+
+          {activeSection === 'memory' ? (
+            <>
+              <section className="settings-section">
+                <div className="section-head">
+                  <div>
+                    <h3>{t('settings.customInstructionsTitle')}</h3>
+                    <p className="hint">{t('settings.customInstructionsHint')}</p>
+                  </div>
+                </div>
+                <textarea
+                  className="custom-instructions-input"
+                  rows={5}
+                  maxLength={5000}
+                  placeholder={t('settings.customInstructionsPlaceholder')}
+                  value={cfg.customInstructions ?? ''}
+                  onChange={(e) => setCfg({ ...cfg, customInstructions: e.target.value || undefined })}
+                />
+              </section>
+              <MemorySection />
+            </>
           ) : null}
 
           {activeSection === 'privacy' ? (

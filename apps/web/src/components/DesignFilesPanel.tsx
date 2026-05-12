@@ -5,6 +5,7 @@ import { projectFileUrl } from '../providers/registry';
 import type { LiveArtifactWorkspaceEntry, ProjectFile, ProjectFileKind } from '../types';
 import { Icon } from './Icon';
 import { LiveArtifactBadges } from './LiveArtifactBadges';
+import { isRenderableSketchJson, SketchPreview } from './SketchPreview';
 
 type TranslateFn = (key: keyof Dict, vars?: Record<string, string | number>) => string;
 
@@ -619,7 +620,23 @@ export function DesignFilesPanel({
             </div>
           ) : null}
           {files.length === 0 && liveArtifacts.length === 0 ? (
-            <div className="df-empty">{t('designFiles.empty')}</div>
+            <div className="df-empty" data-testid="design-files-empty">
+              <div className="df-empty-pill">
+                <span className="df-empty-title">
+                  {t('designFiles.empty')}
+                </span>
+                <button
+                  type="button"
+                  className="df-empty-cta"
+                  data-testid="design-files-empty-new-sketch"
+                  onClick={onNewSketch}
+                  title={t('designFiles.newSketch')}
+                >
+                  <Icon name="pencil" size={13} />
+                  <span>{t('designFiles.newSketch')}</span>
+                </button>
+              </div>
+            </div>
           ) : (
             <>
               {files.length > 0 ? (
@@ -945,10 +962,13 @@ function DfPreview({
 }) {
   const t = useT();
   const url = projectFileUrl(projectId, file.name);
+  const rendersSketchJson = isRenderableSketchJson(file);
   return (
     <aside className="df-preview">
       <div className="df-preview-thumb">
-        {file.kind === 'image' || file.kind === 'sketch' ? (
+        {rendersSketchJson ? (
+          <SketchPreview projectId={projectId} file={file} />
+        ) : file.kind === 'image' || file.kind === 'sketch' ? (
           <img src={`${url}?v=${Math.round(file.mtime)}`} alt={file.name} />
         ) : file.kind === 'html' ? (
           <iframe title={file.name} src={url} sandbox="allow-scripts" />

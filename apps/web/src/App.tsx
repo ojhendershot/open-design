@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { EntryView } from './components/EntryView';
 import type { CreateInput } from './components/NewProjectPanel';
+import { MemoryToast } from './components/MemoryToast';
 import { PetOverlay } from './components/pet/PetOverlay';
 import { migrateCustomPetAtlas } from './components/pet/pets';
 import { ProjectView } from './components/ProjectView';
@@ -14,6 +15,7 @@ import {
   fetchAppVersionInfo,
   fetchAgents,
   fetchDesignSystems,
+  fetchDesignTemplates,
   fetchPromptTemplates,
   fetchSkills,
 } from './providers/registry';
@@ -42,6 +44,7 @@ import {
   importFolderProject,
   listProjects,
   listTemplates,
+  deleteTemplate,
   patchProject,
 } from './state/projects';
 import { useI18n } from './i18n';
@@ -104,6 +107,26 @@ export function buildPersistedConfig(next: AppConfig, current: AppConfig): AppCo
   };
 }
 
+/**
+ * True when `next` and `last` produce an identical persisted shape —
+ * i.e. the only diffs between them are fields that buildPersistedConfig
+ * intentionally strips before disk/daemon writes (the Composio API key
+ * draft today; any future save-on-explicit-confirm secrets later).
+ *
+ * The autosave loop in Settings uses this to skip the "All changes
+ * saved" indicator transition when the user has only typed an unsaved
+ * secret. Without it, autosave completes a no-op write and flashes
+ * "Saved" — misleading users into trusting that a sensitive key has
+ * been persisted when in fact only the section-local "Save key"
+ * gesture commits it.
+ */
+export function isAutosaveDraftOnlyChange(next: AppConfig, last: AppConfig): boolean {
+  return (
+    JSON.stringify(buildPersistedConfig(next, next))
+    === JSON.stringify(buildPersistedConfig(last, last))
+  );
+}
+
 export function resolveSettingsCloseConfig(
   rendered: AppConfig,
   latestPersisted: AppConfig,
@@ -124,7 +147,13 @@ export function App() {
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection>('execution');
   const [daemonLive, setDaemonLive] = useState(false);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
+  // Functional skills (capabilities the agent invokes mid-task) — stays
+  // small and lives under the Settings → Skills surface.
   const [skills, setSkills] = useState<SkillSummary[]>([]);
+  // Design templates (rendering catalogue: decks, prototypes, image/video/
+  // audio templates) — sourced from /api/design-templates and shown in the
+  // EntryView Templates tab. See specs/current/skills-and-design-templates.md.
+  const [designTemplates, setDesignTemplates] = useState<SkillSummary[]>([]);
   const [designSystems, setDesignSystems] = useState<DesignSystemSummary[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
@@ -233,10 +262,27 @@ export function App() {
         setAgentsLoading(false);
       });
 
+      // Functional skills + design templates land independently. Both
+      // gate `skillsLoading` together so the EntryView stops rendering
+      // its loader once both registries respond — neither tab would have
+      // a complete picture if we cleared the flag on the first reply.
+      let functionalReady = false;
+      let templatesReady = false;
+      const maybeClearLoading = () => {
+        if (functionalReady && templatesReady) setSkillsLoading(false);
+      };
       void fetchSkills().then((list) => {
         if (cancelled) return;
         setSkills(list);
-        setSkillsLoading(false);
+        functionalReady = true;
+        maybeClearLoading();
+      });
+
+      void fetchDesignTemplates().then((list) => {
+        if (cancelled) return;
+        setDesignTemplates(list);
+        templatesReady = true;
+        maybeClearLoading();
       });
 
       void fetchDesignSystems().then((list) => {
@@ -419,6 +465,12 @@ export function App() {
     const list = await listTemplates();
     setTemplates(list);
   }, []);
+
+  const handleDeleteTemplate = useCallback(async (id: string) => {
+    const ok = await deleteTemplate(id);
+    if (ok) await refreshTemplates();
+    return ok;
+  }, [refreshTemplates]);
 
   const reloadMediaProvidersFromDaemon = useCallback(async () => {
     const result = await fetchMediaProvidersFromDaemon();
@@ -644,6 +696,15 @@ export function App() {
     }
   }, [route]);
 
+  const handleRenameProject = useCallback(async (id: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setProjects((curr) =>
+      curr.map((p) => (p.id === id ? { ...p, name: trimmed } : p)),
+    );
+    void patchProject(id, { name: trimmed });
+  }, []);
+
   const handleBack = useCallback(() => {
     navigate({ kind: 'home' });
   }, []);
@@ -789,9 +850,42 @@ export function App() {
     void refreshTemplates();
   }, [route.kind, refreshTemplates]);
 
+  // Existing card grids (DesignsTab, ProjectView), pickers (NewProjectPanel,
+  // ChatComposer mention) all look skills up by id without caring whether
+  // the id resolves to a functional skill or a design template. Pass them
+  // the union so the post-split refactor stays invisible to those callers.
+  const allSkillSummaries = useMemo(
+    () => [...skills, ...designTemplates],
+    [skills, designTemplates],
+  );
   const enabledSkills = useMemo(
-    () => skills.filter((s) => !(config.disabledSkills ?? []).includes(s.id)),
+    () =>
+      allSkillSummaries.filter(
+        (s) => !(config.disabledSkills ?? []).includes(s.id),
+      ),
+    [allSkillSummaries, config.disabledSkills],
+  );
+  // Functional-skills-only enabled subset — what ProjectView's chat
+  // composer @-picker should see. Without this, a skill the user has
+  // disabled in Settings still appears in an existing project's @-mention
+  // popover and can ride along to the daemon via skillIds, breaking the
+  // Library toggle for projects opened on the post-split branch.
+  const enabledFunctionalSkills = useMemo(
+    () =>
+      skills.filter(
+        (s) => !(config.disabledSkills ?? []).includes(s.id),
+      ),
     [skills, config.disabledSkills],
+  );
+  // Templates-only enabled subset — what the EntryView Templates gallery
+  // actually renders. Filtering in App keeps the EntryView prop surface
+  // narrow ("here are the templates the user has not disabled").
+  const enabledDesignTemplates = useMemo(
+    () =>
+      designTemplates.filter(
+        (s) => !(config.disabledSkills ?? []).includes(s.id),
+      ),
+    [designTemplates, config.disabledSkills],
   );
   const enabledDS = useMemo(
     () =>
@@ -810,7 +904,8 @@ export function App() {
           routeFileName={route.kind === 'project' ? route.fileName : null}
           config={config}
           agents={agents}
-          skills={skills}
+          skills={enabledFunctionalSkills}
+          designTemplates={designTemplates}
           designSystems={designSystems}
           daemonLive={daemonLive}
           onModeChange={handleModeChange}
@@ -831,9 +926,11 @@ export function App() {
       ) : (
         <EntryView
           skills={enabledSkills}
+          designTemplates={enabledDesignTemplates}
           designSystems={enabledDS}
           projects={projects}
           templates={templates}
+          onDeleteTemplate={handleDeleteTemplate}
           promptTemplates={promptTemplates}
           defaultDesignSystemId={config.designSystemId}
           config={config}
@@ -849,6 +946,7 @@ export function App() {
           onOpenProject={handleOpenProject}
           onOpenLiveArtifact={handleOpenLiveArtifact}
           onDeleteProject={handleDeleteProject}
+          onRenameProject={handleRenameProject}
           onChangeDefaultDesignSystem={handleChangeDefaultDesignSystem}
           onOpenSettings={openSettings}
           onAdoptPet={openPetSettings}
@@ -894,6 +992,7 @@ export function App() {
           onReloadMediaProviders={reloadMediaProvidersFromDaemon}
         />
       ) : null}
+      <MemoryToast onOpenMemory={() => openSettings('memory')} />
       {/* First-run privacy consent banner. It waits for daemon config
           hydration because privacyDecisionAt is daemon-owned and stripped
           from localStorage. It also yields while Settings is open so the
