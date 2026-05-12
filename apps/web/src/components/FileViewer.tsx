@@ -86,6 +86,15 @@ type TranslateFn = (key: keyof Dict, vars?: Record<string, string | number>) => 
 type SlideState = { active: number; count: number };
 type BoardTool = 'inspect' | 'pod';
 type StrokePoint = { x: number; y: number };
+type PreviewViewportId = 'desktop' | 'tablet' | 'mobile';
+type PreviewCanvasSize = { width: number; height: number };
+type PreviewViewportPreset = {
+  id: PreviewViewportId;
+  width: number | null;
+  height: number | null;
+  labelKey: keyof Dict;
+  titleKey: keyof Dict;
+};
 type DeployProviderOption = {
   id: WebDeployProviderId;
   labelKey: 'fileViewer.vercelProvider' | 'fileViewer.cloudflarePagesProvider';
@@ -117,6 +126,29 @@ type DeployResultCard = {
   message?: string;
 };
 const MAX_BRIDGE_COORDINATE = 1_000_000;
+const PREVIEW_VIEWPORT_PRESETS: PreviewViewportPreset[] = [
+  {
+    id: 'desktop',
+    width: null,
+    height: null,
+    labelKey: 'fileViewer.viewportDesktop',
+    titleKey: 'fileViewer.viewportDesktopTitle',
+  },
+  {
+    id: 'tablet',
+    width: 820,
+    height: 1180,
+    labelKey: 'fileViewer.viewportTablet',
+    titleKey: 'fileViewer.viewportTabletTitle',
+  },
+  {
+    id: 'mobile',
+    width: 390,
+    height: 844,
+    labelKey: 'fileViewer.viewportMobile',
+    titleKey: 'fileViewer.viewportMobileTitle',
+  },
+];
 
 // The five basic style facets the inspect panel exposes. Kept narrow on
 // purpose — open-slide's design tokens panel only edits global tokens, so
@@ -262,6 +294,111 @@ function setMarkdownCodeBlockCopiedState(block: HTMLElement, copied: boolean, t:
   existingToast?.remove();
 }
 
+function PreviewViewportControls({
+  viewport,
+  onViewport,
+  t,
+  tabIndex,
+}: {
+  viewport: PreviewViewportId;
+  onViewport: (viewport: PreviewViewportId) => void;
+  t: TranslateFn;
+  tabIndex?: number;
+}) {
+  return (
+    <div className="viewer-viewport-switcher" role="group" aria-label={t('fileViewer.viewportAria')}>
+      {PREVIEW_VIEWPORT_PRESETS.map((preset) => (
+        <button
+          key={preset.id}
+          type="button"
+          className={`viewer-action viewer-viewport-button${viewport === preset.id ? ' active' : ''}`}
+          aria-pressed={viewport === preset.id}
+          title={t(preset.titleKey)}
+          tabIndex={tabIndex}
+          onClick={() => onViewport(preset.id)}
+        >
+          {t(preset.labelKey)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function previewViewportStyle(
+  viewport: PreviewViewportId,
+  previewScale = 1,
+  canvasSize?: PreviewCanvasSize,
+): CSSProperties & Record<string, string | number> {
+  const preset = PREVIEW_VIEWPORT_PRESETS.find((item) => item.id === viewport) ?? PREVIEW_VIEWPORT_PRESETS[0]!;
+  if (!preset.width) return {};
+  const effectiveScale = effectivePreviewScale(viewport, previewScale, canvasSize);
+  return {
+    '--preview-viewport-width': `${preset.width}px`,
+    '--preview-viewport-height': `${preset.height}px`,
+    '--preview-scale': effectiveScale,
+    '--preview-user-scale': previewScale,
+  };
+}
+
+export function effectivePreviewScale(
+  viewport: PreviewViewportId,
+  previewScale: number,
+  canvasSize?: PreviewCanvasSize,
+) {
+  if (viewport === 'desktop') return previewScale;
+  const preset = PREVIEW_VIEWPORT_PRESETS.find((item) => item.id === viewport);
+  if (!preset?.width || !preset.height || !canvasSize?.width || !canvasSize.height) return previewScale;
+  const canvasPadding = 48;
+  const availableWidth = Math.max(1, canvasSize.width - canvasPadding);
+  const availableHeight = Math.max(1, canvasSize.height - canvasPadding);
+  const fitScale = Math.min(1, availableWidth / preset.width, availableHeight / preset.height);
+  return Math.min(previewScale, fitScale);
+}
+
+function previewScaleShellStyle(
+  viewport: PreviewViewportId,
+  previewScale: number,
+): CSSProperties & Record<string, string | number> {
+  if (viewport === 'desktop') {
+    return {
+      width: `${100 / previewScale}%`,
+      height: `${100 / previewScale}%`,
+      transform: `scale(${previewScale})`,
+      transformOrigin: '0 0',
+    };
+  }
+  return {
+    width: 'var(--preview-viewport-width)',
+    height: 'var(--preview-viewport-height)',
+    transform: 'scale(var(--preview-scale, 1))',
+    transformOrigin: '0 0',
+  };
+}
+
+function usePreviewCanvasSize<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  const [size, setSize] = useState<PreviewCanvasSize | undefined>(undefined);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      setSize({ width: rect.width, height: rect.height });
+    };
+    measure();
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(measure);
+      observer.observe(el);
+      return () => observer.disconnect();
+    }
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+
+  return [ref, size] as const;
+}
+
 function ensureMarkdownCodeBlockControls(root: HTMLElement, t: TranslateFn) {
   for (const block of root.querySelectorAll<HTMLElement>(`[${MARKDOWN_CODE_BLOCK_ATTR}]`)) {
     let button = block.querySelector<HTMLButtonElement>(`.${MARKDOWN_COPY_BUTTON_CLASS}`);
@@ -390,6 +527,9 @@ export function LiveArtifactViewer({
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
   const [zoom, setZoom] = useState(100);
+  const [previewViewport, setPreviewViewport] = useState<PreviewViewportId>('desktop');
+  const [previewBodyRef, previewBodySize] = usePreviewCanvasSize<HTMLDivElement>();
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [refreshSuccess, setRefreshSuccess] = useState<string | null>(null);
@@ -397,8 +537,6 @@ export function LiveArtifactViewer({
   const [refreshHistory, setRefreshHistory] = useState<LiveArtifactRefreshLogEntry[]>([]);
   const [presentMenuOpen, setPresentMenuOpen] = useState(false);
   const [inTabPresent, setInTabPresent] = useState(false);
-  const previewBodyRef = useRef<HTMLDivElement | null>(null);
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const presentWrapRef = useRef<HTMLDivElement | null>(null);
   const [chromeActionsHost, setChromeActionsHost] = useState<HTMLElement | null>(null);
   useEffect(() => {
@@ -682,6 +820,13 @@ export function LiveArtifactViewer({
             aria-hidden={mode === 'preview' ? undefined : true}
           >
             <span className="viewer-divider" aria-hidden />
+            <PreviewViewportControls
+              viewport={previewViewport}
+              onViewport={setPreviewViewport}
+              t={t}
+              tabIndex={mode === 'preview' ? 0 : -1}
+            />
+            <span className="viewer-divider" aria-hidden />
             <button
               type="button"
               className="icon-only"
@@ -742,7 +887,7 @@ export function LiveArtifactViewer({
           </button>
         </div>
       </div>
-      <div className="viewer-body">
+      <div className="viewer-body" ref={previewBodyRef}>
         {refreshError ? (
           <LiveArtifactRefreshNotice
             tone="error"
@@ -771,22 +916,20 @@ export function LiveArtifactViewer({
           />
         ) : null}
         {mode === 'preview' ? (
-          <div ref={previewBodyRef} className="live-artifact-preview-frame-host">
-            <div
-              style={{
-                width: `${100 / previewScale}%`,
-                height: `${100 / previewScale}%`,
-                transform: `scale(${previewScale})`,
-                transformOrigin: '0 0',
-              }}
-            >
-              <iframe
-                ref={iframeRef}
-                data-testid="live-artifact-preview-frame"
-                title={liveArtifact.title}
-                sandbox="allow-scripts allow-popups"
-                src={previewUrl}
-              />
+          <div
+            className={`live-artifact-preview-layer preview-viewport preview-viewport-${previewViewport}`}
+            style={previewViewportStyle(previewViewport, previewScale, previewBodySize)}
+          >
+            <div className="preview-frame-clip">
+              <div style={previewScaleShellStyle(previewViewport, previewScale)}>
+                <iframe
+                  ref={iframeRef}
+                  data-testid="live-artifact-preview-frame"
+                  title={liveArtifact.title}
+                  sandbox="allow-scripts allow-popups"
+                  src={previewUrl}
+                />
+              </div>
             </div>
           </div>
         ) : loading ? (
@@ -3026,6 +3169,7 @@ function HtmlViewer({
   const [source, setSource] = useState<string | null>(liveHtml ?? null);
   const [inlinedSource, setInlinedSource] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100);
+  const [previewViewport, setPreviewViewport] = useState<PreviewViewportId>('desktop');
   const [zoomMenuOpen, setZoomMenuOpen] = useState(false);
   const zoomMenuRef = useRef<HTMLDivElement | null>(null);
   const [presentMenuOpen, setPresentMenuOpen] = useState(false);
@@ -3238,7 +3382,8 @@ function HtmlViewer({
   const [slideState, setSlideState] = useState<SlideState | null>(
     () => htmlPreviewSlideState.get(previewStateKey) ?? null,
   );
-  const previewBodyRef = useRef<HTMLDivElement | null>(null);
+  const [previewBodyRef, previewBodySize] = usePreviewCanvasSize<HTMLDivElement>();
+  const overlayPreviewScale = effectivePreviewScale(previewViewport, previewScale, previewBodySize);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const shareRef = useRef<HTMLDivElement | null>(null);
   const [chromeActionsHost, setChromeActionsHost] = useState<HTMLElement | null>(null);
@@ -4518,6 +4663,12 @@ function HtmlViewer({
             <span>{t('fileViewer.edit')}</span>
           </button>
           <span className="viewer-divider" aria-hidden />
+          <PreviewViewportControls
+            viewport={previewViewport}
+            onViewport={setPreviewViewport}
+            t={t}
+          />
+          <span className="viewer-divider" aria-hidden />
           <button
             type="button"
             className="icon-only"
@@ -4770,7 +4921,10 @@ function HtmlViewer({
         {source === null ? (
           <div className="viewer-empty">{t('fileViewer.loading')}</div>
         ) : mode === 'preview' ? (
-          <div className={manualEditMode ? 'manual-edit-workspace' : 'comment-preview-layer'}>
+          <div
+            className={`${manualEditMode ? 'manual-edit-workspace' : 'comment-preview-layer'} preview-viewport preview-viewport-${previewViewport}`}
+            style={previewViewportStyle(previewViewport, previewScale, previewBodySize)}
+          >
             {manualEditMode ? (
               <ManualEditPanel
                 targets={manualEditTargets}
@@ -4800,12 +4954,7 @@ function HtmlViewer({
             ) : null}
             <div className={manualEditMode ? 'manual-edit-canvas' : 'comment-frame-clip'}>
               <div
-                style={{
-                  width: `${100 / previewScale}%`,
-                  height: `${100 / previewScale}%`,
-                  transform: `scale(${previewScale})`,
-                  transformOrigin: '0 0',
-                }}
+                style={previewScaleShellStyle(previewViewport, previewScale)}
               >
                 {useUrlLoadPreview ? (
                   <iframe
@@ -4846,7 +4995,7 @@ function HtmlViewer({
                 hoveredTarget={hoveredCommentTarget}
                 activeTarget={activeCommentTarget}
                 boardTool={boardTool}
-                scale={previewScale}
+                scale={overlayPreviewScale}
                 strokePoints={strokePoints}
                 onOpenComment={(comment, snapshot) => {
                   setActiveCommentTarget(snapshot);

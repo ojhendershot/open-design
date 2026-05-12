@@ -144,8 +144,12 @@ export const zhCN: Dict = {
   'settings.cliEnvHint':
     '为打包版应用运行和 agent 检测设置非敏感配置目录。',
   'settings.cliEnvClaudeConfigDir': 'Claude Code 配置目录',
+  'settings.cliEnvClaudeBaseUrl': 'Claude proxy base URL',
+  'settings.cliEnvClaudeApiKey': 'Claude proxy API key',
   'settings.cliEnvCodexHome': 'Codex home',
   'settings.cliEnvCodexBin': 'Codex 可执行文件路径',
+  'settings.cliEnvCodexBaseUrl': 'Codex/OpenAI proxy base URL',
+  'settings.cliEnvCodexApiKey': 'Codex/OpenAI proxy API key',
   'settings.modelCustom': '自定义（在下方填写）…',
   'settings.modelCustomLabel': '自定义模型 id',
   'settings.modelCustomPlaceholder': '例如 anthropic/claude-sonnet-4-6',
@@ -395,6 +399,15 @@ export const zhCN: Dict = {
   'newproj.toggleSpeakerNotesHint': '减少幻灯片上的文字，要点放到备注中。',
   'newproj.toggleAnimations': '加入动效',
   'newproj.toggleAnimationsHint': '在模板基础上叠加动效（入场、悬停、过渡）。',
+  'newproj.surfaceOptionsLabel': 'Companion surfaces',
+  'newproj.includeLandingPage': 'Include landing page',
+  'newproj.includeLandingPageHint':
+    'Add a responsive marketing page for ads, waitlists, launch campaigns, app downloads, or product explanation.',
+  'newproj.includeOsWidgets': 'Include OS widgets',
+  'newproj.includeOsWidgetsHint':
+    'Add platform-native home screen, lock screen, or quick-access widgets for mobile/tablet apps.',
+  'newproj.includeOsWidgetsDisabledHint':
+    'Available when iOS, Android, or tablet app is selected as a target platform.',
   'newproj.templateLabel': '模板',
   'newproj.noTemplatesTitle': '还没有模板',
   'newproj.noTemplatesBody':
@@ -849,6 +862,13 @@ export const zhCN: Dict = {
   'fileViewer.zoomOut': '缩小',
   'fileViewer.zoomIn': '放大',
   'fileViewer.resetZoom': '重置缩放',
+  'fileViewer.viewportAria': 'Preview viewport',
+  'fileViewer.viewportDesktop': 'Desktop',
+  'fileViewer.viewportDesktopTitle': 'Full-width desktop preview',
+  'fileViewer.viewportTablet': 'Tablet',
+  'fileViewer.viewportTabletTitle': 'Tablet preview at 820 × 1180 (modern portrait baseline)',
+  'fileViewer.viewportMobile': 'Mobile',
+  'fileViewer.viewportMobileTitle': 'Mobile preview at 390 × 844',
   'fileViewer.reloadAria': '重新加载',
   'fileViewer.previousSlide': '上一张',
   'fileViewer.nextSlide': '下一张',
