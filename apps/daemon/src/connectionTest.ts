@@ -21,9 +21,9 @@ import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  applyAgentLaunchEnv,
   getAgentDef,
-  inspectAgentExecutableResolution,
-  resolveAgentBin,
+  resolveAgentLaunch,
   spawnEnvForAgent,
 } from './agents.js';
 import { createCommandInvocation } from '@open-design/platform';
@@ -1003,12 +1003,9 @@ async function testAgentConnectionInternal(
     validateAgentCliEnv(input.agentCliEnv),
     input.agentId,
   );
-  const executableResolution = inspectAgentExecutableResolution(
-    def,
-    configuredAgentEnv,
-  );
-  const resolvedBin = resolveAgentBin(input.agentId, configuredAgentEnv);
-  if (!resolvedBin) {
+  const executableResolution = resolveAgentLaunch(def, configuredAgentEnv);
+  const resolvedBin = executableResolution.selectedPath;
+  if (!resolvedBin || !executableResolution.launchPath) {
     return {
       ok: false,
       kind: 'agent_not_installed',
@@ -1128,16 +1125,16 @@ async function testAgentConnectionInternal(
     }
     const stdinMode =
       def.promptViaStdin || def.streamFormat === 'acp-json-rpc' ? 'pipe' : 'ignore';
-    const env = spawnEnvForAgent(
+    const env = applyAgentLaunchEnv(spawnEnvForAgent(
       input.agentId,
       {
         ...process.env,
         ...(def.env || {}),
       },
       configuredAgentEnv,
-    );
+    ), executableResolution);
     const invocation = createCommandInvocation({
-      command: resolvedBin,
+      command: executableResolution.launchPath,
       args,
       env,
     });
@@ -1176,11 +1173,11 @@ async function testAgentConnectionInternal(
         const latencyMs = Date.now() - start;
         const detail = redactSecrets(winner.error.message);
         const guidance = redactSecrets(
-          codexExecutableGuidance(
+          `${codexExecutableGuidance(
             input.agentId,
             executableResolution.configuredOverridePath,
             executableResolution.pathResolvedPath,
-          ),
+          )}${executableResolution.diagnostic ? ` ${executableResolution.diagnostic}` : ''}`,
         );
         const errnoCode = (winner.error as NodeJS.ErrnoException).code;
         const isMissing = errnoCode === 'ENOENT';
@@ -1263,11 +1260,11 @@ async function testAgentConnectionInternal(
           .join(' · '),
       );
       const guidance = redactSecrets(
-        codexExecutableGuidance(
+        `${codexExecutableGuidance(
           input.agentId,
           executableResolution.configuredOverridePath,
           executableResolution.pathResolvedPath,
-        ),
+        )}${executableResolution.diagnostic ? ` ${executableResolution.diagnostic}` : ''}`,
       );
       const label = buffered ? 'exit_failed' : 'no_text';
       console.warn(
@@ -1394,11 +1391,15 @@ export async function testAgentConnection(
   const configuredAgentEnv = agentCliEnvForAgent(validatedPrefs, input.agentId);
   const def = getAgentDef(input.agentId);
   const executableResolution = def
-    ? inspectAgentExecutableResolution(def, configuredAgentEnv)
+    ? resolveAgentLaunch(def, configuredAgentEnv)
     : {
         configuredOverridePath: null,
         pathResolvedPath: null,
         selectedPath: null,
+        launchPath: null,
+        launchKind: 'selected' as const,
+        childPathPrepend: [],
+        diagnostic: null,
       };
   if (
     input.agentId === 'codex' &&
@@ -1409,7 +1410,7 @@ export async function testAgentConnection(
       return {
         ...primaryResult,
         configuredExecutablePath: executableResolution.configuredOverridePath,
-        usedExecutablePath: executableResolution.configuredOverridePath,
+        usedExecutablePath: executableResolution.launchPath ?? executableResolution.configuredOverridePath,
         usedExecutableSource: 'configured',
         ...(executableResolution.pathResolvedPath
           ? { detectedExecutablePath: executableResolution.pathResolvedPath }
@@ -1426,7 +1427,7 @@ export async function testAgentConnection(
         ...primaryResult,
         configuredExecutablePath: configuredCodexBin,
         detectedExecutablePath: executableResolution.pathResolvedPath,
-        usedExecutablePath: executableResolution.pathResolvedPath,
+        usedExecutablePath: executableResolution.launchPath ?? executableResolution.pathResolvedPath,
         usedExecutableSource: 'fallback_invalid',
         detail: redactSecrets(
           codexInvalidConfiguredPathFallbackDetail(
@@ -1460,7 +1461,7 @@ export async function testAgentConnection(
     ...fallbackResult,
     configuredExecutablePath: executableResolution.configuredOverridePath,
     detectedExecutablePath: executableResolution.pathResolvedPath,
-    usedExecutablePath: executableResolution.pathResolvedPath,
+    usedExecutablePath: executableResolution.launchPath ?? executableResolution.pathResolvedPath,
     usedExecutableSource: 'fallback_failed',
     detail: redactSecrets(
       codexExecutableFallbackSuccessDetail(

@@ -26,7 +26,8 @@ import {
   detectAgents,
   getAgentDef,
   isKnownModel,
-  resolveAgentBin,
+  applyAgentLaunchEnv,
+  resolveAgentLaunch,
   sanitizeCustomModel,
   spawnEnvForAgent,
 } from './agents.js';
@@ -3575,7 +3576,8 @@ export async function startServer({
       configuredAgentEnv = {};
     }
 
-    const resolvedBin = resolveAgentBin(agentId, configuredAgentEnv);
+    const agentLaunch = resolveAgentLaunch(def, configuredAgentEnv);
+    const resolvedBin = agentLaunch.selectedPath;
 
     const args = def.buildArgs(
       composed,
@@ -3597,7 +3599,7 @@ export async function startServer({
     // doesn't have to special-case it.
     const cmdShimBudgetError = checkWindowsCmdShimCommandLineBudget(
       def,
-      resolvedBin,
+      agentLaunch.launchPath ?? resolvedBin,
       args,
     );
     if (cmdShimBudgetError) {
@@ -3624,7 +3626,7 @@ export async function startServer({
     // users hit a generic `spawn ENAMETOOLONG`.
     const directExeBudgetError = checkWindowsDirectExeCommandLineBudget(
       def,
-      resolvedBin,
+      agentLaunch.launchPath ?? resolvedBin,
       args,
     );
     if (directExeBudgetError) {
@@ -3716,7 +3718,7 @@ export async function startServer({
     // pointing at /api/agents instead of silently falling back to
     // spawn(def.bin) — that fallback re-introduces the exact ENOENT symptom
     // from issue #10.
-    if (!resolvedBin) {
+    if (!resolvedBin || !agentLaunch.launchPath) {
       revokeToolToken('child_exit');
       unregisterChatAgentEventSink();
       send('error', createSseErrorPayload(
@@ -3772,7 +3774,7 @@ export async function startServer({
         def.promptViaStdin || def.streamFormat === 'acp-json-rpc'
           ? 'pipe'
           : 'ignore';
-      const env = {
+      const env = applyAgentLaunchEnv({
         ...spawnEnvForAgent(
           def.id,
           {
@@ -3782,10 +3784,10 @@ export async function startServer({
           configuredAgentEnv,
         ),
         ...odMediaEnv,
-      };
+      }, agentLaunch);
       spawnedAgentEnv = env;
       const invocation = createCommandInvocation({
-        command: resolvedBin,
+        command: agentLaunch.launchPath,
         args,
         env,
       });
