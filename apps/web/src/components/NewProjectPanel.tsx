@@ -84,44 +84,46 @@ type PromptTemplatePick = {
   prompt: string;
 };
 
+const SFX_AUDIO_DURATIONS_SEC = AUDIO_DURATIONS_SEC.filter((sec) => sec <= 30);
+
 type TranslateFn = (key: keyof Dict, vars?: Record<string, string | number>) => string;
 
 type NewProjectPlatform = Exclude<ProjectPlatform, 'auto'>;
 
 const DESIGN_PLATFORMS: Array<{
   value: NewProjectPlatform;
-  label: string;
-  hint: string;
+  labelKey: keyof Dict;
+  hintKey: keyof Dict;
 }> = [
   {
     value: 'responsive',
-    label: 'Responsive web',
-    hint: 'One web experience adapted for desktop, tablet, and mobile browsers',
+    labelKey: 'newproj.platform.responsive.label',
+    hintKey: 'newproj.platform.responsive.hint',
   },
   {
     value: 'web-desktop',
-    label: 'Desktop web',
-    hint: 'Browser-first product or landing page',
+    labelKey: 'newproj.platform.webDesktop.label',
+    hintKey: 'newproj.platform.webDesktop.hint',
   },
   {
     value: 'mobile-ios',
-    label: 'iOS app',
-    hint: 'iPhone frames and iOS interaction rules',
+    labelKey: 'newproj.platform.mobileIos.label',
+    hintKey: 'newproj.platform.mobileIos.hint',
   },
   {
     value: 'mobile-android',
-    label: 'Android app',
-    hint: 'Pixel frames and Material interaction rules',
+    labelKey: 'newproj.platform.mobileAndroid.label',
+    hintKey: 'newproj.platform.mobileAndroid.hint',
   },
   {
     value: 'tablet',
-    label: 'Tablet app',
-    hint: 'Native-style tablet experience with split views',
+    labelKey: 'newproj.platform.tablet.label',
+    hintKey: 'newproj.platform.tablet.hint',
   },
   {
     value: 'desktop-app',
-    label: 'Desktop app',
-    hint: 'macOS/Windows app chrome',
+    labelKey: 'newproj.platform.desktopApp.label',
+    hintKey: 'newproj.platform.desktopApp.hint',
   },
 ];
 
@@ -140,6 +142,7 @@ interface Props {
   designSystems: DesignSystemSummary[];
   defaultDesignSystemId: string | null;
   templates: ProjectTemplate[];
+  onDeleteTemplate: (id: string) => Promise<boolean>;
   promptTemplates: PromptTemplateSummary[];
   onCreate: (input: CreateInput & { requestId?: string }) => void;
   onImportClaudeDesign?: (file: File) => Promise<void> | void;
@@ -203,6 +206,7 @@ export function NewProjectPanel({
   designSystems,
   defaultDesignSystemId,
   templates,
+  onDeleteTemplate,
   promptTemplates,
   onCreate,
   onImportClaudeDesign,
@@ -583,7 +587,9 @@ export function NewProjectPanel({
       setImportFolderError(null);
       setImportingFolder(true);
       try {
-        const result = await window.electronAPI!.pickAndImport!();
+        const result = await window.electronAPI!.pickAndImport!({
+          skillId: skillIdForTab,
+        });
         if (!result) return;
         if (result.ok === true) {
           await onImportFolderResponse(result.response);
@@ -771,6 +777,7 @@ export function NewProjectPanel({
               templates={templates}
               value={templateId}
               onChange={setTemplateId}
+              onDelete={onDeleteTemplate}
             />
             <ToggleRow
               label={t('newproj.toggleAnimations')}
@@ -816,6 +823,9 @@ export function NewProjectPanel({
             onAudioKind={(kind) => {
               setAudioKind(kind);
               setAudioModel(DEFAULT_AUDIO_MODEL[kind]);
+              if (kind === 'sfx') {
+                setAudioDuration((duration) => Math.min(duration, SFX_AUDIO_DURATIONS_SEC.at(-1) ?? 30));
+              }
             }}
             onAudioModel={setAudioModel}
             onAudioDuration={setAudioDuration}
@@ -913,6 +923,7 @@ function PlatformPicker({
   value: NewProjectPlatform[];
   onChange: (v: NewProjectPlatform[]) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const listboxId = useId();
@@ -967,7 +978,7 @@ function PlatformPicker({
       >
         <span className="ds-picker-meta">
           <span className="ds-picker-title">
-            {primary ? primary.label : 'Pick a platform'}
+            {primary ? t(primary.labelKey) : 'Pick a platform'}
             {extraCount > 0 ? (
               <span className="ds-picker-extra-pill">+{extraCount}</span>
             ) : null}
@@ -1001,8 +1012,8 @@ function PlatformPicker({
                   onClick={() => togglePlatform(option.value)}
                 >
                   <span className="ds-picker-item-text">
-                    <span className="ds-picker-item-title">{option.label}</span>
-                    <span className="ds-picker-item-sub">{option.hint}</span>
+                    <span className="ds-picker-item-title">{t(option.labelKey)}</span>
+                    <span className="ds-picker-item-sub">{t(option.hintKey)}</span>
                   </span>
                   <span
                     className={`ds-picker-mark check${active ? ' active' : ''}`}
@@ -1307,10 +1318,12 @@ function TemplatePicker({
   templates,
   value,
   onChange,
+  onDelete,
 }: {
   templates: ProjectTemplate[];
   value: string | null;
   onChange: (id: string | null) => void;
+  onDelete: (id: string) => Promise<boolean>;
 }) {
   const t = useT();
   return (
@@ -1338,6 +1351,10 @@ function TemplatePicker({
                 key={tpl.id}
                 active={value === tpl.id}
                 onClick={() => onChange(tpl.id)}
+                onDelete={async () => {
+                  const ok = await onDelete(tpl.id);
+                  if (ok && value === tpl.id) onChange(null);
+                }}
                 name={tpl.name}
                 description={tpl.description ?? fallbackDesc}
               />
@@ -1648,27 +1665,40 @@ function PromptTemplateAvatar({
 function TemplateOption({
   active,
   onClick,
+  onDelete,
   name,
   description,
 }: {
   active: boolean;
   onClick: () => void;
+  onDelete: () => void;
   name: string;
   description: string;
 }) {
   return (
-    <button
-      type="button"
-      className={`template-option${active ? ' active' : ''}`}
-      onClick={onClick}
-      aria-pressed={active}
-    >
-      <span className={`template-radio${active ? ' active' : ''}`} aria-hidden />
-      <span className="template-option-text">
-        <span className="template-option-name">{name}</span>
-        <span className="template-option-desc">{description}</span>
-      </span>
-    </button>
+    <div className={`template-option${active ? ' active' : ''}`}>
+      <button
+        type="button"
+        className="template-option-select"
+        onClick={onClick}
+        aria-pressed={active}
+      >
+        <span className={`template-radio${active ? ' active' : ''}`} aria-hidden />
+        <span className="template-option-text">
+          <span className="template-option-name">{name}</span>
+          <span className="template-option-desc">{description}</span>
+        </span>
+      </button>
+      <button
+        type="button"
+        className="template-option-delete"
+        onClick={(e) => { e.stopPropagation(); onDelete(); }}
+        title="Delete template"
+        aria-label={`Delete template ${name}`}
+      >
+        ✕
+      </button>
+    </div>
   );
 }
 
@@ -2121,12 +2151,16 @@ function MediaProjectOptions(props:
   }
 
   const models = supportedModels('audio', AUDIO_MODELS_BY_KIND[props.audioKind]);
+  const audioDurations = props.audioKind === 'sfx'
+    ? SFX_AUDIO_DURATIONS_SEC
+    : AUDIO_DURATIONS_SEC;
   return (
     <div className="newproj-media-options">
       <OptionCards
         label={t('newproj.audioKindLabel')}
         options={[
           { value: 'speech' as const, title: t('newproj.audioKindSpeech') },
+          { value: 'sfx' as const, title: t('newproj.audioKindSfx') },
         ]}
         value={props.audioKind}
         onChange={props.onAudioKind}
@@ -2141,7 +2175,7 @@ function MediaProjectOptions(props:
       <label className="newproj-label">
         <span>{t('newproj.audioDurationLabel')}</span>
         <select value={props.audioDuration} onChange={(e) => props.onAudioDuration(Number(e.target.value))}>
-          {AUDIO_DURATIONS_SEC.map((sec) => (
+          {audioDurations.map((sec) => (
             <option key={sec} value={sec}>{t('newproj.audioDurationSeconds', { n: sec })}</option>
           ))}
         </select>
@@ -2164,7 +2198,7 @@ export function supportedModels(surface: 'image' | 'video' | 'audio', models: Me
   const supportedProviders: Record<'image' | 'video' | 'audio', Set<string>> = {
     image: new Set(['openai', 'volcengine', 'grok', 'nanobanana']),
     video: new Set(['volcengine', 'hyperframes', 'grok']),
-    audio: new Set(['minimax', 'fishaudio']),
+    audio: new Set(['minimax', 'fishaudio', 'elevenlabs']),
   };
   return models.filter((model) => {
     const provider = findProvider(model.provider);
@@ -2560,7 +2594,9 @@ function buildMetadata(input: {
       audioKind: input.audioKind,
       audioModel: input.audioModel,
       audioDuration: input.audioDuration,
-      voice: input.voice.trim() || undefined,
+      ...(input.audioKind === 'speech' && input.voice.trim()
+        ? { voice: input.voice.trim() }
+        : {}),
       ...inspirations,
     };
   }

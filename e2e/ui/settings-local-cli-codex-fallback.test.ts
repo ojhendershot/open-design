@@ -94,6 +94,34 @@ async function openLocalCliSettings(
     });
   });
 
+  await page.route('**/api/app-config', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          config: {
+            onboardingCompleted: true,
+            agentId: typeof config.agentId === 'string' ? config.agentId : 'codex',
+            agentCliEnv: config.agentCliEnv ?? {},
+            agentModels: config.agentModels ?? {},
+            skillId: null,
+            designSystemId: null,
+            disabledSkills: [],
+            disabledDesignSystems: [],
+          },
+        }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true }),
+    });
+  });
+
   await page.route('**/api/agents', async (route) => {
     await route.fulfill({ json: { agents } });
   });

@@ -30,7 +30,7 @@ let
   # `nix build .#web` will fail with the expected hash printed; copy
   # that into `pnpmDepsHash` below. Bump it whenever pnpm-lock.yaml
   # changes.
-  pnpmDepsHash = "sha256-/C9tl0CY/vbDr369wVowsrEMxhljX0pnW7kGZbz3Fas=";
+  pnpmDepsHash = "sha256-HFLm+8hv3o5x3Xem4MXNsNclIgiVRc70+EBafL0rVn8=";
   # pnpmDepsHash = lib.fakeHash;
 in
   stdenv.mkDerivation (finalAttrs: {

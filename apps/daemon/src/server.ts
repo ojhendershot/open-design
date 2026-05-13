@@ -26,7 +26,8 @@ import {
   detectAgents,
   getAgentDef,
   isKnownModel,
-  resolveAgentBin,
+  applyAgentLaunchEnv,
+  resolveAgentLaunch,
   sanitizeCustomModel,
   spawnEnvForAgent,
 } from './agents.js';
@@ -37,7 +38,7 @@ import { installFromTarget, uninstallById, sanitizeRepoName } from './library-in
 import { buildWindowsFolderDialogCommand, parseFolderDialogStdout } from './native-folder-dialog.js';
 import { listCodexPets, readCodexPetSpritesheet } from './codex-pets.js';
 import { syncCommunityPets } from './community-pets-sync.js';
-import { listDesignSystems, readDesignSystem } from './design-systems.js';
+import { listDesignSystems, readDesignSystem, readDesignSystemAssets } from './design-systems.js';
 import {
   composeMemoryBody,
   deleteMemoryEntry,
@@ -101,6 +102,7 @@ import { loadCraftSections } from './craft.js';
 import { stageActiveSkill } from './cwd-aliases.js';
 import { buildDesktopPdfExportInput } from './pdf-export.js';
 import { generateMedia } from './media.js';
+import { listElevenLabsVoiceOptions } from './elevenlabs-voices.js';
 import { searchResearch, ResearchError } from './research/index.js';
 import { renderResearchCommandContract } from './prompts/research-contract.js';
 import {
@@ -189,6 +191,8 @@ import {
   insertRoutine,
   insertRoutineRun,
   insertTemplate,
+  findTemplateByNameAndProject,
+  updateTemplate,
   listProjectsAwaitingInput,
   listConversations,
   listDeployments,
@@ -277,6 +281,7 @@ import {
 /** @typedef {import('@open-design/contracts').ChatSseEvent} ChatSseEvent */
 /** @typedef {import('@open-design/contracts').ProxyStreamRequest} ProxyStreamRequest */
 /** @typedef {import('@open-design/contracts').ProxySseEvent} ProxySseEvent */
+/** @typedef {import('@open-design/contracts').ProjectConversationCreatedSsePayload} ProjectConversationCreatedSsePayload */
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1113,7 +1118,7 @@ function emitLiveArtifactEvent(grant, action, artifact) {
     title: artifact.title ?? artifact.id,
     refreshStatus: artifact.refreshStatus,
   };
-  let emitted = emitProjectLiveArtifactEvent(payload.projectId, payload);
+  let emitted = emitProjectEvent(payload.projectId, payload);
   if (grant?.runId) emitted = emitChatAgentEvent(grant.runId, payload) || emitted;
   return emitted;
 }
@@ -1125,12 +1130,16 @@ function emitLiveArtifactRefreshEvent(grant, payload) {
     projectId: grant.projectId,
     ...payload,
   };
-  let emitted = emitProjectLiveArtifactEvent(grant.projectId, event);
+  let emitted = emitProjectEvent(grant.projectId, event);
   if (grant?.runId) emitted = emitChatAgentEvent(grant.runId, event) || emitted;
   return emitted;
 }
 
-function emitProjectLiveArtifactEvent(projectId, payload) {
+// Broadcast an event to every SSE subscriber currently watching the given
+// project's `/api/projects/:id/events` stream. The payload's `type` field
+// becomes the SSE event name (see project-routes.ts). Used for live-artifact
+// events and `conversation-created` events emitted by routine runs (#1361).
+function emitProjectEvent(projectId, payload) {
   const sinks = activeProjectEventSinks.get(projectId);
   if (!sinks || sinks.size === 0) return false;
   for (const sink of Array.from(sinks)) {
@@ -2748,7 +2757,7 @@ export async function startServer({
     updatePreviewCommentStatus,
     deletePreviewComment,
   };
-  const templateDeps = { getTemplate, listTemplates, deleteTemplate, insertTemplate };
+  const templateDeps = { getTemplate, listTemplates, deleteTemplate, insertTemplate, findTemplateByNameAndProject, updateTemplate };
   const projectStatusDeps = {
     listLatestProjectRunStatuses,
     listProjectsAwaitingInput,
@@ -2816,6 +2825,7 @@ export async function startServer({
     getLiveMediaTask: (taskId) => getLiveMediaTask(db, taskId),
     mediaTaskSnapshot,
     listMediaTasksByProject,
+    listElevenLabsVoiceOptions,
   };
   const appConfigDeps = { readAppConfig, writeAppConfig };
   const orbitDeps = { orbitService };
@@ -2961,6 +2971,8 @@ export async function startServer({
     paths: pathDeps,
     projectStore: projectStoreDeps,
     exports: projectExportDeps,
+    projectFiles: projectFileDeps,
+    validation: validationDeps,
   });
   registerProjectFileRoutes(app, {
     db,
@@ -3054,8 +3066,29 @@ export async function startServer({
       console.warn('[memory] composeMemoryBody failed', err);
     }
 
+    // User-level custom instructions from app-config.json.
+    let userInstructions = '';
+    try {
+      const appCfg = await readAppConfig(RUNTIME_DATA_DIR);
+      if (appCfg.customInstructions) userInstructions = appCfg.customInstructions;
+    } catch (err) {
+      console.warn('[custom-instructions] readAppConfig failed', err);
+    }
+
+    // Project-level custom instructions from the projects table.
+    const projectInstructions = project?.customInstructions ?? '';
+
     let designSystemBody;
     let designSystemTitle;
+    // Compiled (tokens.css + components.html) form of the active brand.
+    // Gated by `OD_DESIGN_TOKEN_CHANNEL` while the experiment is in the
+    // smoke-test phase: flag-off keeps the daemon byte-equivalent to the
+    // pre-PR-C path; flag-on appends the tokens contract + reference
+    // fixture to the system prompt for any brand that ships those files
+    // (today: `default` and `kami`; every other brand falls through
+    // silently because the files are absent).
+    let designSystemTokensCss;
+    let designSystemFixtureHtml;
     if (effectiveDesignSystemId) {
       const systems = await listAllDesignSystems();
       const summary = systems.find((s) => s.id === effectiveDesignSystemId);
@@ -3064,12 +3097,44 @@ export async function startServer({
         (await readDesignSystem(DESIGN_SYSTEMS_DIR, effectiveDesignSystemId)) ??
         (await readDesignSystem(USER_DESIGN_SYSTEMS_DIR, effectiveDesignSystemId)) ??
         undefined;
+      if (process.env.OD_DESIGN_TOKEN_CHANNEL === '1') {
+        // Try built-in dir first, then user-installed dir, mirroring the
+        // DESIGN.md fallback chain above. Any individual file may be
+        // missing (e.g. tokens.css present, components.html absent); the
+        // composer gates each block independently.
+        const builtIn = await readDesignSystemAssets(DESIGN_SYSTEMS_DIR, effectiveDesignSystemId);
+        const installed = builtIn.tokensCss && builtIn.fixtureHtml
+          ? builtIn
+          : {
+              tokensCss: builtIn.tokensCss
+                ?? (await readDesignSystemAssets(USER_DESIGN_SYSTEMS_DIR, effectiveDesignSystemId)).tokensCss,
+              fixtureHtml: builtIn.fixtureHtml
+                ?? (await readDesignSystemAssets(USER_DESIGN_SYSTEMS_DIR, effectiveDesignSystemId)).fixtureHtml,
+            };
+        designSystemTokensCss = installed.tokensCss;
+        designSystemFixtureHtml = installed.fixtureHtml;
+      }
     }
 
     const template =
       metadata?.kind === 'template' && typeof metadata.templateId === 'string'
         ? (getTemplate(db, metadata.templateId) ?? undefined)
         : undefined;
+    let audioVoiceOptions = [];
+    let audioVoiceOptionsError;
+    if (
+      metadata?.kind === 'audio' &&
+      metadata?.audioKind === 'speech' &&
+      metadata?.audioModel === 'elevenlabs-v3' &&
+      !metadata?.voice
+    ) {
+      try {
+        audioVoiceOptions = await listElevenLabsVoiceOptions(PROJECT_ROOT, { limit: 100 });
+      } catch (err) {
+        audioVoiceOptionsError = err && err.message ? err.message : String(err);
+        console.warn('[elevenlabs] voice option lookup failed:', audioVoiceOptionsError);
+      }
+    }
 
     // Thread the critique config plus the active design-system / skill data
     // into the composer when critique is enabled. Without this the spawned
@@ -3124,11 +3189,15 @@ export async function startServer({
       skillMode,
       designSystemBody,
       designSystemTitle,
+      designSystemTokensCss,
+      designSystemFixtureHtml,
       craftBody,
       craftSections,
       memoryBody,
       metadata,
       template,
+      audioVoiceOptions,
+      audioVoiceOptionsError,
       critique: critiqueShouldRun ? critiqueCfg : undefined,
       critiqueBrand: critiqueShouldRun ? critiqueBrand : undefined,
       critiqueSkill: critiqueShouldRun ? critiqueSkill : undefined,
@@ -3136,6 +3205,8 @@ export async function startServer({
       connectedExternalMcp: Array.isArray(connectedExternalMcp)
         ? connectedExternalMcp
         : undefined,
+      userInstructions,
+      projectInstructions,
     });
     // The chat handler also needs to know where the active skill lives
     // on disk so it can stage a per-project copy of its side files
@@ -3622,7 +3693,8 @@ export async function startServer({
       configuredAgentEnv = {};
     }
 
-    const resolvedBin = resolveAgentBin(agentId, configuredAgentEnv);
+    const agentLaunch = resolveAgentLaunch(def, configuredAgentEnv);
+    const resolvedBin = agentLaunch.selectedPath;
 
     const args = def.buildArgs(
       composed,
@@ -3644,7 +3716,7 @@ export async function startServer({
     // doesn't have to special-case it.
     const cmdShimBudgetError = checkWindowsCmdShimCommandLineBudget(
       def,
-      resolvedBin,
+      agentLaunch.launchPath ?? resolvedBin,
       args,
     );
     if (cmdShimBudgetError) {
@@ -3671,7 +3743,7 @@ export async function startServer({
     // users hit a generic `spawn ENAMETOOLONG`.
     const directExeBudgetError = checkWindowsDirectExeCommandLineBudget(
       def,
-      resolvedBin,
+      agentLaunch.launchPath ?? resolvedBin,
       args,
     );
     if (directExeBudgetError) {
@@ -3763,7 +3835,7 @@ export async function startServer({
     // pointing at /api/agents instead of silently falling back to
     // spawn(def.bin) — that fallback re-introduces the exact ENOENT symptom
     // from issue #10.
-    if (!resolvedBin) {
+    if (!resolvedBin || !agentLaunch.launchPath) {
       revokeToolToken('child_exit');
       unregisterChatAgentEventSink();
       send('error', createSseErrorPayload(
@@ -3819,7 +3891,7 @@ export async function startServer({
         def.promptViaStdin || def.streamFormat === 'acp-json-rpc'
           ? 'pipe'
           : 'ignore';
-      const env = {
+      const env = applyAgentLaunchEnv({
         ...spawnEnvForAgent(
           def.id,
           {
@@ -3829,10 +3901,10 @@ export async function startServer({
           configuredAgentEnv,
         ),
         ...odMediaEnv,
-      };
+      }, agentLaunch);
       spawnedAgentEnv = env;
       const invocation = createCommandInvocation({
-        command: resolvedBin,
+        command: agentLaunch.launchPath,
         args,
         env,
       });
@@ -4228,9 +4300,27 @@ export async function startServer({
         ));
         return design.runs.finish(run, 'failed', code, signal);
       }
+      // ACP agents that don't shut down on stdin.end() (e.g. Devin for
+      // Terminal) are forced to exit via SIGTERM from attachAcpSession after
+      // a clean prompt completion. Without an override, the chat run would
+      // be marked `failed` because `code === 0` fails (code is null on a
+      // signal exit). `completedSuccessfully()` reports whether the ACP
+      // session resolved without a fatal error or abort.
+      //
+      // Scope the override narrowly to the exact forced-shutdown shape this
+      // PR introduces: code is null AND signal is SIGTERM AND the ACP
+      // session reported clean completion. Any other post-response failure
+      // (non-zero exit code, SIGKILL, SIGSEGV, etc.) still propagates as
+      // `failed`, preserving the existing close-status behavior for genuine
+      // post-response process problems.
+      const acpCleanCompletion =
+        typeof acpSession?.completedSuccessfully === 'function' &&
+        acpSession.completedSuccessfully();
+      const acpForcedShutdown =
+        code === null && signal === 'SIGTERM' && acpCleanCompletion;
       const status = run.cancelRequested
         ? 'canceled'
-        : code === 0
+        : code === 0 || acpForcedShutdown
           ? 'succeeded'
           : 'failed';
       if (status === 'failed') {
@@ -4459,6 +4549,25 @@ export async function startServer({
       createdAt: now,
       updatedAt: now,
     });
+
+    // Notify any open `ProjectView` watching this project so its
+    // conversation list picks up the new routine conversation without
+    // requiring the user to leave and re-enter the project (#1361).
+    // For reuse-an-existing-project mode this is the only path the
+    // open view has to learn the conversation exists; for new-project
+    // mode this is harmless (no subscribers for a project that was
+    // just created milliseconds ago). The payload shape is the shared
+    // `ProjectConversationCreatedSsePayload` from `@open-design/contracts`
+    // so the daemon producer and the web consumer cannot drift.
+    /** @type {ProjectConversationCreatedSsePayload} */
+    const conversationCreatedEvent = {
+      type: 'conversation-created',
+      projectId,
+      conversationId,
+      title: conversationTitle,
+      createdAt: now,
+    };
+    emitProjectEvent(projectId, conversationCreatedEvent);
 
     const assistantMessageId = `routine-assistant-${randomUUID()}`;
     const run = design.runs.create({

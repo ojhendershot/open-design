@@ -55,6 +55,7 @@ interface Props {
   designSystems: DesignSystemSummary[];
   projects: Project[];
   templates: ProjectTemplate[];
+  onDeleteTemplate: (id: string) => Promise<boolean>;
   promptTemplates: PromptTemplateSummary[];
   defaultDesignSystemId: string | null;
   config: AppConfig;
@@ -233,6 +234,7 @@ export function EntryView({
   designSystems,
   projects,
   templates,
+  onDeleteTemplate,
   promptTemplates,
   defaultDesignSystemId,
   config,
@@ -497,6 +499,7 @@ export function EntryView({
           designSystems={designSystems}
           defaultDesignSystemId={defaultDesignSystemId}
           templates={templates}
+          onDeleteTemplate={onDeleteTemplate}
           promptTemplates={promptTemplates}
           onCreate={handleCreate}
           onImportClaudeDesign={onImportClaudeDesign}
@@ -564,18 +567,26 @@ export function EntryView({
                 <Icon name={petRailHidden ? 'eye' : 'eye-off'} size={12} />
               </button>
             </div>
-            <div className="entry-side-foot-social">
-              <a
-                className="foot-pill foot-pill-follow"
-                href="https://x.com/nexudotio"
-                target="_blank"
-                rel="noreferrer noopener"
-                title="Follow @nexudotio on X for releases and milestones"
-                aria-label="Follow @nexudotio on X"
-              >
-                <Icon name="x-brand" size={12} />
-              </a>
-            </div>
+            <a
+              className="foot-pill foot-pill-follow"
+              href="https://discord.com/invite/qhbcCH8Am4"
+              target="_blank"
+              rel="noreferrer noopener"
+              title="Join the Open Design Discord community"
+              aria-label="Join the Open Design Discord community"
+            >
+              <Icon name="discord" size={12} />
+            </a>
+            <a
+              className="foot-pill foot-pill-follow"
+              href="https://x.com/nexudotio"
+              target="_blank"
+              rel="noreferrer noopener"
+              title="Follow @nexudotio on X for releases and milestones"
+              aria-label="Follow @nexudotio on X"
+            >
+              <Icon name="external-link" size={12} />
+            </a>
           </div>
         </div>
         <button
