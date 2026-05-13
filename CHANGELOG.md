@@ -80,7 +80,6 @@ A memory-plus-UI release: **auto-memory store** carries agent context across run
 ### Fixed
 
 #### Web
-- Restore the shared app chrome header on the entry view; remove target/include chips from the project header so Share / Present have room; tighten the entry layout so the restored header does not squeeze the sidebar. ([#1432])
 - Persist Appearance accent color selection so swatch picks survive Settings close. ([#1439])
 - Load Orbit template choices from `design-templates` instead of `skills` (aligns with the skill model refactor). ([#1442])
 - Restore custom dropdown chevron for the timezone selector in dark mode. ([#1368])
@@ -1406,6 +1405,5 @@ First public release of Open Design — a local-first, open-source alternative t
 [#1365]: https://github.com/nexu-io/open-design/pull/1365
 [#1368]: https://github.com/nexu-io/open-design/pull/1368
 [#1402]: https://github.com/nexu-io/open-design/pull/1402
-[#1432]: https://github.com/nexu-io/open-design/pull/1432
 [#1439]: https://github.com/nexu-io/open-design/pull/1439
 [#1442]: https://github.com/nexu-io/open-design/pull/1442
