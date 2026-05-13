@@ -758,6 +758,14 @@ export type LinuxStopResult = {
   stoppedPids: number[];
 };
 
+type ProcessSnapshots = Awaited<ReturnType<typeof listProcessSnapshots>>;
+type ProcessSnapshot = ProcessSnapshots[number];
+
+type DesktopAppImageMarkerValidation =
+  | { status: "valid"; candidate: ProcessSnapshot }
+  | { status: "not-running" }
+  | { status: "invalid"; candidate: ProcessSnapshot; processCommand: string };
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value != null && !Array.isArray(value);
 }
@@ -836,6 +844,55 @@ async function readProcessExe(pid: number): Promise<string> {
   } catch {
     return "";
   }
+}
+
+async function validateDesktopAppImageMarker(
+  config: ToolPackConfig,
+  marker: DesktopRootIdentityMarker,
+  snapshots: ProcessSnapshots,
+): Promise<DesktopAppImageMarkerValidation> {
+  const candidate = snapshots.find((s) => s.pid === marker.pid);
+  if (candidate == null) return { status: "not-running" };
+
+  // Validate the marker stamp (file content written by apps/packaged itself)
+  // rather than the process command line. Menu launches via the .desktop
+  // entry don't pass createProcessStampArgs to the AppImage -- they only set
+  // OD_PACKAGED_NAMESPACE -- so apps/packaged falls back to a SIDECAR_SOURCES.PACKAGED
+  // stamp. Validating the process command would reject those legitimate
+  // launches as `unmanaged`, which on uninstall would also remove the
+  // AppImage/desktop/icon files out from under the still-running app.
+  // Accept either TOOLS_PACK (CLI start) or PACKAGED (menu launch). Mirrors
+  // the dual-source acceptance pattern in mac/lifecycle.ts.
+  const expectedIpc = resolveAppIpcPath({
+    app: APP_KEYS.DESKTOP,
+    contract: OPEN_DESIGN_SIDECAR_CONTRACT,
+    namespace: config.namespace,
+  });
+  const stampOk =
+    marker.stamp.app === APP_KEYS.DESKTOP &&
+    marker.stamp.mode === SIDECAR_MODES.RUNTIME &&
+    marker.stamp.namespace === config.namespace &&
+    marker.stamp.ipc === expectedIpc &&
+    (marker.stamp.source === SIDECAR_SOURCES.TOOLS_PACK ||
+      marker.stamp.source === SIDECAR_SOURCES.PACKAGED);
+  const paths = resolveLinuxPaths(config);
+  const exePath = await readProcessExe(marker.pid);
+  const env = await readProcessEnv(marker.pid);
+  // marker.appPath is unreliable on Linux (apps/packaged writes "/"). Use the
+  // canonical install path we know about, falling back to the built AppImage
+  // for not-yet-installed builds.
+  const candidateAppImagePath =
+    (await pathExists(paths.installAppImagePath)) ? paths.installAppImagePath : await findBuiltAppImage(paths);
+  const cmdOk = candidateAppImagePath != null && matchesAppImageProcess(
+    { pid: marker.pid, executable: exePath, env },
+    candidateAppImagePath,
+  );
+
+  if (stampOk && cmdOk && marker.namespaceRoot === config.roots.runtime.namespaceRoot) {
+    return { candidate, status: "valid" };
+  }
+
+  return { candidate, processCommand: candidate.command, status: "invalid" };
 }
 
 function desktopLogPath(config: ToolPackConfig): string {
@@ -969,7 +1026,6 @@ async function teardownOrphanedStart(rootPid: number): Promise<void> {
 }
 
 export async function stopPackedLinuxApp(config: ToolPackConfig): Promise<LinuxStopResult> {
-  const paths = resolveLinuxPaths(config);
   const { fallback, marker } = await readDesktopRootIdentityMarker(config);
 
   if (marker == null) {
@@ -985,8 +1041,8 @@ export async function stopPackedLinuxApp(config: ToolPackConfig): Promise<LinuxS
 
   // Validate the marker still represents a live, owned process.
   const snapshots = await listProcessSnapshots();
-  const candidate = snapshots.find((s) => s.pid === marker.pid);
-  if (candidate == null) {
+  const validation = await validateDesktopAppImageMarker(config, marker, snapshots);
+  if (validation.status === "not-running") {
     return {
       fallback: { ...fallback, reason: "marker-pid-not-running" },
       gracefulRequested: false,
@@ -997,45 +1053,12 @@ export async function stopPackedLinuxApp(config: ToolPackConfig): Promise<LinuxS
     };
   }
 
-  // Validate the marker stamp (file content written by apps/packaged itself)
-  // rather than the process command line. Menu launches via the .desktop
-  // entry don't pass createProcessStampArgs to the AppImage -- they only set
-  // OD_PACKAGED_NAMESPACE -- so apps/packaged falls back to a SIDECAR_SOURCES.PACKAGED
-  // stamp. Validating the process command would reject those legitimate
-  // launches as `unmanaged`, which on uninstall would also remove the
-  // AppImage/desktop/icon files out from under the still-running app.
-  // Accept either TOOLS_PACK (CLI start) or PACKAGED (menu launch). Mirrors
-  // the dual-source acceptance pattern in mac/lifecycle.ts.
-  const expectedIpc = resolveAppIpcPath({
-    app: APP_KEYS.DESKTOP,
-    contract: OPEN_DESIGN_SIDECAR_CONTRACT,
-    namespace: config.namespace,
-  });
-  const stampOk =
-    marker.stamp.app === APP_KEYS.DESKTOP &&
-    marker.stamp.mode === SIDECAR_MODES.RUNTIME &&
-    marker.stamp.namespace === config.namespace &&
-    marker.stamp.ipc === expectedIpc &&
-    (marker.stamp.source === SIDECAR_SOURCES.TOOLS_PACK ||
-      marker.stamp.source === SIDECAR_SOURCES.PACKAGED);
-  const exePath = await readProcessExe(marker.pid);
-  const env = await readProcessEnv(marker.pid);
-  // marker.appPath is unreliable on Linux (apps/packaged writes "/"). Use the
-  // canonical install path we know about, falling back to the built AppImage
-  // for not-yet-installed builds.
-  const candidateAppImagePath =
-    (await pathExists(paths.installAppImagePath)) ? paths.installAppImagePath : await findBuiltAppImage(paths);
-  const cmdOk = candidateAppImagePath != null && matchesAppImageProcess(
-    { pid: marker.pid, executable: exePath, env },
-    candidateAppImagePath,
-  );
-
-  if (!stampOk || !cmdOk || marker.namespaceRoot !== config.roots.runtime.namespaceRoot) {
+  if (validation.status === "invalid") {
     return {
       fallback: {
         ...fallback,
         marker: { pid: marker.pid, stamp: marker.stamp },
-        processCommand: candidate.command,
+        processCommand: validation.processCommand,
         reason: "marker-validation-failed",
       },
       gracefulRequested: false,
@@ -1546,15 +1569,18 @@ export async function cleanupPackedLinuxNamespace(
   if (mode === "headless") {
     const { marker } = await readDesktopRootIdentityMarker(config);
     if (marker != null) {
-      return {
-        namespace: config.namespace,
-        outputRoot,
-        removedOutputRoot: false,
-        removedRuntimeNamespaceRoot: false,
-        runtimeNamespaceRoot,
-        skipped: true,
-        stop,
-      };
+      const desktop = await validateDesktopAppImageMarker(config, marker, await listProcessSnapshots());
+      if (desktop.status !== "not-running") {
+        return {
+          namespace: config.namespace,
+          outputRoot,
+          removedOutputRoot: false,
+          removedRuntimeNamespaceRoot: false,
+          runtimeNamespaceRoot,
+          skipped: true,
+          stop,
+        };
+      }
     }
   }
 

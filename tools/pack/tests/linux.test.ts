@@ -320,7 +320,7 @@ describe("stopPackedLinuxHeadless", () => {
     }
   });
 
-  it("leaves a desktop AppImage runtime namespace intact during headless cleanup", async () => {
+  it("removes stale desktop AppImage markers during headless cleanup", async () => {
     const root = await mkdtemp(join(tmpdir(), "od-linux-headless-cleanup-"));
     const namespace = "cleanup-split";
     const namespaceRoot = join(root, "runtime", "linux", "namespaces", namespace);
@@ -374,9 +374,79 @@ describe("stopPackedLinuxHeadless", () => {
 
       const result = await cleanupPackedLinuxNamespace(config, { headless: true });
 
+      expect(result.skipped).toBe(false);
+      expect(result.removedOutputRoot).toBe(true);
+      expect(result.removedRuntimeNamespaceRoot).toBe(true);
+      expect(await pathExists(markerPath)).toBe(false);
+      expect(await pathExists(namespaceRoot)).toBe(false);
+      expect(await pathExists(config.roots.output.namespaceRoot)).toBe(false);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  it("skips headless cleanup while the desktop marker PID is live in the snapshot table", async () => {
+    const root = await mkdtemp(join(tmpdir(), "od-linux-headless-cleanup-live-"));
+    const namespace = "cleanup-split-live";
+    const namespaceRoot = join(root, "runtime", "linux", "namespaces", namespace);
+    const config: ToolPackConfig = {
+      ...makeConfig(),
+      namespace,
+      roots: {
+        ...makeConfig().roots,
+        output: {
+          ...makeConfig().roots.output,
+          namespaceRoot: join(root, "out", "linux", "namespaces", namespace),
+        },
+        runtime: {
+          namespaceBaseRoot: join(root, "runtime", "linux", "namespaces"),
+          namespaceRoot,
+        },
+      },
+    };
+    const markerPath = join(namespaceRoot, "runtime", "desktop-root.json");
+    const stamp = {
+      app: APP_KEYS.DESKTOP,
+      ipc: resolveAppIpcPath({
+        app: APP_KEYS.DESKTOP,
+        contract: OPEN_DESIGN_SIDECAR_CONTRACT,
+        namespace,
+      }),
+      mode: SIDECAR_MODES.RUNTIME,
+      namespace,
+      source: SIDECAR_SOURCES.PACKAGED,
+    };
+
+    try {
+      await mkdir(dirname(markerPath), { recursive: true });
+      // Use the test runner's own PID -- guaranteed to be in the live snapshot
+      // table returned by listProcessSnapshots, so validateDesktopAppImageMarker
+      // returns a non-"not-running" status. The cleanup defense skips on any
+      // status other than "not-running", regardless of whether stamp/exe match.
+      await writeFile(
+        markerPath,
+        `${JSON.stringify({
+          appPath: "/tmp/Open-Design.AppImage",
+          executablePath: "/tmp/.mount_od/AppRun",
+          logPath: join(namespaceRoot, "logs", "desktop", "latest.log"),
+          namespaceRoot,
+          pid: process.pid,
+          ppid: 1,
+          stamp,
+          startedAt: new Date(0).toISOString(),
+          updatedAt: new Date(0).toISOString(),
+          version: 1,
+        })}\n`,
+        "utf8",
+      );
+      await mkdir(config.roots.output.namespaceRoot, { recursive: true });
+
+      const result = await cleanupPackedLinuxNamespace(config, { headless: true });
+
       expect(result.skipped).toBe(true);
       expect(result.removedOutputRoot).toBe(false);
       expect(result.removedRuntimeNamespaceRoot).toBe(false);
+      expect(await pathExists(markerPath)).toBe(true);
       expect(await pathExists(namespaceRoot)).toBe(true);
       expect(await pathExists(config.roots.output.namespaceRoot)).toBe(true);
     } finally {
