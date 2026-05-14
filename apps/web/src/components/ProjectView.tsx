@@ -118,6 +118,18 @@ import { effectiveMaxTokens } from '../state/maxTokens';
 interface Props {
   project: Project;
   routeFileName: string | null;
+  /**
+   * Routed conversation id. When set (the URL is
+   * `/projects/:id/conversations/:cid[/...]`), the project view picks
+   * this conversation as active instead of defaulting to `list[0]`.
+   * Falls through to the default picker if the conversation does not
+   * exist (e.g. the run was deleted between the route landing and the
+   * conversation list loading). Issue #1505. Optional so existing
+   * test harnesses that mount ProjectView with a stub props bag do
+   * not have to be updated; production callers in `App.tsx` always
+   * pass the value from `useRoute()`.
+   */
+  routeConversationId?: string | null;
   config: AppConfig;
   agents: AgentInfo[];
   // Mentionable functional skills — already filtered by config.disabledSkills
@@ -261,6 +273,7 @@ function projectEventToAgentEvent(evt: ProjectEvent): LiveArtifactEventItem['eve
 export function ProjectView({
   project,
   routeFileName,
+  routeConversationId = null,
   config,
   agents,
   skills,
@@ -464,7 +477,15 @@ export function ProjectView({
           }
         } else {
           setConversations(list);
-          setActiveConversationId(list[0]!.id);
+          // Issue #1505: when the URL deep-links to a specific
+          // conversation, prefer that one. Falls through to list[0]
+          // when the routed id is null or no longer present (the
+          // routine row may have been deleted between the route
+          // landing and the conversation list loading).
+          const routedMatch = routeConversationId
+            ? list.find((c) => c.id === routeConversationId) ?? null
+            : null;
+          setActiveConversationId(routedMatch ? routedMatch.id : list[0]!.id);
         }
       } catch (err) {
         if (cancelled) return;
@@ -479,6 +500,22 @@ export function ProjectView({
       cancelled = true;
     };
   }, [project.id]);
+
+  // Issue #1505: when the URL changes the routed conversation id while
+  // we are already inside the project (e.g. the user clicks "Open
+  // project" on a different routine history row in the same project),
+  // switch the active conversation without re-fetching the list.
+  // Guards: only acts when the routed id is non-null AND present in
+  // the already-loaded list, and only when it differs from the current
+  // active id. Falls through to a no-op for stale / missing routes so
+  // the default picker above keeps its result.
+  useEffect(() => {
+    if (!routeConversationId) return;
+    if (conversations.length === 0) return;
+    if (routeConversationId === activeConversationId) return;
+    const match = conversations.find((c) => c.id === routeConversationId);
+    if (match) setActiveConversationId(match.id);
+  }, [routeConversationId, conversations, activeConversationId]);
 
   useEffect(() => {
     setWorkspaceFocused(false);
@@ -803,7 +840,14 @@ export function ProjectView({
   // Sync the URL when the active tab changes, so reload + share-link both
   // land back on the same view. Replace (not push) on tab activation so the
   // history stack doesn't fill with every tab click.
-  const lastSyncedFileRef = useRef<string | null>(null);
+  // Composite sync key: tracks BOTH the active file target AND the active
+  // conversation id, so a conversation-only change (e.g. `listConversations`
+  // resolves after `loadTabs` hydrated the active tab, or the user picks a
+  // different conversation under the same tab) still triggers the navigate
+  // and pushes `/conversations/:cid` into the URL. Keying only on the file
+  // target lost that update because the early-return saw `target` unchanged
+  // and skipped the navigate (lefarcen P1 on PR #1508).
+  const lastSyncedRouteKeyRef = useRef<string | null>(null);
   useEffect(() => {
     const target = openTabsState.active && (
       openTabsState.tabs.includes(openTabsState.active)
@@ -812,13 +856,27 @@ export function ProjectView({
     )
       ? openTabsState.active
       : null;
-    if (target === lastSyncedFileRef.current) return;
-    lastSyncedFileRef.current = target;
+    const nextKey = `${activeConversationId ?? ''}:${target ?? ''}`;
+    if (nextKey === lastSyncedRouteKeyRef.current) return;
+    lastSyncedRouteKeyRef.current = nextKey;
+    // PerishCode + Codex P1 on PR #1508: the prior version of this
+    // sync stripped any `/conversations/:cid` segment from the URL as
+    // soon as a tab became active, which regressed the deep-link
+    // behavior the parent commit was meant to add (reload / share
+    // would fall back to `list[0]` instead of the routed run's
+    // conversation). Thread the active conversation id so the URL
+    // always reflects the conversation the project view is actually
+    // showing, matching how `fileName` already tracks the active tab.
     navigate(
-      { kind: 'project', projectId: project.id, fileName: target },
+      {
+        kind: 'project',
+        projectId: project.id,
+        conversationId: activeConversationId,
+        fileName: target,
+      },
       { replace: true },
     );
-  }, [openTabsState.active, projectFileNames, project.id]);
+  }, [openTabsState.active, projectFileNames, project.id, activeConversationId]);
 
   const handleEnsureProject = useCallback(async (): Promise<string | null> => {
     return project.id;
