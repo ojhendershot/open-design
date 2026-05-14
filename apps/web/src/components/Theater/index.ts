@@ -8,6 +8,7 @@
  * the canonical mount surface narrow so adding/removing internals
  * does not churn callers.
  */
+export { CritiqueTheaterMount } from './CritiqueTheaterMount';
 export { TheaterStage } from './TheaterStage';
 export { TheaterCollapsed } from './TheaterCollapsed';
 export { TheaterDegraded } from './TheaterDegraded';
@@ -15,6 +16,10 @@ export { TheaterTranscript } from './TheaterTranscript';
 export { InterruptButton } from './InterruptButton';
 export { useCritiqueStream } from './hooks/useCritiqueStream';
 export { useCritiqueReplay } from './hooks/useCritiqueReplay';
+export {
+  useCritiqueTheaterEnabled,
+  setCritiqueTheaterEnabled,
+} from './hooks/useCritiqueTheaterEnabled';
 export type {
   CritiqueState,
   CritiqueAction,

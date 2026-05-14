@@ -97,6 +97,8 @@ export const uk: Dict = {
   'settings.agentInstall.stepSelect': 'Виберіть картку агента, коли він з\'явиться як встановлений.',
   'settings.noAgentsDetected':
     'Агентів ще не виявлено. Встановіть один з: Claude Code, Codex, Devin for Terminal, Gemini CLI, OpenCode, Cursor Agent, Qwen або GitHub Copilot CLI, а потім натисніть Переканувати.',
+  'settings.agentAuthRequired': 'Потрібна автентифікація',
+  'settings.agentAuthUnknown': 'Стан автентифікації невідомий',
   'settings.apiSection': 'Anthropic API',
   'settings.quickFillProvider': 'Швидко заповнити провайдера',
   'settings.customProvider': 'Власний провайдер',
@@ -606,6 +608,8 @@ export const uk: Dict = {
   'chat.scrollToLatest': 'Прокрутити до останнього',
   'chat.you': 'Ви',
   'chat.openFile': 'Відкрити {name}',
+  'chat.copyPrompt': 'Копіювати запит',
+  'chat.copyDone': 'Скопійовано!',
   'chat.composerPlaceholder':
     'Опишіть дизайн, який ви хочете — вставте або перенесіть зображення, або скористайтеся @ для посилання на файл чи навичку…',
   'chat.composerHint':
@@ -884,6 +888,8 @@ export const uk: Dict = {
   'fileViewer.exportZip': 'Завантажити як .zip',
   'fileViewer.exportHtml': 'Експортувати як самостійний HTML',
   'fileViewer.exportMd': 'Експортувати як Markdown',
+  'fileViewer.exportImage': 'Експортувати як зображення',
+  'fileViewer.exportImageFailed': 'Не вдалося захопити зображення. Спробуйте ще раз або скористайтеся інструментом знімків екрана вашого браузера.',
   'fileViewer.exportJsx': 'Експортувати як JSX',
   'fileViewer.exportReactHtml': 'Експортувати попередній перегляд як HTML',
   'fileViewer.saveAsTemplate': 'Зберегти як шаблон…',
@@ -1256,6 +1262,7 @@ export const uk: Dict = {
   'settings.connectorsSaveKey': "Зберегти ключ",
   'settings.connectorsSaveKeyTitle': "Надіслати цей ключ локальному демону",
   'settings.connectorsKeySaving': "Збереження…",
+  'settings.connectorsKeySaved': "Збережено ✓",
   'settings.connectorsKeyError': "Не вдалося зберегти ключ. Перевірте, чи запущено локальний демон, і спробуйте ще раз.",
   'settings.connectorsHelpSaved': 'Ваш ключ відкриває каталог нижче й залишається в локальному daemon. Вставте новий ключ, щоб замінити його, або очистіть, щоб видалити.',
   'settings.connectorsHelpUnsaved': "Незбережені зміни — натисніть «Зберегти ключ», щоб надіслати ці дані локальному демону і відкрити каталог нижче.",
@@ -1319,6 +1326,7 @@ export const uk: Dict = {
   'settings.memoryExtractionsHint': 'Recent LLM-backed extraction attempts. Heuristic regex extraction always runs first; LLM extraction runs in the background after each turn.',
   'settings.memoryExtractionsEmpty': 'No extractions yet. The next chat turn will populate this list.',
   'settings.memoryExtractionsRefresh': 'Refresh',
+  'settings.memoryExtractionsRefreshing': 'Refreshing…',
   'settings.memoryExtractionPhaseRunning': 'Running…',
   'settings.memoryExtractionPhaseSuccess': 'Success',
   'settings.memoryExtractionPhaseSkipped': 'Skipped',

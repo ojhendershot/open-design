@@ -113,11 +113,11 @@ function parseSource(source: string): Document | null {
 }
 
 function serializeSource(doc: Document, originalSource: string): string {
-  if (!isFullHtmlDocument(originalSource)) return doc.body.innerHTML;
+  if (!isManualEditFullHtmlDocument(originalSource)) return doc.body.innerHTML;
   return `<!doctype html>\n${doc.documentElement.outerHTML}`;
 }
 
-function isFullHtmlDocument(source: string): boolean {
+export function isManualEditFullHtmlDocument(source: string): boolean {
   const normalized = firstSourceToken(source).slice(0, 32).toLowerCase();
   return normalized.startsWith('<!doctype') || normalized.startsWith('<html');
 }

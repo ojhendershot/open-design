@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { ToolCard } from "./ToolCard";
 import { renderMarkdown } from "../runtime/markdown";
 import { projectFileUrl } from "../providers/registry";
@@ -347,7 +347,7 @@ function AssistantFooter({
   forceVisible = false,
 }: AssistantFooterProps) {
   const t = useT();
-  const elapsed = useLiveElapsed(streaming, startedAt, endedAt);
+  const elapsed = useLiveElapsed(streaming, startedAt, endedAt, usage?.durationMs);
   if (
     !forceVisible &&
     !streaming &&
@@ -399,6 +399,7 @@ function AssistantFeedback({
   const [burstKey, setBurstKey] = useState(0);
   const [reasonRating, setReasonRating] =
     useState<ChatMessageFeedbackRating | null>(null);
+  const reasonsRef = useRef<HTMLDivElement | null>(null);
   const [draftReasonCodes, setDraftReasonCodes] = useState<
     Set<ChatMessageFeedbackReasonCode>
   >(() => new Set());
@@ -408,6 +409,10 @@ function AssistantFeedback({
     if (selected) return;
     setReasonRating(null);
   }, [selected]);
+  useEffect(() => {
+    if (!reasonRating) return;
+    reasonsRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [reasonRating]);
   const toggleFeedback = (rating: ChatMessageFeedbackRating) => {
     const nextRating = selected === rating ? null : rating;
     if (nextRating === "positive") setBurstKey((key) => key + 1);
@@ -495,7 +500,7 @@ function AssistantFeedback({
     <div className="assistant-feedback-wrap">
       <AssistantFooter {...footerProps} feedbackControls={controls} />
       {reasonRating ? (
-        <div className="assistant-feedback-reasons">
+        <div className="assistant-feedback-reasons" ref={reasonsRef}>
           <div className="assistant-feedback-reason-title">
             <span>{t("assistant.feedbackReasonTitle")}</span>
             <span className="assistant-feedback-reason-emoji" aria-hidden="true">
@@ -1215,7 +1220,8 @@ function splitSystemReminders(input: string): ProseSegment[] {
 function useLiveElapsed(
   streaming: boolean,
   startedAt: number | undefined,
-  endedAt: number | undefined
+  endedAt: number | undefined,
+  fixedDurationMs: number | undefined,
 ): string {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -1223,9 +1229,16 @@ function useLiveElapsed(
     const id = window.setInterval(() => setNow(Date.now()), 200);
     return () => window.clearInterval(id);
   }, [streaming]);
-  if (!startedAt) return "";
-  const end = streaming ? now : endedAt ?? now;
-  const ms = Math.max(0, end - startedAt);
+  if (!streaming && endedAt === undefined && typeof fixedDurationMs === "number") {
+    return formatElapsedMs(fixedDurationMs);
+  }
+  if (!startedAt || (!streaming && endedAt === undefined)) return "";
+  const end = streaming ? now : endedAt;
+  const ms = Math.max(0, (end ?? now) - startedAt);
+  return formatElapsedMs(ms);
+}
+
+function formatElapsedMs(ms: number): string {
   const s = ms / 1000;
   if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)}s`;
   const m = Math.floor(s / 60);

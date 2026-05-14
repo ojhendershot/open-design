@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { useT } from '../i18n';
 import { emptyManualEditStyles, type ManualEditHistoryEntry, type ManualEditPatch, type ManualEditStyles, type ManualEditTarget } from '../edit-mode/types';
 
 export interface ManualEditDraft {
@@ -13,8 +12,6 @@ export interface ManualEditDraft {
   fullSource: string;
 }
 
-export type ManualEditTab = 'content' | 'style' | 'attributes' | 'html' | 'source';
-
 export function emptyManualEditDraft(source = ''): ManualEditDraft {
   return {
     text: '', href: '', src: '', alt: '',
@@ -24,22 +21,15 @@ export function emptyManualEditDraft(source = ''): ManualEditDraft {
 }
 
 export function ManualEditPanel({
-  targets,
   selectedTarget,
   draft,
-  history,
   error,
-  canUndo,
-  canRedo,
-  busy = false,
-  onSelectTarget,
   onDraftChange,
-  onPreviewStyle,
-  onApplyPatch,
+  onStyleChange,
+  onInvalidStyle,
   onError,
-  onCancelDraft,
-  onUndo,
-  onRedo,
+  onClearSelection,
+  pageStylesEnabled = true,
 }: {
   targets: ManualEditTarget[];
   selectedTarget: ManualEditTarget | null;
@@ -49,241 +39,123 @@ export function ManualEditPanel({
   canUndo: boolean;
   canRedo: boolean;
   busy?: boolean;
+  pageStylesEnabled?: boolean;
   onSelectTarget: (target: ManualEditTarget) => void;
   onDraftChange: (draft: ManualEditDraft) => void;
-  onPreviewStyle?: (id: string, styles: Partial<ManualEditStyles>) => void;
+  onStyleChange?: (id: string, styles: Partial<ManualEditStyles>, label: string) => void;
+  onInvalidStyle?: (id: string, keys: Array<keyof ManualEditStyles>) => void;
   onApplyPatch: (patch: ManualEditPatch, label: string) => void;
   onError: (message: string) => void;
+  onClearSelection: () => void;
   onCancelDraft: () => void;
   onUndo: () => void;
   onRedo: () => void;
 }) {
-  const t = useT();
-  const [tab, setTab] = useState<ManualEditTab>('style');
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-
-  useEffect(() => { setTab('style'); }, [selectedTarget?.id]);
-
-  // Live preview: every style change goes to the iframe via postMessage so the
-  // canvas updates instantly without an iframe reload. The 1.5s debounced
-  // source-rewrite still happens via onApplyPatch for persistence.
-  const lastPreviewedRef = useRef<string>('');
-  const lastAppliedRef = useRef<string>('');
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (!selectedTarget || tab !== 'style') return;
-    const key = JSON.stringify(draft.styles);
-    if (key !== lastPreviewedRef.current) {
-      lastPreviewedRef.current = key;
-      onPreviewStyle?.(selectedTarget.id, draft.styles);
-    }
-    if (key === lastAppliedRef.current) return;
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      lastAppliedRef.current = key;
-      onApplyPatch({ id: selectedTarget.id, kind: 'set-style', styles: draft.styles }, `Style: ${selectedTarget.label}`);
-    }, 1500);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [draft.styles, selectedTarget?.id, tab, onPreviewStyle, onApplyPatch]);
-
-  useEffect(() => {
-    lastAppliedRef.current = JSON.stringify(draft.styles);
-    lastPreviewedRef.current = lastAppliedRef.current;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTarget?.id]);
-
   const targetForInspector = selectedTarget;
+  const changeTargetStyle = (key: keyof ManualEditStyles, value: string) => {
+    const nextStyles = { ...draft.styles, [key]: value };
+    onDraftChange({ ...draft, styles: nextStyles });
+    if (!targetForInspector) return;
+    const normalized = normalizeManualEditStyles({ [key]: value }, {
+      layoutEnabled: targetForInspector.isLayoutContainer,
+    });
+    if (!normalized.ok) {
+      onError(normalized.error);
+      onInvalidStyle?.(targetForInspector.id, [key]);
+      return;
+    }
+    onError('');
+    onStyleChange?.(targetForInspector.id, normalized.styles, `Style: ${targetForInspector.label}`);
+  };
 
   return (
     <aside className="manual-edit-right">
       <section className="manual-edit-modal cc-panel">
-        {targetForInspector && tab === 'style' ? (
+        {targetForInspector ? (
           <StyleInspector
             styles={draft.styles}
-            onChange={(styles) => onDraftChange({ ...draft, styles })}
+            layoutEnabled={targetForInspector.isLayoutContainer}
+            onClearSelection={onClearSelection}
+            onChange={changeTargetStyle}
           />
         ) : !targetForInspector ? (
-          <PageInspector onPreviewStyle={onPreviewStyle} onApplyPatch={onApplyPatch} />
-        ) : tab === 'content' ? (
-          <ContentEditor target={targetForInspector} draft={draft} onDraftChange={onDraftChange} />
-        ) : tab === 'attributes' ? (
-          <label className="manual-edit-field">
-            <span>{t('manualEdit.attributesJson')}</span>
-            <textarea className="manual-edit-code" value={draft.attributesText}
-              onChange={(event) => onDraftChange({ ...draft, attributesText: event.currentTarget.value })} />
-          </label>
-        ) : tab === 'html' ? (
-          <label className="manual-edit-field">
-            <span>{t('manualEdit.selectedHtml')}</span>
-            <textarea className="manual-edit-code tall" value={draft.outerHtml}
-              onChange={(event) => onDraftChange({ ...draft, outerHtml: event.currentTarget.value })} />
-          </label>
-        ) : tab === 'source' ? (
-          <label className="manual-edit-field">
-            <span>{t('manualEdit.fullSource')}</span>
-            <textarea className="manual-edit-code tall" value={draft.fullSource}
-              onChange={(event) => onDraftChange({ ...draft, fullSource: event.currentTarget.value })} />
-          </label>
+          <PageInspector
+            enabled={pageStylesEnabled}
+            onStyleChange={(styles) => {
+              const normalized = normalizeManualEditStyles(styles, { layoutEnabled: true });
+              if (!normalized.ok) {
+                onError(normalized.error);
+                onInvalidStyle?.('__body__', Object.keys(styles) as Array<keyof ManualEditStyles>);
+                return;
+              }
+              onError('');
+              onStyleChange?.('__body__', normalized.styles, 'Page styles');
+            }}
+          />
         ) : null}
 
         {error ? <div className="manual-edit-error">{error}</div> : null}
-
-        {targetForInspector ? (
-          <div className="cc-advanced">
-            <button type="button" className="cc-advanced-toggle" onClick={() => setAdvancedOpen((v) => !v)}>
-              {advancedOpen ? '▾' : '▸'} Advanced
-            </button>
-            {advancedOpen ? (
-              <>
-                <div className="manual-edit-tabs" role="tablist">
-                  <EditTabButton label={t('manualEdit.tabStyle')} tab="style" active={tab === 'style'} onClick={setTab} />
-                  <EditTabButton label={t('manualEdit.tabContent')} tab="content" active={tab === 'content'} onClick={setTab} />
-                  <EditTabButton label={t('manualEdit.tabAttributes')} tab="attributes" active={tab === 'attributes'} onClick={setTab} />
-                  <EditTabButton label={t('manualEdit.tabHtml')} tab="html" active={tab === 'html'} onClick={setTab} />
-                  <EditTabButton label={t('manualEdit.tabSource')} tab="source" active={tab === 'source'} onClick={setTab} />
-                </div>
-                <div className="manual-edit-actions">
-                  <button type="button" onClick={onCancelDraft} disabled={busy}>{t('common.cancel')}</button>
-                  <button type="button" onClick={onUndo} disabled={busy || !canUndo}>↶</button>
-                  <button type="button" onClick={onRedo} disabled={busy || !canRedo}>↷</button>
-                  {tab === 'content' ? (
-                    <button type="button" className="primary" disabled={busy}
-                      onClick={() => onApplyPatch(contentPatch(targetForInspector, draft), `Content: ${targetForInspector.label}`)}>
-                      {t('manualEdit.applyContent')}
-                    </button>
-                  ) : null}
-                  {tab === 'attributes' ? (
-                    <button type="button" className="primary" disabled={busy}
-                      onClick={() => {
-                        try { onApplyPatch(parseAttributesPatch(targetForInspector.id, draft.attributesText), `Attributes: ${targetForInspector.label}`); }
-                        catch (err) { onError(err instanceof Error ? err.message : t('manualEdit.invalidAttributes')); }
-                      }}>
-                      {t('manualEdit.applyAttributes')}
-                    </button>
-                  ) : null}
-                  {tab === 'html' ? (
-                    <button type="button" className="primary" disabled={busy}
-                      onClick={() => onApplyPatch({ id: targetForInspector.id, kind: 'set-outer-html', html: draft.outerHtml }, `HTML: ${targetForInspector.label}`)}>
-                      {t('manualEdit.applyHtml')}
-                    </button>
-                  ) : null}
-                  {tab === 'source' ? (
-                    <button type="button" className="primary" disabled={busy}
-                      onClick={() => onApplyPatch({ kind: 'set-full-source', source: draft.fullSource }, 'Full source')}>
-                      {t('manualEdit.applySource')}
-                    </button>
-                  ) : null}
-                </div>
-                <details className="cc-disclosure">
-                  <summary>Layers ({targets.length})</summary>
-                  <div className="manual-edit-layer-list">
-                    {targets.map((target) => (
-                      <button key={target.id} type="button"
-                        className={`manual-edit-layer-row ${targetForInspector?.id === target.id ? 'selected' : ''}`}
-                        onClick={() => onSelectTarget(target)}>
-                        <strong>{target.label}</strong>
-                        <span>{target.kind} - {target.id}</span>
-                      </button>
-                    ))}
-                  </div>
-                </details>
-                <details className="cc-disclosure">
-                  <summary>Changes ({history.length})</summary>
-                  {history.length === 0 ? (
-                    <div className="manual-edit-empty">No changes yet.</div>
-                  ) : (
-                    <div className="manual-edit-history-list">
-                      {history.map((entry) => (
-                        <article key={entry.id} className="manual-edit-history-entry">
-                          <strong>{entry.label}</strong>
-                          <code>{manualEditPatchSummary(entry.patch)}</code>
-                        </article>
-                      ))}
-                    </div>
-                  )}
-                </details>
-              </>
-            ) : null}
-          </div>
-        ) : null}
       </section>
     </aside>
   );
 }
 
 function PageInspector({
-  onPreviewStyle, onApplyPatch,
+  enabled,
+  onStyleChange,
 }: {
-  onPreviewStyle?: (id: string, styles: Partial<ManualEditStyles>) => void;
-  onApplyPatch: (patch: ManualEditPatch, label: string) => void;
+  enabled: boolean;
+  onStyleChange: (styles: Partial<ManualEditStyles>) => void;
 }) {
   const [bg, setBg] = useState('');
   const [font, setFont] = useState('');
   const [size, setSize] = useState('');
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastAppliedRef = useRef<string>('');
-
-  useEffect(() => {
-    const styles: Partial<ManualEditStyles> = {
-      backgroundColor: bg,
-      fontFamily: font,
-      fontSize: size ? (/^\d+(\.\d+)?$/.test(size.trim()) ? `${size.trim()}px` : size.trim()) : '',
-    };
-    const key = JSON.stringify(styles);
-    onPreviewStyle?.('__body__', styles);
-    if (key === lastAppliedRef.current) return;
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      lastAppliedRef.current = key;
-      onApplyPatch({ id: '__body__', kind: 'set-style', styles }, 'Page styles');
-    }, 1500);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bg, font, size]);
+  const update = (next: { bg?: string; font?: string; size?: string }) => {
+    if ('bg' in next) {
+      const value = next.bg ?? '';
+      setBg(value);
+      onStyleChange({ backgroundColor: value });
+    }
+    if ('font' in next) {
+      const value = next.font ?? '';
+      setFont(value);
+      onStyleChange({ fontFamily: value });
+    }
+    if ('size' in next) {
+      const value = next.size ?? '';
+      setSize(value);
+      onStyleChange({ fontSize: value });
+    }
+  };
 
   return (
     <div className="cc-inspector">
       <Section title="PAGE">
-        <ColorRow label="Background" value={bg} onChange={setBg} />
-        <DropdownRow label="Font" value={font} onChange={setFont} options={['', 'Space Grotesk', 'Inter', 'Times', 'Arial']} placeholder="Space Grotesk" />
-        <UnitRow label="Base size" value={size} onChange={setSize} unit="px" />
+        {enabled ? (
+          <>
+            <ColorRow label="Background" value={bg} onChange={(value) => update({ bg: value })} />
+            <FontRow value={font} onChange={(value) => update({ font: value })} />
+            <UnitRow label="Base size" value={size} onChange={(value) => update({ size: value })} unit="px" autoUnit />
+          </>
+        ) : (
+          <p className="cc-section-hint">Page styles are available only for full HTML documents.</p>
+        )}
       </Section>
     </div>
   );
 }
 
-function ContentEditor({ target, draft, onDraftChange }: {
-  target: ManualEditTarget; draft: ManualEditDraft; onDraftChange: (draft: ManualEditDraft) => void;
-}) {
-  const t = useT();
-  if (target.kind === 'image') {
-    return (
-      <>
-        <label className="manual-edit-field"><span>{t('manualEdit.imageUrl')}</span>
-          <input value={draft.src} onChange={(event) => onDraftChange({ ...draft, src: event.currentTarget.value })} />
-        </label>
-        <label className="manual-edit-field"><span>{t('manualEdit.altText')}</span>
-          <input value={draft.alt} onChange={(event) => onDraftChange({ ...draft, alt: event.currentTarget.value })} />
-        </label>
-      </>
-    );
-  }
-  return (
-    <>
-      <label className="manual-edit-field">
-        <span>{target.kind === 'link' ? t('manualEdit.label') : t('manualEdit.text')}</span>
-        <textarea value={draft.text} onChange={(event) => onDraftChange({ ...draft, text: event.currentTarget.value })} />
-      </label>
-      {target.kind === 'link' ? (
-        <label className="manual-edit-field"><span>{t('manualEdit.href')}</span>
-          <input value={draft.href} onChange={(event) => onDraftChange({ ...draft, href: event.currentTarget.value })} />
-        </label>
-      ) : null}
-    </>
-  );
-}
-
-const FONT_OPTS = ['', 'Space Grotesk', 'Inter', 'Times', 'Arial', 'Roboto', 'Helvetica', 'Georgia', 'monospace'];
+const FONT_OPTS = [
+  { label: 'inherit', value: '' },
+  { label: 'Space Grotesk', value: '"Space Grotesk", Inter, system-ui, sans-serif' },
+  { label: 'Inter', value: 'Inter, system-ui, sans-serif' },
+  { label: 'Times', value: '"Times New Roman", Times, serif' },
+  { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
+  { label: 'Roboto', value: 'Roboto, Arial, sans-serif' },
+  { label: 'Helvetica', value: 'Helvetica, Arial, sans-serif' },
+  { label: 'Georgia', value: 'Georgia, serif' },
+  { label: 'monospace', value: 'SFMono-Regular, Consolas, "Liberation Mono", monospace' },
+] as const;
 const WEIGHT_OPTS = ['', '100', '200', '300', '400', '500', '600', '700', '800', '900'];
 const ALIGN_OPTS = ['', 'left', 'center', 'right', 'justify', 'start', 'end'];
 const DIRECTION_OPTS = ['', 'row', 'column', 'row-reverse', 'column-reverse'];
@@ -305,19 +177,127 @@ const EDITOR_SWATCH_COLORS = [
   '#ec4899',
 ] as const;
 
+type NormalizeResult =
+  | { ok: true; styles: Partial<ManualEditStyles> }
+  | { ok: false; error: string };
+
+const PX_STYLE_PROPS = new Set<keyof ManualEditStyles>([
+  'fontSize', 'letterSpacing', 'width', 'height', 'minHeight', 'gap',
+  'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+  'margin', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
+  'border', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+  'borderRadius',
+]);
+const COLOR_STYLE_PROPS = new Set<keyof ManualEditStyles>(['color', 'backgroundColor', 'borderColor']);
+const SELECT_STYLE_OPTIONS: Partial<Record<keyof ManualEditStyles, ReadonlyArray<string>>> = {
+  fontFamily: FONT_OPTS.map((option) => option.value),
+  fontWeight: WEIGHT_OPTS,
+  textAlign: ALIGN_OPTS,
+  flexDirection: DIRECTION_OPTS,
+  justifyContent: JUSTIFY_OPTS,
+  alignItems: ITEMS_OPTS,
+  borderStyle: BORDER_STYLE_OPTS,
+};
+const LAYOUT_STYLE_PROPS = new Set<keyof ManualEditStyles>(['gap', 'flexDirection', 'justifyContent', 'alignItems']);
+
+export function normalizeManualEditStyles(
+  styles: Partial<ManualEditStyles>,
+  { layoutEnabled }: { layoutEnabled: boolean },
+): NormalizeResult {
+  const normalized: Partial<ManualEditStyles> = {};
+  for (const [rawKey, rawValue] of Object.entries(styles) as Array<[keyof ManualEditStyles, string]>) {
+    if (LAYOUT_STYLE_PROPS.has(rawKey) && !layoutEnabled) continue;
+    const value = rawValue.trim();
+    if (value === '') {
+      normalized[rawKey] = '';
+      continue;
+    }
+    if (PX_STYLE_PROPS.has(rawKey)) {
+      const px = normalizePxValue(value);
+      if (!px) return { ok: false, error: `${styleLabel(rawKey)} must be a number or px value.` };
+      normalized[rawKey] = px;
+      continue;
+    }
+    if (COLOR_STYLE_PROPS.has(rawKey)) {
+      const color = normalizeHexColor(value);
+      if (!color) return { ok: false, error: `${styleLabel(rawKey)} must be a hex color.` };
+      normalized[rawKey] = color;
+      continue;
+    }
+    if (rawKey === 'opacity') {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return { ok: false, error: 'Opacity must be a number.' };
+      normalized.opacity = String(Math.max(0, Math.min(1, n)));
+      continue;
+    }
+    if (rawKey === 'lineHeight') {
+      const lineHeight = normalizeLineHeightValue(value);
+      if (!lineHeight) return { ok: false, error: 'Line height must be a positive number or px value.' };
+      normalized.lineHeight = lineHeight;
+      continue;
+    }
+    const options = SELECT_STYLE_OPTIONS[rawKey];
+    if (options) {
+      if (!options.includes(value)) return { ok: false, error: `${styleLabel(rawKey)} has an unsupported value.` };
+      normalized[rawKey] = value;
+      continue;
+    }
+    normalized[rawKey] = value;
+  }
+  return { ok: true, styles: normalized };
+}
+
+function normalizePxValue(value: string): string | null {
+  if (/^-?\d+(\.\d+)?$/.test(value)) return `${value}px`;
+  if (/^-?\d+(\.\d+)?px$/i.test(value)) return value.toLowerCase();
+  return null;
+}
+
+function normalizeLineHeightValue(value: string): string | null {
+  if (/^\d+(\.\d+)?$/.test(value)) {
+    const n = Number(value);
+    return n > 0 ? String(n) : null;
+  }
+  if (/^\d+(\.\d+)?px$/i.test(value)) {
+    const n = Number(value.slice(0, -2));
+    return n > 0 ? value.toLowerCase() : null;
+  }
+  return null;
+}
+
+function normalizeHexColor(value: string): string | null {
+  const trimmed = value.trim();
+  if (/^#[0-9a-f]{6}$/i.test(trimmed)) return trimmed.toLowerCase();
+  if (/^#[0-9a-f]{3}$/i.test(trimmed)) {
+    const r = trimmed[1]!, g = trimmed[2]!, b = trimmed[3]!;
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  return null;
+}
+
+function styleLabel(key: keyof ManualEditStyles): string {
+  return key.replace(/[A-Z]/g, (match) => ` ${match.toLowerCase()}`);
+}
+
 function StyleInspector({
-  styles, onChange,
+  styles, layoutEnabled, onClearSelection, onChange,
 }: {
   styles: ManualEditStyles;
-  onChange: (styles: ManualEditStyles) => void;
+  layoutEnabled: boolean;
+  onClearSelection: () => void;
+  onChange: (key: keyof ManualEditStyles, value: string) => void;
 }) {
-  const u = (key: keyof ManualEditStyles, value: string) => onChange({ ...styles, [key]: value });
-  const um = (patch: Partial<ManualEditStyles>) => onChange({ ...styles, ...patch });
+  const u = (key: keyof ManualEditStyles, value: string) => onChange(key, value);
 
   return (
     <div className="cc-inspector">
+      <div className="cc-inspector-nav">
+        <button type="button" className="cc-inspector-page" onClick={onClearSelection} aria-label="Show page inspector">
+          Page
+        </button>
+      </div>
       <Section title="TYPOGRAPHY">
-        <DropdownRow label="Font" value={styles.fontFamily} onChange={(v) => u('fontFamily', v)} options={FONT_OPTS} placeholder="inherit" />
+        <FontRow value={styles.fontFamily} onChange={(v) => u('fontFamily', v)} />
         <PairRow>
           <UnitRow label="Size" value={styles.fontSize} onChange={(v) => u('fontSize', v)} unit="px" autoUnit />
           <DropdownRow label="Weight" value={styles.fontWeight} onChange={(v) => u('fontWeight', v)} options={WEIGHT_OPTS} />
@@ -339,14 +319,17 @@ function StyleInspector({
         </PairRow>
       </Section>
 
-      <Section title="LAYOUT">
+      <Section title="LAYOUT" inactive={!layoutEnabled}>
+        {!layoutEnabled ? (
+          <p className="cc-section-hint">Select a container or group to edit layout.</p>
+        ) : null}
         <PairRow>
-          <UnitRow label="Gap" value={styles.gap} onChange={(v) => u('gap', v)} unit="px" autoUnit />
-          <DropdownRow label="Direction" value={styles.flexDirection} onChange={(v) => u('flexDirection', v)} options={DIRECTION_OPTS} />
+          <UnitRow label="Gap" value={styles.gap} onChange={(v) => u('gap', v)} unit="px" autoUnit disabled={!layoutEnabled} />
+          <DropdownRow label="Direction" value={styles.flexDirection} onChange={(v) => u('flexDirection', v)} options={DIRECTION_OPTS} disabled={!layoutEnabled} />
         </PairRow>
         <PairRow>
-          <DropdownRow label="Justify" value={styles.justifyContent} onChange={(v) => u('justifyContent', v)} options={JUSTIFY_OPTS} />
-          <DropdownRow label="Align" value={styles.alignItems} onChange={(v) => u('alignItems', v)} options={ITEMS_OPTS} />
+          <DropdownRow label="Justify" value={styles.justifyContent} onChange={(v) => u('justifyContent', v)} options={JUSTIFY_OPTS} disabled={!layoutEnabled} />
+          <DropdownRow label="Align" value={styles.alignItems} onChange={(v) => u('alignItems', v)} options={ITEMS_OPTS} disabled={!layoutEnabled} />
         </PairRow>
       </Section>
 
@@ -378,9 +361,9 @@ function StyleInspector({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children, inactive }: { title: string; children: React.ReactNode; inactive?: boolean }) {
   return (
-    <section className="cc-section">
+    <section className={`cc-section${inactive ? ' cc-section-inactive' : ''}`}>
       <header className="cc-section-head">{title}</header>
       <div className="cc-section-body">{children}</div>
     </section>
@@ -391,36 +374,50 @@ function PairRow({ children }: { children: React.ReactNode }) {
   return <div className="cc-pair">{children}</div>;
 }
 
-function UnitRow({ label, value, onChange, unit, autoUnit }: {
+function UnitRow({ label, value, onChange, unit, autoUnit, disabled }: {
   label: string; value: string; onChange: (v: string) => void;
-  unit: string; autoUnit?: boolean;
+  unit: string; autoUnit?: boolean; disabled?: boolean;
 }) {
-  const display = value;
-  const handle = (raw: string) => {
+  const display = unit === 'px' ? stripPxUnit(value) : value;
+  const step = unit === 'px' ? 1 : 0.1;
+  const canStep = !disabled && isNumericInput(display);
+  const valueFromDisplay = (raw: string) => {
     const trimmed = raw.trim();
-    if (autoUnit && trimmed && /^-?\d+(\.\d+)?$/.test(trimmed)) onChange(`${trimmed}px`);
-    else onChange(raw);
+    if (autoUnit && trimmed && isNumericInput(trimmed)) return `${trimmed}px`;
+    if (autoUnit && /^-?\d+(\.\d+)?px$/i.test(trimmed)) return trimmed.toLowerCase();
+    return raw;
+  };
+  const handle = (raw: string) => {
+    const next = valueFromDisplay(raw);
+    if (next !== value) onChange(next);
+  };
+  const stepBy = (direction: -1 | 1) => {
+    if (!canStep) return;
+    const next = formatSteppedNumber(Number(display) + direction * step, display, step);
+    onChange(valueFromDisplay(next));
   };
   return (
     <label className="cc-row">
       <span className="cc-label">{label}</span>
       <span className="cc-value">
-        <input value={display} placeholder="" onChange={(e) => onChange(e.currentTarget.value)} onBlur={(e) => handle(e.currentTarget.value)} />
+        <button type="button" className="cc-step" disabled={!canStep} aria-label={`${label} decrease`} onClick={() => stepBy(-1)}>−</button>
+        <input value={display} placeholder="" disabled={disabled} onChange={(e) => onChange(valueFromDisplay(e.currentTarget.value))} onBlur={(e) => handle(e.currentTarget.value)} />
+        <button type="button" className="cc-step" disabled={!canStep} aria-label={`${label} increase`} onClick={() => stepBy(1)}>+</button>
         {unit ? <em className="cc-unit">{unit}</em> : null}
       </span>
     </label>
   );
 }
 
-function DropdownRow({ label, value, onChange, options, placeholder }: {
+function DropdownRow({ label, value, onChange, options, placeholder, disabled }: {
   label: string; value: string; onChange: (v: string) => void;
-  options: ReadonlyArray<string>; placeholder?: string;
+  options: ReadonlyArray<string>; placeholder?: string; disabled?: boolean;
 }) {
   return (
     <label className="cc-row">
       <span className="cc-label">{label}</span>
       <span className="cc-value cc-select">
-        <select value={value} onChange={(e) => onChange(e.currentTarget.value)}>
+        <select value={value} disabled={disabled} onChange={(e) => onChange(e.currentTarget.value)}>
           {!options.includes(value) && value ? <option value={value}>{value}</option> : null}
           {options.map((opt) => <option key={opt || '__'} value={opt}>{opt || (placeholder ?? '–')}</option>)}
         </select>
@@ -428,6 +425,56 @@ function DropdownRow({ label, value, onChange, options, placeholder }: {
       </span>
     </label>
   );
+}
+
+function FontRow({ value, onChange }: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const normalizedValue = normalizeFontFamilyForSelect(value);
+  const customValue = normalizedValue === value ? value : '';
+  return (
+    <label className="cc-row">
+      <span className="cc-label">Font</span>
+      <span className="cc-value cc-select">
+        <select value={normalizedValue} onChange={(event) => onChange(event.currentTarget.value)}>
+          {customValue && !FONT_OPTS.some((option) => option.value === customValue) ? (
+            <option value={customValue}>{fontFamilyLabel(customValue)}</option>
+          ) : null}
+          {FONT_OPTS.map((option) => (
+            <option key={option.label} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        <em className="cc-chevron">▾</em>
+      </span>
+    </label>
+  );
+}
+
+function normalizeFontFamilyForSelect(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  const direct = FONT_OPTS.find((option) => option.value === trimmed);
+  if (direct) return direct.value;
+  const families = parseFontFamilies(trimmed);
+  const primaryFamily = families[0];
+  const match = FONT_OPTS.find((option) => {
+    if (!option.value) return false;
+    const optionFamilies = parseFontFamilies(option.value);
+    return optionFamilies[0] === primaryFamily;
+  });
+  return match?.value ?? trimmed;
+}
+
+function fontFamilyLabel(value: string): string {
+  return parseFontFamilies(value)[0] ?? value;
+}
+
+function parseFontFamilies(value: string): string[] {
+  return value
+    .split(',')
+    .map((family) => family.trim().replace(/^['"]|['"]$/g, '').toLowerCase())
+    .filter(Boolean);
 }
 
 function ColorRow({ label, value, onChange, compact }: {
@@ -498,18 +545,54 @@ function QuadRow({ label, values, onChange }: {
 }
 
 function QuadCell({ axis, value, onChange }: { axis: string; value: string; onChange: (v: string) => void }) {
+  const display = stripPxUnit(value);
+  const canStep = isNumericInput(display);
+  const stepBy = (direction: -1 | 1) => {
+    if (!canStep) return;
+    onChange(`${formatSteppedNumber(Number(display) + direction, display, 1)}px`);
+  };
   return (
     <span className="cc-quad-cell">
       <em className="cc-quad-axis">{axis}</em>
-      <input value={value} placeholder="0"
-        onChange={(e) => onChange(e.currentTarget.value)}
+      <button type="button" className="cc-step cc-step-quad" disabled={!canStep} aria-label={`${axis} decrease`} onClick={() => stepBy(-1)}>−</button>
+      <input value={display} placeholder="0"
+        onChange={(e) => {
+          const raw = e.currentTarget.value.trim();
+          if (raw === '') onChange('');
+          else if (isNumericInput(raw)) onChange(`${raw}px`);
+          else if (/^-?\d+(\.\d+)?px$/i.test(raw)) onChange(raw.toLowerCase());
+          else onChange(e.currentTarget.value);
+        }}
         onBlur={(e) => {
           const v = e.currentTarget.value.trim();
-          if (v && /^-?\d+(\.\d+)?$/.test(v)) onChange(`${v}px`);
+          const next = v && isNumericInput(v) ? `${v}px` : e.currentTarget.value;
+          if (next !== value) onChange(next);
         }} />
+      <button type="button" className="cc-step cc-step-quad" disabled={!canStep} aria-label={`${axis} increase`} onClick={() => stepBy(1)}>+</button>
       <em className="cc-quad-unit">px</em>
     </span>
   );
+}
+
+function stripPxUnit(value: string): string {
+  const match = value.trim().match(/^(-?\d+(?:\.\d+)?)px$/i);
+  return match?.[1] ?? value;
+}
+
+function isNumericInput(value: string): boolean {
+  return /^-?\d+(\.\d+)?$/.test(value.trim());
+}
+
+function formatSteppedNumber(value: number, current: string, step: number): string {
+  const decimals = Math.max(decimalPlaces(current), decimalPlaces(String(step)));
+  return decimals > 0
+    ? value.toFixed(decimals).replace(/\.?0+$/, '')
+    : String(Math.round(value));
+}
+
+function decimalPlaces(value: string): number {
+  const match = value.match(/\.(\d+)/);
+  return match?.[1]?.length ?? 0;
 }
 
 function sideToProp(base: 'padding' | 'margin', side: 't' | 'r' | 'b' | 'l'): keyof ManualEditStyles {
@@ -536,34 +619,8 @@ function normalizeColorForPicker(value: string): string {
   return '#000000';
 }
 
-function EditTabButton({ tab, label, active, onClick }: {
-  tab: ManualEditTab; label: string; active: boolean; onClick: (tab: ManualEditTab) => void;
-}) {
-  return (
-    <button type="button" className={active ? 'active' : ''} role="tab" aria-selected={active} onClick={() => onClick(tab)}>
-      {label}
-    </button>
-  );
-}
-
-function contentPatch(target: ManualEditTarget, draft: ManualEditDraft): ManualEditPatch {
-  if (target.kind === 'link') return { id: target.id, kind: 'set-link', text: draft.text, href: draft.href };
-  if (target.kind === 'image') return { id: target.id, kind: 'set-image', src: draft.src, alt: draft.alt };
-  return { id: target.id, kind: 'set-text', value: draft.text };
-}
-
 export function manualEditPatchSummary(patch: ManualEditPatch): string {
   if (patch.kind === 'set-full-source') return JSON.stringify({ kind: patch.kind, bytes: patch.source.length });
   if (patch.kind === 'set-outer-html') return JSON.stringify({ id: patch.id, kind: patch.kind, bytes: patch.html.length });
   return JSON.stringify(patch);
-}
-
-function parseAttributesPatch(id: string, attributesText: string): ManualEditPatch {
-  const parsed = JSON.parse(attributesText) as unknown;
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Attributes must be a JSON object.');
-  }
-  return { id, kind: 'set-attributes',
-    attributes: Object.fromEntries(Object.entries(parsed).map(([key, value]) => [key, String(value)])),
-  };
 }

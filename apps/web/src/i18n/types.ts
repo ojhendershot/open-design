@@ -120,6 +120,8 @@ export interface Dict {
   'settings.agentInstall.stepRescan': string;
   'settings.agentInstall.stepSelect': string;
   'settings.noAgentsDetected': string;
+  'settings.agentAuthRequired': string;
+  'settings.agentAuthUnknown': string;
   'settings.apiSection': string;
   'settings.quickFillProvider': string;
   'settings.customProvider': string;
@@ -278,6 +280,7 @@ export interface Dict {
   'settings.connectorsSaveKey': string;
   'settings.connectorsSaveKeyTitle': string;
   'settings.connectorsKeySaving': string;
+  'settings.connectorsKeySaved': string;
   'settings.connectorsKeyError': string;
   'settings.connectorsHelpSaved': string;
   'settings.connectorsHelpUnsaved': string;
@@ -407,6 +410,7 @@ export interface Dict {
   'settings.memoryExtractionsHint': string;
   'settings.memoryExtractionsEmpty': string;
   'settings.memoryExtractionsRefresh': string;
+  'settings.memoryExtractionsRefreshing': string;
   'settings.memoryExtractionPhaseRunning': string;
   'settings.memoryExtractionPhaseSuccess': string;
   'settings.memoryExtractionPhaseSkipped': string;
@@ -641,6 +645,20 @@ export interface Dict {
   'newproj.toggleSpeakerNotesHint': string;
   'newproj.toggleAnimations': string;
   'newproj.toggleAnimationsHint': string;
+  'newproj.targetPlatformsLabel': string;
+  'newproj.targetPlatformsHint': string;
+  'newproj.platform.responsive.label': string;
+  'newproj.platform.responsive.hint': string;
+  'newproj.platform.webDesktop.label': string;
+  'newproj.platform.webDesktop.hint': string;
+  'newproj.platform.mobileIos.label': string;
+  'newproj.platform.mobileIos.hint': string;
+  'newproj.platform.mobileAndroid.label': string;
+  'newproj.platform.mobileAndroid.hint': string;
+  'newproj.platform.tablet.label': string;
+  'newproj.platform.tablet.hint': string;
+  'newproj.platform.desktopApp.label': string;
+  'newproj.platform.desktopApp.hint': string;
   'newproj.surfaceOptionsLabel': string;
   'newproj.includeLandingPage': string;
   'newproj.includeLandingPageHint': string;
@@ -919,6 +937,8 @@ export interface Dict {
   'chat.scrollToLatest': string;
   'chat.you': string;
   'chat.openFile': string;
+  'chat.copyPrompt': string;
+  'chat.copyDone': string;
   'chat.composerPlaceholder': string;
   'chat.composerHint': string;
   'chat.cliSettingsTitle': string;
@@ -1179,6 +1199,8 @@ export interface Dict {
   'fileViewer.exportZip': string;
   'fileViewer.exportHtml': string;
   'fileViewer.exportMd': string;
+  'fileViewer.exportImage': string;
+  'fileViewer.exportImageFailed': string;
   'fileViewer.exportJsx': string;
   'fileViewer.exportReactHtml': string;
   'fileViewer.saveAsTemplate': string;
@@ -1564,7 +1586,7 @@ export interface Dict {
   'sketch.textPrompt': string;
   'sketch.textModalTitle': string;
   // Critique Theater (Phase 8 components; Phase 9 fills non-English locales)
-  'critiqueTheater.title': string;
+  'critiqueTheater.userFacingName': string;
   'critiqueTheater.roleDesigner': string;
   'critiqueTheater.roleCritic': string;
   'critiqueTheater.roleBrand': string;

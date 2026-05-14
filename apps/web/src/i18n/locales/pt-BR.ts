@@ -96,6 +96,8 @@ export const ptBR: Dict = {
   'settings.agentInstall.stepSelect': 'Selecione o cartão do agente quando ele aparecer como instalado.',
   'settings.noAgentsDetected':
     'Nenhum agente detectado ainda. Instale Claude Code, Codex, Devin for Terminal, Gemini CLI, OpenCode, Cursor Agent, Qwen ou GitHub Copilot CLI e clique em Reescanear.',
+  'settings.agentAuthRequired': 'Autenticação necessária',
+  'settings.agentAuthUnknown': 'Status de autenticação desconhecido',
   'settings.apiSection': 'API da Anthropic',
   'settings.quickFillProvider': 'Preencher provedor',
   'settings.customProvider': 'Provedor personalizado',
@@ -605,6 +607,8 @@ export const ptBR: Dict = {
   'chat.scrollToLatest': 'Rolar para a mais recente',
   'chat.you': 'Você',
   'chat.openFile': 'Abrir {name}',
+  'chat.copyPrompt': 'Copiar prompt',
+  'chat.copyDone': 'Copiado!',
   'chat.composerPlaceholder':
     'Descreva o design que você quer — cole ou arraste imagens, ou use @ para referenciar um arquivo ou skill…',
   'chat.composerHint':
@@ -865,6 +869,8 @@ export const ptBR: Dict = {
   'fileViewer.exportZip': 'Baixar como .zip',
   'fileViewer.exportHtml': 'Exportar como HTML independente',
   'fileViewer.exportMd': 'Exportar como Markdown',
+  'fileViewer.exportImage': 'Exportar como imagem',
+  'fileViewer.exportImageFailed': 'Falha ao capturar a imagem. Tente novamente ou use a ferramenta de captura de tela do seu navegador.',
   'fileViewer.exportJsx': 'Exportar como JSX',
   'fileViewer.exportReactHtml': 'Exportar prévia como HTML',
   'fileViewer.saveAsTemplate': 'Salvar como template…',
@@ -1255,6 +1261,7 @@ export const ptBR: Dict = {
   'settings.connectorsSaveKey': "Salvar chave",
   'settings.connectorsSaveKeyTitle': "Enviar esta chave para o daemon local",
   'settings.connectorsKeySaving': "Salvando…",
+  'settings.connectorsKeySaved': "Salvo ✓",
   'settings.connectorsKeyError': "Não foi possível salvar a chave. Confirme que o daemon local está ativo e tente novamente.",
   'settings.connectorsHelpSaved': 'Sua chave desbloqueia o catálogo abaixo e permanece no daemon local. Cole uma nova chave para substituí-la ou limpe para remover.',
   'settings.connectorsHelpUnsaved': "Alterações não salvas — clique em Salvar chave para armazenar esta credencial no daemon local e desbloquear o catálogo abaixo.",
@@ -1318,6 +1325,7 @@ export const ptBR: Dict = {
   'settings.memoryExtractionsHint': 'Recent LLM-backed extraction attempts. Heuristic regex extraction always runs first; LLM extraction runs in the background after each turn.',
   'settings.memoryExtractionsEmpty': 'No extractions yet. The next chat turn will populate this list.',
   'settings.memoryExtractionsRefresh': 'Refresh',
+  'settings.memoryExtractionsRefreshing': 'Refreshing…',
   'settings.memoryExtractionPhaseRunning': 'Running…',
   'settings.memoryExtractionPhaseSuccess': 'Success',
   'settings.memoryExtractionPhaseSkipped': 'Skipped',
